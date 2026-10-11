@@ -620,9 +620,12 @@
 
                         <Grid x:Name="ParkedHost"
                               Width="0"
-                              ClipToBounds="False"
+                              ClipToBounds="True"
                               Opacity="0"
                               VerticalAlignment="Center">
+                            <Grid.RenderTransform>
+                                <TranslateTransform x:Name="ParkedSlide" X="0" />
+                            </Grid.RenderTransform>
                             <ItemsControl x:Name="ParkedList"
                                           ItemsSource="{Binding SideSessions}"
                                           ItemTemplate="{StaticResource SessionArtChip}"

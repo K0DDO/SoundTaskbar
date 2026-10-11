@@ -65,6 +65,7 @@ public partial class MainWindow : Window
         SingleSlide.X = 0;
         ParkedHost.Width = 0;
         ParkedHost.Opacity = 0;
+        ParkedSlide.X = 0;
         ParkedDivider.Width = 0;
         ParkedDivider.Opacity = 0;
         ParkedDivider.Margin = new Thickness(0);
@@ -518,10 +519,13 @@ public partial class MainWindow : Window
         {
             ParkedHost.BeginAnimation(WidthProperty, null);
             ParkedHost.BeginAnimation(OpacityProperty, null);
+            ParkedSlide.BeginAnimation(TranslateTransform.XProperty, null);
             ParkedDivider.BeginAnimation(WidthProperty, null);
             ParkedDivider.BeginAnimation(OpacityProperty, null);
+            ParkedDivider.BeginAnimation(MarginProperty, null);
             ParkedHost.Width = open ? targetWidth : 0;
             ParkedHost.Opacity = open ? 1 : 0;
+            ParkedSlide.X = 0;
             ParkedDivider.Width = open ? dividerWidth : 0;
             ParkedDivider.Opacity = open ? 1 : 0;
             ParkedDivider.Margin = dividerMargin;
@@ -538,8 +542,68 @@ public partial class MainWindow : Window
             return;
         }
 
-        var duration = TimeSpan.FromMilliseconds(open ? 260 : 300);
+        // Appear: clip-wipe + slight slide-in. Dismiss: wipe shut, then fade (content stays sharp).
+        var duration = TimeSpan.FromMilliseconds(open ? 320 : 280);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
+
+        if (open)
+        {
+            _viewModel.ApplyParkedCompositeWidth(targetWidth);
+        }
+
+        if (wasOpen != open)
+        {
+            ParkedHost.BeginAnimation(OpacityProperty, null);
+            ParkedSlide.BeginAnimation(TranslateTransform.XProperty, null);
+            ParkedDivider.BeginAnimation(OpacityProperty, null);
+            ParkedDivider.BeginAnimation(MarginProperty, null);
+
+            if (open)
+            {
+                ParkedHost.Opacity = 1;
+                ParkedSlide.X = -14;
+                ParkedDivider.Opacity = 0;
+            }
+
+            ParkedSlide.BeginAnimation(
+                TranslateTransform.XProperty,
+                new DoubleAnimation
+                {
+                    To = open ? 0 : -10,
+                    Duration = duration,
+                    EasingFunction = ease
+                });
+
+            // Open: fade divider in with the wipe. Close: fade chip out only at the end.
+            ParkedHost.BeginAnimation(
+                OpacityProperty,
+                new DoubleAnimation
+                {
+                    To = open ? 1 : 0,
+                    Duration = TimeSpan.FromMilliseconds(open ? 80 : 140),
+                    BeginTime = open ? TimeSpan.Zero : TimeSpan.FromMilliseconds(140),
+                    EasingFunction = ease
+                });
+
+            ParkedDivider.BeginAnimation(
+                OpacityProperty,
+                new DoubleAnimation
+                {
+                    To = open ? 1 : 0,
+                    Duration = TimeSpan.FromMilliseconds(open ? 220 : 160),
+                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMilliseconds(80),
+                    EasingFunction = ease
+                });
+
+            ParkedDivider.BeginAnimation(
+                MarginProperty,
+                new ThicknessAnimation
+                {
+                    To = dividerMargin,
+                    Duration = duration,
+                    EasingFunction = ease
+                });
+        }
 
         var widthAnim = new DoubleAnimation
         {
@@ -551,6 +615,8 @@ public partial class MainWindow : Window
         {
             widthAnim.Completed += (_, _) =>
             {
+                ParkedSlide.BeginAnimation(TranslateTransform.XProperty, null);
+                ParkedSlide.X = 0;
                 _viewModel.CompleteParkedDismiss();
                 _viewModel.ApplyParkedCompositeWidth(null);
             };
@@ -566,36 +632,6 @@ public partial class MainWindow : Window
                 Duration = duration,
                 EasingFunction = ease
             });
-
-        if (open)
-        {
-            _viewModel.ApplyParkedCompositeWidth(targetWidth);
-        }
-
-        if (wasOpen != open)
-        {
-            // Keep chips fully visible while width rolls shut — only fade at the end.
-            ParkedHost.BeginAnimation(
-                OpacityProperty,
-                new DoubleAnimation
-                {
-                    To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 120),
-                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMilliseconds(160),
-                    EasingFunction = ease
-                });
-
-            ParkedDivider.BeginAnimation(
-                OpacityProperty,
-                new DoubleAnimation
-                {
-                    To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 120),
-                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMilliseconds(160),
-                    EasingFunction = ease
-                });
-            ParkedDivider.Margin = dividerMargin;
-        }
     }
 
     private void SnapChipVolumeHosts()
