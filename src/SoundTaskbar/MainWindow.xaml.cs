@@ -587,8 +587,13 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            if (FindDescendantByName(container, "ChipVolumeHost") is FrameworkElement volumeHost)
+            foreach (var hostName in new[] { "ChipVolumeHost", "ChipVolumeHostExpanded" })
             {
+                if (FindDescendantByName(container, hostName) is not FrameworkElement volumeHost)
+                {
+                    continue;
+                }
+
                 volumeHost.BeginAnimation(WidthProperty, null);
                 volumeHost.Width = side.IsVolumeEditorOpen
                     ? ChipVolumeOpenWidth

@@ -22,281 +22,375 @@
     </Window.ContextMenu>
 
     <Window.Resources>
-        <!-- Parked: volume→mute + slider to the right, only previous -->
+        <!-- Compact paused chip OR expanded = mirrored primary chrome + same art|text block -->
         <DataTemplate x:Key="SessionArtChip">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,2,0">
-                <Grid x:Name="ChipVolumeHost"
-                      Width="14"
-                      Height="16"
-                      Margin="0,0,4,0"
-                      ClipToBounds="True"
-                      VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Center">
-                        <!-- Same slot: speaker opens slider; while open becomes mute -->
-                        <Button Width="14"
-                                Height="14"
-                                Padding="0"
-                                IsEnabled="{Binding CanControlVolume}"
-                                ToolTip="{Binding SourceName}">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
-                                    <Setter Property="Width" Value="14" />
-                                    <Setter Property="Height" Value="14" />
-                                    <Setter Property="FontSize" Value="8" />
-                                    <Setter Property="FontFamily" Value="Segoe UI Emoji" />
-                                    <Setter Property="Content" Value="{Binding VolumeGlyph}" />
-                                    <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
-                                    <Setter Property="Foreground" Value="#F2F4F7" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                            <Setter Property="FontSize" Value="9" />
-                                            <Setter Property="Content" Value="{Binding MuteGlyph}" />
-                                            <Setter Property="Command" Value="{Binding ToggleMuteCommand}" />
-                                        </DataTrigger>
-                                        <MultiDataTrigger>
-                                            <MultiDataTrigger.Conditions>
-                                                <Condition Binding="{Binding IsVolumeEditorOpen}" Value="True" />
-                                                <Condition Binding="{Binding IsEffectivelyMuted}" Value="True" />
-                                            </MultiDataTrigger.Conditions>
-                                            <Setter Property="Foreground" Value="#EF4444" />
-                                        </MultiDataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-                        <Slider Width="48"
-                                Margin="2,0,0,0"
-                                IsEnabled="{Binding CanControlVolume}"
-                                Value="{Binding Volume, Mode=TwoWay}">
-                            <Slider.Style>
-                                <Style TargetType="Slider" BasedOn="{StaticResource VolumeSlider}">
-                                    <Setter Property="Opacity" Value="0" />
-                                    <Setter Property="IsHitTestVisible" Value="False" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                            <Setter Property="Opacity" Value="1" />
-                                            <Setter Property="IsHitTestVisible" Value="True" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Slider.Style>
-                        </Slider>
-                    </StackPanel>
-                    <Grid.Style>
-                        <Style TargetType="Grid">
-                            <Setter Property="Width" Value="14" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                    <DataTrigger.EnterActions>
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                 To="64"
-                                                                 Duration="0:0:0.26">
-                                                    <DoubleAnimation.EasingFunction>
-                                                        <CubicEase EasingMode="EaseOut" />
-                                                    </DoubleAnimation.EasingFunction>
-                                                </DoubleAnimation>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </DataTrigger.EnterActions>
-                                    <DataTrigger.ExitActions>
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                 To="14"
-                                                                 Duration="0:0:0.26">
-                                                    <DoubleAnimation.EasingFunction>
-                                                        <CubicEase EasingMode="EaseIn" />
-                                                    </DoubleAnimation.EasingFunction>
-                                                </DoubleAnimation>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </DataTrigger.ExitActions>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
-                </Grid>
+            <Grid Margin="0,0,2,0" VerticalAlignment="Center">
+                <!-- Compact: paused side chip -->
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding CompactOverlayVisibility}">
+                    <Grid x:Name="ChipVolumeHost"
+                          Width="14"
+                          Height="16"
+                          Margin="0,0,4,0"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center">
+                            <Button Width="14"
+                                    Height="14"
+                                    Padding="0"
+                                    IsEnabled="{Binding CanControlVolume}"
+                                    ToolTip="{Binding SourceName}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
+                                        <Setter Property="Width" Value="14" />
+                                        <Setter Property="Height" Value="14" />
+                                        <Setter Property="FontSize" Value="8" />
+                                        <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+                                        <Setter Property="Content" Value="{Binding VolumeGlyph}" />
+                                        <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
+                                        <Setter Property="Foreground" Value="#F2F4F7" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                                                <Setter Property="FontSize" Value="9" />
+                                                <Setter Property="Content" Value="{Binding MuteGlyph}" />
+                                                <Setter Property="Command" Value="{Binding ToggleMuteCommand}" />
+                                            </DataTrigger>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding IsVolumeEditorOpen}" Value="True" />
+                                                    <Condition Binding="{Binding IsEffectivelyMuted}" Value="True" />
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Foreground" Value="#EF4444" />
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Slider Width="48"
+                                    Margin="2,0,0,0"
+                                    IsEnabled="{Binding CanControlVolume}"
+                                    Value="{Binding Volume, Mode=TwoWay}">
+                                <Slider.Style>
+                                    <Style TargetType="Slider" BasedOn="{StaticResource VolumeSlider}">
+                                        <Setter Property="Opacity" Value="0" />
+                                        <Setter Property="IsHitTestVisible" Value="False" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                                <Setter Property="Opacity" Value="1" />
+                                                <Setter Property="IsHitTestVisible" Value="True" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Slider.Style>
+                            </Slider>
+                        </StackPanel>
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Width" Value="14" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                     To="64"
+                                                                     Duration="0:0:0.26">
+                                                        <DoubleAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseOut" />
+                                                        </DoubleAnimation.EasingFunction>
+                                                    </DoubleAnimation>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                     To="14"
+                                                                     Duration="0:0:0.26">
+                                                        <DoubleAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseIn" />
+                                                        </DoubleAnimation.EasingFunction>
+                                                    </DoubleAnimation>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                    </Grid>
 
-                <!-- Peak meter to the right of chip volume -->
-                <Grid Width="5"
-                      Height="18"
-                      Margin="0,0,4,0"
-                      VerticalAlignment="Center">
-                    <Border CornerRadius="1.5" Opacity="0.95">
-                        <Border.Background>
-                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
-                                <GradientStop Color="#22C55E" Offset="0" />
-                                <GradientStop Color="#22C55E" Offset="0.55" />
-                                <GradientStop Color="#EAB308" Offset="0.78" />
-                                <GradientStop Color="#EF4444" Offset="1" />
-                            </LinearGradientBrush>
-                        </Border.Background>
+                    <Button Width="12"
+                            Height="12"
+                            Padding="0"
+                            Margin="0,0,7,0"
+                            Style="{StaticResource CompactMediaButton}"
+                            Command="{Binding PreviousCommand}"
+                            VerticalAlignment="Center">
+                        <controls:TransportIcon Width="7"
+                                                Height="7"
+                                                Kind="{Binding PreviousIconKind}"
+                                                Seconds="{Binding SeekSeconds}"
+                                                Foreground="#F2F4F7" />
+                    </Button>
+
+                    <Button Command="{Binding ToggleCommand}"
+                            Width="28"
+                            Height="28"
+                            Focusable="False"
+                            Cursor="Hand"
+                            ToolTip="{Binding SourceName}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd"
+                                        CornerRadius="4"
+                                        ClipToBounds="True"
+                                        Background="#44000000">
+                                    <Grid>
+                                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                        <Border Background="#88000000" />
+                                        <TextBlock Text="{Binding OverlayGlyph}"
+                                                   Foreground="#F5F5F5"
+                                                   FontSize="10"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button Width="12"
+                            Height="12"
+                            Padding="0"
+                            Margin="7,0,0,0"
+                            Style="{StaticResource CompactMediaButton}"
+                            Command="{Binding NextCommand}"
+                            VerticalAlignment="Center">
+                        <controls:TransportIcon Width="7"
+                                                Height="7"
+                                                Kind="{Binding NextIconKind}"
+                                                Seconds="{Binding SeekSeconds}"
+                                                Foreground="#F2F4F7" />
+                    </Button>
+                </StackPanel>
+
+                <!-- Expanded: mirror of primary chrome (transport|vol|VU) + same art|text block -->
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding ExpandedChromeVisibility}">
+                    <Button Style="{StaticResource CompactMediaButton}"
+                            Width="16"
+                            Height="16"
+                            Padding="0"
+                            Command="{Binding PreviousCommand}">
+                        <controls:TransportIcon Width="8"
+                                                Height="8"
+                                                Kind="{Binding PreviousIconKind}"
+                                                Seconds="{Binding SeekSeconds}"
+                                                Foreground="#F2F4F7" />
+                    </Button>
+                    <Button Content="{Binding PlayPauseLabel}"
+                            Style="{StaticResource PlayPauseButton}"
+                            Width="22"
+                            Height="22"
+                            FontSize="10"
+                            Margin="1,0"
+                            Command="{Binding ToggleCommand}" />
+                    <Button Style="{StaticResource CompactMediaButton}"
+                            Width="16"
+                            Height="16"
+                            Padding="0"
+                            Margin="0,0,4,0"
+                            Command="{Binding NextCommand}">
+                        <controls:TransportIcon Width="8"
+                                                Height="8"
+                                                Kind="{Binding NextIconKind}"
+                                                Seconds="{Binding SeekSeconds}"
+                                                Foreground="#F2F4F7" />
+                    </Button>
+
+                    <Grid x:Name="ChipVolumeHostExpanded"
+                          Width="14"
+                          Height="16"
+                          Margin="0,0,4,0"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center">
+                            <Button Width="14"
+                                    Height="14"
+                                    Padding="0"
+                                    IsEnabled="{Binding CanControlVolume}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
+                                        <Setter Property="Width" Value="14" />
+                                        <Setter Property="Height" Value="14" />
+                                        <Setter Property="FontSize" Value="8" />
+                                        <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+                                        <Setter Property="Content" Value="{Binding VolumeGlyph}" />
+                                        <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
+                                        <Setter Property="Foreground" Value="#F2F4F7" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                                                <Setter Property="FontSize" Value="9" />
+                                                <Setter Property="Content" Value="{Binding MuteGlyph}" />
+                                                <Setter Property="Command" Value="{Binding ToggleMuteCommand}" />
+                                            </DataTrigger>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding IsVolumeEditorOpen}" Value="True" />
+                                                    <Condition Binding="{Binding IsEffectivelyMuted}" Value="True" />
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Foreground" Value="#EF4444" />
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Slider Width="48"
+                                    Margin="2,0,0,0"
+                                    IsEnabled="{Binding CanControlVolume}"
+                                    Value="{Binding Volume, Mode=TwoWay}">
+                                <Slider.Style>
+                                    <Style TargetType="Slider" BasedOn="{StaticResource VolumeSlider}">
+                                        <Setter Property="Opacity" Value="0" />
+                                        <Setter Property="IsHitTestVisible" Value="False" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                                <Setter Property="Opacity" Value="1" />
+                                                <Setter Property="IsHitTestVisible" Value="True" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Slider.Style>
+                            </Slider>
+                        </StackPanel>
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Width" Value="14" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                     To="64"
+                                                                     Duration="0:0:0.26">
+                                                        <DoubleAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseOut" />
+                                                        </DoubleAnimation.EasingFunction>
+                                                    </DoubleAnimation>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                     To="14"
+                                                                     Duration="0:0:0.26">
+                                                        <DoubleAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseIn" />
+                                                        </DoubleAnimation.EasingFunction>
+                                                    </DoubleAnimation>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                    </Grid>
+
+                    <Grid Width="6"
+                          Height="22"
+                          Margin="0,0,6,0"
+                          VerticalAlignment="Center">
+                        <Border CornerRadius="2" Opacity="0.95">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                    <GradientStop Color="#22C55E" Offset="0" />
+                                    <GradientStop Color="#22C55E" Offset="0.55" />
+                                    <GradientStop Color="#EAB308" Offset="0.78" />
+                                    <GradientStop Color="#EF4444" Offset="1" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                        </Border>
+                        <Border VerticalAlignment="Top"
+                                Height="{Binding PeakCoverHeight}"
+                                Background="#D0121212"
+                                CornerRadius="2,2,0,0"
+                                IsHitTestVisible="False" />
+                    </Grid>
+
+                    <!-- Same block as primary: art then text (not mirrored) -->
+                    <Border Width="28"
+                            Height="28"
+                            CornerRadius="4"
+                            ClipToBounds="True"
+                            Background="#44000000"
+                            VerticalAlignment="Center">
+                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
                     </Border>
-                    <Border VerticalAlignment="Top"
-                            Height="{Binding PeakCoverHeight}"
-                            Background="#D0121212"
-                            CornerRadius="1.5,1.5,0,0"
-                            IsHitTestVisible="False" />
-                </Grid>
 
-                <Button Width="12"
-                        Height="12"
-                        Padding="0"
-                        Margin="0,0,4,0"
-                        Style="{StaticResource CompactMediaButton}"
-                        Command="{Binding PreviousCommand}"
-                        VerticalAlignment="Center">
-                    <controls:TransportIcon Width="7"
-                                            Height="7"
-                                            Kind="{Binding PreviousIconKind}"
-                                            Seconds="{Binding SeekSeconds}"
-                                            Foreground="#F2F4F7" />
-                </Button>
-
-                <!-- Expanded: pause/play leaves the artwork and sits to its left -->
-                <Button Content="{Binding PlayPauseLabel}"
-                        Command="{Binding ToggleCommand}"
-                        VerticalAlignment="Center">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource PlayPauseButton}">
-                            <Setter Property="Width" Value="18" />
-                            <Setter Property="Height" Value="18" />
-                            <Setter Property="FontSize" Value="9" />
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,0,5,0" />
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding ShowExpandedMeta}" Value="True" />
-                                        <Condition Binding="{Binding IsVolumeEditorOpen}" Value="False" />
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </MultiDataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-
-                <!-- Art: overlay only in compact paused chip; clean cover when expanded -->
-                <Button Command="{Binding ToggleCommand}"
-                        Width="28"
-                        Height="28"
-                        Margin="0"
-                        Focusable="False"
-                        Cursor="Hand"
-                        ToolTip="{Binding SourceName}">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="Bd"
-                                                CornerRadius="4"
-                                                ClipToBounds="True"
-                                                Background="#44000000">
-                                            <Grid>
-                                                <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                                <Border Background="#88000000"
-                                                        Visibility="{Binding CompactOverlayVisibility}" />
-                                                <TextBlock Text="{Binding OverlayGlyph}"
-                                                           Foreground="#F5F5F5"
-                                                           FontSize="10"
-                                                           HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"
-                                                           Visibility="{Binding CompactOverlayVisibility}" />
-                                            </Grid>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-
-                <!-- Expanded: title / artist / progress+time to the right of art -->
-                <Grid x:Name="ChipMetaHost"
-                      Width="0"
-                      ClipToBounds="True"
-                      VerticalAlignment="Center"
-                      Margin="5,0,0,0">
-                    <StackPanel VerticalAlignment="Center"
-                                HorizontalAlignment="Left"
-                                Width="{Binding MetaContentWidth}">
-                        <TextBlock Text="{Binding Title}"
-                                   Foreground="#F5F5F5"
-                                   FontSize="10"
-                                   FontWeight="SemiBold"
-                                   TextAlignment="Left"
-                                   TextTrimming="CharacterEllipsis"
-                                   LineHeight="12" />
-                        <TextBlock Text="{Binding Artist}"
-                                   Foreground="#B8C0CC"
-                                   FontSize="8"
-                                   TextAlignment="Left"
-                                   TextTrimming="CharacterEllipsis"
-                                   LineHeight="10"
-                                   Margin="0,1,0,0" />
-                        <Grid Margin="0,2,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ProgressBar Height="2"
-                                         Minimum="0"
-                                         Maximum="1"
-                                         Value="{Binding Progress, Mode=OneWay}"
-                                         Foreground="#9EC5FF"
-                                         Background="#55FFFFFF"
-                                         BorderThickness="0"
-                                         VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding TimeText}"
-                                       Foreground="#C8CDD6"
-                                       FontSize="8"
-                                       Margin="4,0,0,0"
-                                       VerticalAlignment="Center" />
+                    <Grid x:Name="ChipMetaHost"
+                          Width="0"
+                          Margin="6,0,0,0"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <Grid Width="{Binding MetaContentWidth}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="{Binding Title}"
+                                       Foreground="#F5F5F5"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Row="1"
+                                       Text="{Binding Artist}"
+                                       Foreground="#B8C0CC"
+                                       FontSize="9"
+                                       TextTrimming="CharacterEllipsis"
+                                       Margin="0,1,0,1" />
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ProgressBar Height="2"
+                                             Minimum="0"
+                                             Maximum="1"
+                                             Value="{Binding Progress, Mode=OneWay}"
+                                             Foreground="#9EC5FF"
+                                             Background="#55FFFFFF"
+                                             BorderThickness="0" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="4,0,0,0"
+                                           VerticalAlignment="Center"
+                                           Foreground="#C8CDD6"
+                                           FontSize="8"
+                                           Text="{Binding TimeText}" />
+                            </Grid>
                         </Grid>
-                    </StackPanel>
-                </Grid>
-
-                <Button Command="{Binding NextCommand}"
-                        VerticalAlignment="Center">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
-                            <Setter Property="Width" Value="12" />
-                            <Setter Property="Height" Value="12" />
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="7,0,0,0" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                    <controls:TransportIcon Width="7"
-                                            Height="7"
-                                            Kind="{Binding NextIconKind}"
-                                            Seconds="{Binding SeekSeconds}"
-                                            Foreground="#F2F4F7" />
-                </Button>
-            </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Grid>
         </DataTemplate>
 
         <DataTemplate x:Key="DualSessionCard">

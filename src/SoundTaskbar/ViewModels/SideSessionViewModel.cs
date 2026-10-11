@@ -12,7 +12,7 @@ namespace SoundTaskbar.ViewModels;
 
 public sealed class SideSessionViewModel : INotifyPropertyChanged
 {
-    public const double MeterHeight = 18;
+    public const double MeterHeight = 22;
 
     private readonly AppVolumeService _volume;
     private readonly Action _onVolumeEditorOpened;
