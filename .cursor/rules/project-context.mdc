@@ -1,0 +1,13 @@
+---
+description: Always load SoundTaskbar project context and follow commit style
+alwaysApply: true
+---
+
+# SoundTaskbar agent rules
+
+1. At the start of every session, read `PROJECT_CONTEXT.md` before coding.
+2. Before context runs out or after a major milestone, update `PROJECT_CONTEXT.md` sections «Текущее состояние» and «Следующие шаги», then commit.
+3. Commit messages: lowercase, no trailing period, one short sentence.
+   Example: `add smtc session reader skeleton`
+4. Keep scope tight to the latest user request.
+5. Product goal: taskbar media controls for music/video — artwork, title, prev/play/next, duration, per-source volume.

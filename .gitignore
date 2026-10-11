@@ -1,0 +1,24 @@
+# Build
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+*.cache
+
+# IDE
+.vs/
+.idea/
+*.swp
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs / local
+*.log
+.env
+.env.*
