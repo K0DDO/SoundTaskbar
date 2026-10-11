@@ -25,17 +25,23 @@
         <!-- Parked source: skip/seek icons + art▶ + divider before primary -->
         <DataTemplate x:Key="SessionArtChip">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,2,0">
-                <Button Style="{StaticResource CompactMediaButton}"
+                <Button Width="14"
+                        Height="14"
+                        Padding="0"
+                        Margin="0,0,4,0"
+                        Style="{StaticResource CompactMediaButton}"
                         Command="{Binding PreviousCommand}"
                         VerticalAlignment="Center">
-                    <controls:TransportIcon Kind="{Binding PreviousIconKind}"
+                    <controls:TransportIcon Width="9"
+                                            Height="9"
+                                            Kind="{Binding PreviousIconKind}"
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
                 </Button>
                 <Button Command="{Binding ToggleCommand}"
                         Width="28"
                         Height="28"
-                        Margin="1,0"
+                        Margin="0"
                         Focusable="False"
                         Cursor="Hand"
                         ToolTip="{Binding SourceName}">
@@ -63,10 +69,16 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <Button Style="{StaticResource CompactMediaButton}"
+                <Button Width="14"
+                        Height="14"
+                        Padding="0"
+                        Margin="4,0,0,0"
+                        Style="{StaticResource CompactMediaButton}"
                         Command="{Binding NextCommand}"
                         VerticalAlignment="Center">
-                    <controls:TransportIcon Kind="{Binding NextIconKind}"
+                    <controls:TransportIcon Width="9"
+                                            Height="9"
+                                            Kind="{Binding NextIconKind}"
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
                 </Button>
