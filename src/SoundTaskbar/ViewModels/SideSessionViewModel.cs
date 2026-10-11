@@ -174,11 +174,21 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _showExpandedMeta, value))
             {
+                OnPropertyChanged(nameof(ExpandedChromeVisibility));
+                OnPropertyChanged(nameof(CompactOverlayVisibility));
                 RecalculateMetaWidth();
                 _onChipLayoutChanged?.Invoke();
             }
         }
     }
+
+    /// <summary>Play/pause button + meta to the right of art (pair playing).</summary>
+    public System.Windows.Visibility ExpandedChromeVisibility =>
+        ShowExpandedMeta ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    /// <summary>▶/❚❚ overlay on artwork (paused chip only).</summary>
+    public System.Windows.Visibility CompactOverlayVisibility =>
+        ShowExpandedMeta ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
     /// <summary>
     /// Animated width of title/artist/duration rail. Driven by MainWindow so the
