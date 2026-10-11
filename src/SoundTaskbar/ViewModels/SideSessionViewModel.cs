@@ -458,7 +458,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         var timeW = TextMeasure.Width("0:00 / 0:00", fontSize: 8, FontWeights.Normal);
         var content = Math.Max(titleW, Math.Max(artistW, timeW));
         // +8 pad (incl. right margin); clamp long titles.
-        var next = Math.Clamp(Math.Ceiling(content) + 8, 44, 120);
+        var next = Math.Clamp(Math.Ceiling(content) + 8, 44, 96);
         if (Math.Abs(next - _targetMetaRailWidth) < 0.5)
         {
             return;

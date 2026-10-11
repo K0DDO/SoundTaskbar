@@ -46,7 +46,6 @@ public partial class MainWindow : Window
 
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
-        SourceText.Foreground = _mutedBrush;
         TimeText.Foreground = _mutedBrush;
         ArtworkPlaceholder.Foreground = _mutedBrush;
         ProgressBar.Background = _progressTrackBrush;
@@ -501,7 +500,8 @@ public partial class MainWindow : Window
         _parkedOpen = open;
 
         const double dividerWidth = 2.5;
-        var dividerMargin = open ? new Thickness(8, 0, 6, 0) : new Thickness(0);
+        // Extra left gap so divider sits further right of the audio chip.
+        var dividerMargin = open ? new Thickness(10, 0, 4, 0) : new Thickness(0);
 
         if (!animate)
         {
@@ -745,7 +745,19 @@ public partial class MainWindow : Window
         _progressFillBrush.Color = appearance.ProgressFill;
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
-        SourceText.Foreground = _mutedBrush;
+
+        if (Resources["ProgressAccentBrush"] is SolidColorBrush accentBrush)
+        {
+            accentBrush.Color = appearance.ProgressFill;
+        }
+
+        if (Resources["ProgressTrackBrush"] is SolidColorBrush trackBrush)
+        {
+            trackBrush.Color = appearance.ProgressTrack;
+        }
+
+        ProgressBar.Background = _progressTrackBrush;
+        ProgressBar.Foreground = _progressFillBrush;
 
         var iconBrush = new SolidColorBrush(appearance.Foreground);
         PreviousIcon.Foreground = iconBrush;

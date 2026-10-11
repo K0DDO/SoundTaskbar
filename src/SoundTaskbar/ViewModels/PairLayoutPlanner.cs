@@ -87,7 +87,7 @@ internal static class PairLayoutPlanner
             Primary: primary,
             SideSessions: new[] { side },
             DualSessions: Array.Empty<MediaSessionSnapshot>(),
-            WidgetWidth: 460);
+            WidgetWidth: 520);
     }
 
     private static MediaSessionSnapshot? PickSticky(

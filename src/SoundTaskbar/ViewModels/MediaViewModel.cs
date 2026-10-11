@@ -702,7 +702,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         IsDualPlaying = false;
         DualSessions.Clear();
-        DesiredWidgetWidth = 460;
+        DesiredWidgetWidth = 520;
         _parkedDismissPending = false;
         SyncCollection(
             SideSessions,
