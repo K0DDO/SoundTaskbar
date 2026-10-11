@@ -59,6 +59,9 @@ public partial class MainWindow : Window
         SingleSlide.X = 0;
         ParkedHost.Width = 0;
         ParkedHost.Opacity = 0;
+        ParkedDivider.Width = 0;
+        ParkedDivider.Opacity = 0;
+        ParkedDivider.Margin = new Thickness(0);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -250,12 +253,20 @@ public partial class MainWindow : Window
         var wasOpen = _parkedOpen;
         _parkedOpen = open;
 
+        const double dividerWidth = 2.5;
+        var dividerMargin = open ? new Thickness(8, 0, 6, 0) : new Thickness(0);
+
         if (!animate)
         {
             ParkedHost.BeginAnimation(WidthProperty, null);
             ParkedHost.BeginAnimation(OpacityProperty, null);
+            ParkedDivider.BeginAnimation(WidthProperty, null);
+            ParkedDivider.BeginAnimation(OpacityProperty, null);
             ParkedHost.Width = open ? targetWidth : 0;
             ParkedHost.Opacity = open ? 1 : 0;
+            ParkedDivider.Width = open ? dividerWidth : 0;
+            ParkedDivider.Opacity = open ? 1 : 0;
+            ParkedDivider.Margin = dividerMargin;
             return;
         }
 
@@ -271,6 +282,15 @@ public partial class MainWindow : Window
                 EasingFunction = ease
             });
 
+        ParkedDivider.BeginAnimation(
+            WidthProperty,
+            new DoubleAnimation
+            {
+                To = open ? dividerWidth : 0,
+                Duration = duration,
+                EasingFunction = ease
+            });
+
         if (wasOpen != open)
         {
             ParkedHost.BeginAnimation(
@@ -282,6 +302,17 @@ public partial class MainWindow : Window
                     BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.Zero,
                     EasingFunction = ease
                 });
+
+            ParkedDivider.BeginAnimation(
+                OpacityProperty,
+                new DoubleAnimation
+                {
+                    To = open ? 1 : 0,
+                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 140),
+                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.Zero,
+                    EasingFunction = ease
+                });
+            ParkedDivider.Margin = dividerMargin;
         }
     }
 

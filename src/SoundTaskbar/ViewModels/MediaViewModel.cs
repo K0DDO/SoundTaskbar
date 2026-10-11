@@ -543,7 +543,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             IsDualPlaying = true;
             primary = playing.FirstOrDefault(s => s.SessionKey == focusedKey) ?? playing[0];
-            SyncCollection(DualSessions, playing.Take(2).ToList());
+            SyncCollection(DualSessions, playing.Take(2).ToList(), freezeTransportIcons: false);
             SideSessions.Clear();
         }
         else
@@ -555,12 +555,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                       ?? enriched[0];
 
             var parked = enriched
-                .Where(s => s.SessionKey != primary.SessionKey)
+                .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable)
                 .OrderByDescending(s => s.IsPlaying)
                 .ThenByDescending(s => s.Artwork is not null)
                 .Take(2)
                 .ToList();
-            SyncCollection(SideSessions, parked);
+            SyncCollection(SideSessions, parked, freezeTransportIcons: true);
         }
 
         _media.Focus(primary.SessionKey);
@@ -587,6 +587,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             Artist = artist ?? string.Empty,
             AppId = snap.AppId,
             IsPlaying = snap.IsPlaying,
+            IsParkable = snap.IsParkable,
             CanPlay = snap.CanPlay,
             CanPause = snap.CanPause,
             CanSkipNext = snap.CanSkipNext,
@@ -598,7 +599,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         };
     }
 
-    private void SyncCollection(ObservableCollection<SideSessionViewModel> target, List<MediaSessionSnapshot> source)
+    private void SyncCollection(
+        ObservableCollection<SideSessionViewModel> target,
+        List<MediaSessionSnapshot> source,
+        bool freezeTransportIcons)
     {
         for (var i = target.Count - 1; i >= 0; i--)
         {
@@ -619,16 +623,28 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     PreviousSideSessionAsync,
                     NextSideSessionAsync);
                 target.Add(existing);
+                existing.CanSkipPrevious = snap.CanSkipPrevious;
+                existing.CanSkipNext = snap.CanSkipNext;
+                existing.CanSeek = snap.CanSeek;
+            }
+            else if (!freezeTransportIcons)
+            {
+                existing.CanSkipPrevious = snap.CanSkipPrevious;
+                existing.CanSkipNext = snap.CanSkipNext;
+                existing.CanSeek = snap.CanSeek;
+            }
+            // Parked chips: keep last skip/seek icons — closing apps briefly flip to seek before vanishing.
+
+            existing.Artwork = snap.Artwork ?? existing.Artwork;
+            existing.Title = string.IsNullOrWhiteSpace(snap.Title) ? existing.Title : snap.Title;
+            if (string.IsNullOrWhiteSpace(existing.Title))
+            {
+                existing.Title = "Без названия";
             }
 
-            existing.Artwork = snap.Artwork;
-            existing.Title = string.IsNullOrWhiteSpace(snap.Title) ? "Без названия" : snap.Title;
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
             existing.IsPlaying = snap.IsPlaying;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
-            existing.CanSkipPrevious = snap.CanSkipPrevious;
-            existing.CanSkipNext = snap.CanSkipNext;
-            existing.CanSeek = snap.CanSeek;
         }
 
         // Keep visual order matching source.

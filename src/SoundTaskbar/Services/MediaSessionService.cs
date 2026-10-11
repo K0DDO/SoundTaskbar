@@ -13,6 +13,7 @@ public sealed class MediaSessionSnapshot
     public string Artist { get; init; } = string.Empty;
     public string AppId { get; init; } = string.Empty;
     public bool IsPlaying { get; init; }
+    public bool IsParkable { get; init; }
     public bool CanPlay { get; init; }
     public bool CanPause { get; init; }
     public bool CanSkipNext { get; init; }
@@ -131,6 +132,7 @@ public sealed class MediaSessionService : IDisposable
                     Artist = artist,
                     AppId = snap.AppId,
                     IsPlaying = snap.IsPlaying,
+                    IsParkable = snap.IsParkable,
                     CanPlay = snap.CanPlay,
                     CanPause = snap.CanPause,
                     CanSkipNext = snap.CanSkipNext,
@@ -198,6 +200,7 @@ public sealed class MediaSessionService : IDisposable
                 Artist = props.Artist ?? string.Empty,
                 AppId = snapshot.AppId,
                 IsPlaying = snapshot.IsPlaying,
+                IsParkable = snapshot.IsParkable,
                 CanPlay = snapshot.CanPlay,
                 CanPause = snapshot.CanPause,
                 CanSkipNext = snapshot.CanSkipNext,
@@ -426,13 +429,19 @@ public sealed class MediaSessionService : IDisposable
             var playback = session.GetPlaybackInfo();
             var timeline = session.GetTimelineProperties();
             var controls = playback.Controls;
+            var status = playback.PlaybackStatus;
+            var isPlaying = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            // Keep chip only while truly paused/playing — Stopped/Closed means app is leaving.
+            var isParkable = isPlaying ||
+                             status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
 
             return new MediaSessionSnapshot
             {
                 HasSession = true,
                 SessionKey = key,
                 AppId = session.SourceAppUserModelId ?? string.Empty,
-                IsPlaying = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
+                IsPlaying = isPlaying,
+                IsParkable = isParkable,
                 CanPlay = controls.IsPlayEnabled,
                 CanPause = controls.IsPauseEnabled,
                 CanSkipNext = controls.IsNextEnabled,

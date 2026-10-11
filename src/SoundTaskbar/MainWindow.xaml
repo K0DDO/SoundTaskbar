@@ -82,12 +82,6 @@
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
                 </Button>
-                <Border Width="2.5"
-                        Height="28"
-                        CornerRadius="1"
-                        Background="#88FFFFFF"
-                        Margin="8,0,6,0"
-                        VerticalAlignment="Center" />
             </StackPanel>
         </DataTemplate>
 
@@ -175,6 +169,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
@@ -197,7 +192,18 @@
                             </ItemsControl>
                         </Grid>
 
-                        <Border Grid.Column="1"
+                        <!-- Divider outside clipped host so it is never cut off -->
+                        <Border x:Name="ParkedDivider"
+                                Grid.Column="1"
+                                Width="0"
+                                Height="28"
+                                CornerRadius="1.25"
+                                Background="#AAFFFFFF"
+                                Margin="0"
+                                Opacity="0"
+                                VerticalAlignment="Center" />
+
+                        <Border Grid.Column="2"
                                 Width="28"
                                 Height="28"
                                 CornerRadius="4"
@@ -215,7 +221,7 @@
                             </Grid>
                         </Border>
 
-                        <Grid Grid.Column="2" Margin="6,0,6,0" VerticalAlignment="Center" MinWidth="70">
+                        <Grid Grid.Column="3" Margin="6,0,6,0" VerticalAlignment="Center" MinWidth="70">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
