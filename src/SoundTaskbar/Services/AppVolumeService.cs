@@ -127,6 +127,57 @@ public sealed class AppVolumeService : IDisposable
         }
     }
 
+    /// <summary>
+    /// True if a process matching the SMTC AppId is still running (fast parked-chip eviction).
+    /// </summary>
+    public bool IsAppRunning(string? appId)
+    {
+        if (string.IsNullOrWhiteSpace(appId))
+        {
+            return false;
+        }
+
+        var tokens = BuildTokens(appId);
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcesses();
+        }
+        catch
+        {
+            return true; // fail open — keep chip until SMTC drops it
+        }
+
+        try
+        {
+            foreach (var process in processes)
+            {
+                try
+                {
+                    var name = process.ProcessName ?? string.Empty;
+                    if (name.Length > 0 && IsMatch(tokens, appId, name, string.Empty))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // process exited mid-enumeration
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            // disposed individually above
+        }
+
+        return false;
+    }
+
     public void Dispose()
     {
         if (_disposed)

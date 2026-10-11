@@ -19,6 +19,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private readonly DispatcherTimer _uiTicker;
     private readonly DispatcherTimer _volumeTicker;
     private readonly DispatcherTimer _volumeHideTimer;
+    private readonly DispatcherTimer _parkedWatchdog;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _disposed;
@@ -96,6 +97,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             _volumeHideTimer.Stop();
             IsVolumeEditorOpen = false;
         };
+
+        // SMTC can keep a zombie paused session after quit — poll + process check.
+        _parkedWatchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _parkedWatchdog.Tick += (_, _) => OnParkedWatchdog();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -234,10 +239,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public bool CanGoPrevious => CanSkipPrevious || CanSeek;
 
     public TransportIconKind NextIconKind =>
-        CanSkipNext ? TransportIconKind.SkipNext : TransportIconKind.SeekForward;
+        CanSkipNext || CanSkipPrevious
+            ? TransportIconKind.SkipNext
+            : TransportIconKind.SeekForward;
 
     public TransportIconKind PreviousIconKind =>
-        CanSkipPrevious ? TransportIconKind.SkipPrevious : TransportIconKind.SeekBack;
+        CanSkipPrevious || CanSkipNext
+            ? TransportIconKind.SkipPrevious
+            : TransportIconKind.SeekBack;
 
     public bool CanTogglePlayback
     {
@@ -443,6 +452,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _uiTicker.Stop();
         _volumeTicker.Stop();
         _volumeHideTimer.Stop();
+        _parkedWatchdog.Stop();
         _media.Changed -= OnMediaChanged;
         _media.TimelineChanged -= OnTimelineChanged;
         _media.Dispose();
@@ -545,6 +555,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             primary = playing.FirstOrDefault(s => s.SessionKey == focusedKey) ?? playing[0];
             SyncCollection(DualSessions, playing.Take(2).ToList(), freezeTransportIcons: false);
             SideSessions.Clear();
+            UpdateParkedWatchdog();
         }
         else
         {
@@ -555,12 +566,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                       ?? enriched[0];
 
             var parked = enriched
-                .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable)
+                .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
                 .OrderByDescending(s => s.IsPlaying)
                 .ThenByDescending(s => s.Artwork is not null)
                 .Take(2)
                 .ToList();
             SyncCollection(SideSessions, parked, freezeTransportIcons: true);
+            UpdateParkedWatchdog();
         }
 
         _media.Focus(primary.SessionKey);
@@ -623,18 +635,22 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     PreviousSideSessionAsync,
                     NextSideSessionAsync);
                 target.Add(existing);
-                existing.CanSkipPrevious = snap.CanSkipPrevious;
-                existing.CanSkipNext = snap.CanSkipNext;
-                existing.CanSeek = snap.CanSeek;
+                existing.SetTransportMode(
+                    snap.CanSkipPrevious,
+                    snap.CanSkipNext,
+                    snap.CanSeek,
+                    lockMode: freezeTransportIcons);
             }
             else if (!freezeTransportIcons)
             {
-                existing.CanSkipPrevious = snap.CanSkipPrevious;
-                existing.CanSkipNext = snap.CanSkipNext;
-                existing.CanSeek = snap.CanSeek;
+                existing.SetTransportMode(
+                    snap.CanSkipPrevious,
+                    snap.CanSkipNext,
+                    snap.CanSeek,
+                    lockMode: false);
             }
-            // Parked chips: keep last skip/seek icons — closing apps briefly flip to seek before vanishing.
 
+            existing.AppId = snap.AppId;
             existing.Artwork = snap.Artwork ?? existing.Artwork;
             existing.Title = string.IsNullOrWhiteSpace(snap.Title) ? existing.Title : snap.Title;
             if (string.IsNullOrWhiteSpace(existing.Title))
@@ -694,11 +710,58 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         await RefreshAsync(full: false);
     }
 
+    private void UpdateParkedWatchdog()
+    {
+        if (SideSessions.Count > 0)
+        {
+            if (!_parkedWatchdog.IsEnabled)
+            {
+                _parkedWatchdog.Start();
+            }
+        }
+        else if (_parkedWatchdog.IsEnabled)
+        {
+            _parkedWatchdog.Stop();
+        }
+    }
+
+    private void OnParkedWatchdog()
+    {
+        if (_disposed || SideSessions.Count == 0)
+        {
+            _parkedWatchdog.Stop();
+            return;
+        }
+
+        // Drop chips whose process already quit (SMTC often lags).
+        var removed = false;
+        for (var i = SideSessions.Count - 1; i >= 0; i--)
+        {
+            var side = SideSessions[i];
+            if (!_volume.IsAppRunning(side.AppId))
+            {
+                SideSessions.RemoveAt(i);
+                removed = true;
+            }
+        }
+
+        if (removed)
+        {
+            UpdateParkedWatchdog();
+        }
+
+        if (_media.PollSessions() || removed)
+        {
+            _ = RefreshAsync(full: false);
+        }
+    }
+
     private void ClearAllSessions()
     {
         IsDualPlaying = false;
         SideSessions.Clear();
         DualSessions.Clear();
+        UpdateParkedWatchdog();
         _primarySessionKey = string.Empty;
         Title = "Нет активного медиа";
         Artist = "Запусти музыку или видео";

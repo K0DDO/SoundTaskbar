@@ -228,6 +228,36 @@ public sealed class MediaSessionService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Rebuild the session map from the OS (used while parked chips are visible).
+    /// Returns true when the set of session keys changed.
+    /// </summary>
+    public bool PollSessions()
+    {
+        List<string> before;
+        lock (_gate)
+        {
+            before = _sessions.Keys.ToList();
+        }
+
+        RebuildSessions();
+
+        List<string> after;
+        lock (_gate)
+        {
+            after = _sessions.Keys.ToList();
+        }
+
+        if (before.Count != after.Count)
+        {
+            return true;
+        }
+
+        before.Sort(StringComparer.OrdinalIgnoreCase);
+        after.Sort(StringComparer.OrdinalIgnoreCase);
+        return !before.SequenceEqual(after, StringComparer.OrdinalIgnoreCase);
+    }
+
     public Task<bool> PlayAsync(string? sessionKey = null) =>
         InvokeAsync(sessionKey, s => s.TryPlayAsync().AsTask());
 

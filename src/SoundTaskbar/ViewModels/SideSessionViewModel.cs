@@ -15,10 +15,11 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private string _sourceName = string.Empty;
     private bool _isPlaying;
     private bool _canToggle = true;
-    private bool _canSkipPrevious;
-    private bool _canSkipNext;
+    private bool _usesSkipIcons;
     private bool _canSeek;
+    private bool _transportLocked;
     private bool _showDivider;
+    private string _appId = string.Empty;
 
     public SideSessionViewModel(
         string sessionKey,
@@ -41,6 +42,12 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string SessionKey { get; }
+
+    public string AppId
+    {
+        get => _appId;
+        set => SetField(ref _appId, value);
+    }
 
     public int SeekSeconds => MediaSessionService.SeekStepSeconds;
 
@@ -90,59 +97,40 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanSkipPrevious
-    {
-        get => _canSkipPrevious;
-        set
-        {
-            if (SetField(ref _canSkipPrevious, value))
-            {
-                OnPropertyChanged(nameof(CanGoPrevious));
-                OnPropertyChanged(nameof(PreviousIconKind));
-                CommandManager.InvalidateRequerySuggested();
-            }
-        }
-    }
+    public bool CanGoPrevious => _usesSkipIcons || _canSeek;
 
-    public bool CanSkipNext
-    {
-        get => _canSkipNext;
-        set
-        {
-            if (SetField(ref _canSkipNext, value))
-            {
-                OnPropertyChanged(nameof(CanGoNext));
-                OnPropertyChanged(nameof(NextIconKind));
-                CommandManager.InvalidateRequerySuggested();
-            }
-        }
-    }
-
-    public bool CanSeek
-    {
-        get => _canSeek;
-        set
-        {
-            if (SetField(ref _canSeek, value))
-            {
-                OnPropertyChanged(nameof(CanGoPrevious));
-                OnPropertyChanged(nameof(CanGoNext));
-                OnPropertyChanged(nameof(PreviousIconKind));
-                OnPropertyChanged(nameof(NextIconKind));
-                CommandManager.InvalidateRequerySuggested();
-            }
-        }
-    }
-
-    public bool CanGoPrevious => CanSkipPrevious || CanSeek;
-
-    public bool CanGoNext => CanSkipNext || CanSeek;
+    public bool CanGoNext => _usesSkipIcons || _canSeek;
 
     public TransportIconKind PreviousIconKind =>
-        CanSkipPrevious ? TransportIconKind.SkipPrevious : TransportIconKind.SeekBack;
+        _usesSkipIcons ? TransportIconKind.SkipPrevious : TransportIconKind.SeekBack;
 
     public TransportIconKind NextIconKind =>
-        CanSkipNext ? TransportIconKind.SkipNext : TransportIconKind.SeekForward;
+        _usesSkipIcons ? TransportIconKind.SkipNext : TransportIconKind.SeekForward;
+
+    /// <summary>
+    /// Both sides use the same family (skip or seek). Spotify often enables only one skip.
+    /// </summary>
+    public void SetTransportMode(bool canSkipPrevious, bool canSkipNext, bool canSeek, bool lockMode)
+    {
+        if (_transportLocked)
+        {
+            return;
+        }
+
+        var useSkip = canSkipPrevious || canSkipNext;
+        _usesSkipIcons = useSkip;
+        _canSeek = canSeek;
+        if (lockMode)
+        {
+            _transportLocked = true;
+        }
+
+        OnPropertyChanged(nameof(CanGoPrevious));
+        OnPropertyChanged(nameof(CanGoNext));
+        OnPropertyChanged(nameof(PreviousIconKind));
+        OnPropertyChanged(nameof(NextIconKind));
+        CommandManager.InvalidateRequerySuggested();
+    }
 
     public bool ShowDivider
     {
