@@ -69,7 +69,8 @@ dotnet run --project src/SoundTaskbar
 - Парный layout: movable divider `parked | div | art | meta*`; meta растёт когда chip схлопывается
 - Expanded audio = mirror chrome + art|text; title marquee; accent progress; dual → mono icon, solo → source name
 - Solo widget width 310; pair/twin остаются 520
-- Title marquee: OpacityMask fade справа (без Effect на том же элементе); VU gaps 12/12
+- Title marquee: fade через OpacityMask + Background=#01000000 (иначе маска по ширине текста)
+- Отступы VU/volume/transport = 2px как у prev/play/next
 - Стоп песни → 1s hold, потом collapse; primary ширина возвращается
 
 ## Следующие шаги

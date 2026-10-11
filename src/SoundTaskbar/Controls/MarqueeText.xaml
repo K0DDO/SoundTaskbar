@@ -8,7 +8,10 @@
         <Grid.Effect>
             <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
         </Grid.Effect>
-        <Grid x:Name="FadeHost" ClipToBounds="True">
+        <!-- Near-invisible background forces OpacityMask to map to control bounds, not text width -->
+        <Grid x:Name="FadeHost"
+              ClipToBounds="True"
+              Background="#01000000">
             <Canvas x:Name="Host" SizeChanged="OnHostSizeChanged">
                 <TextBlock x:Name="RunText"
                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
