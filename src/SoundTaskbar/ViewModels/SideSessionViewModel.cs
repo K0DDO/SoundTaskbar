@@ -304,7 +304,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             return;
         }
 
-        var state = _volume.GetState(AppId);
+        var state = _volume.GetState(AppId, forceRefresh: true);
         CanControlVolume = state.Found;
         if (!state.Found)
         {

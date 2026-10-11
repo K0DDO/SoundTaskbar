@@ -1,9 +1,11 @@
 ﻿using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using SoundTaskbar.Services;
 using SoundTaskbar.ViewModels;
 
@@ -27,6 +29,10 @@ public partial class MainWindow : Window
     private bool _dualVisual;
     private bool _parkedOpen;
     private bool _layoutReady;
+    private CancellationTokenSource? _parkedRemeasureCts;
+
+    private const double ChipVolumeClosedWidth = 14;
+    private const double ChipVolumeOpenWidth = 64;
 
     public MainWindow()
     {
@@ -84,6 +90,8 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _parkedRemeasureCts?.Cancel();
+        _parkedRemeasureCts?.Dispose();
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged -= OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
@@ -130,12 +138,50 @@ public partial class MainWindow : Window
 
     private void OnParkedLayoutChanged(object? sender, EventArgs e)
     {
-        if (_viewModel.ShowParkedRail && _layoutReady && !_viewModel.IsDualPlaying)
+        if (!_viewModel.ShowParkedRail || !_layoutReady || _viewModel.IsDualPlaying)
         {
-            // Chip volume open/close hides art+next — remasure rail width.
-            Dispatcher.BeginInvoke(
-                () => AnimateParkedHost(open: true, animate: true),
-                System.Windows.Threading.DispatcherPriority.Loaded);
+            return;
+        }
+
+        // Wait for chip volume width + art/next visibility to settle, then remasure.
+        // Measuring mid-animation left a gap before the divider.
+        _parkedRemeasureCts?.Cancel();
+        _parkedRemeasureCts = new CancellationTokenSource();
+        var token = _parkedRemeasureCts.Token;
+        _ = RemeasureParkedAfterSettleAsync(token);
+    }
+
+    private async Task RemeasureParkedAfterSettleAsync(CancellationToken token)
+    {
+        try
+        {
+            // First pass: snap volume rail so the slider is not clipped while opening.
+            await Dispatcher.InvokeAsync(
+                () =>
+                {
+                    SnapChipVolumeHosts();
+                    AnimateParkedHost(open: true, animate: true);
+                },
+                DispatcherPriority.Loaded);
+
+            await Task.Delay(280, token);
+            if (token.IsCancellationRequested || !_viewModel.ShowParkedRail)
+            {
+                return;
+            }
+
+            // Second pass: art/next visibility finished toggling — clear leftover gap.
+            await Dispatcher.InvokeAsync(
+                () =>
+                {
+                    SnapChipVolumeHosts();
+                    AnimateParkedHost(open: true, animate: true);
+                },
+                DispatcherPriority.Loaded);
+        }
+        catch (TaskCanceledException)
+        {
+            // newer layout change superseded this remasure
         }
     }
 
@@ -251,10 +297,11 @@ public partial class MainWindow : Window
         {
             var currentWidth = ParkedHost.ActualWidth;
             ParkedHost.BeginAnimation(WidthProperty, null);
+            SnapChipVolumeHosts();
             ParkedHost.Width = double.NaN;
             ParkedHost.UpdateLayout();
             ParkedList.UpdateLayout();
-            targetWidth = Math.Ceiling(Math.Max(ParkedList.DesiredSize.Width, ParkedList.ActualWidth));
+            targetWidth = Math.Ceiling(MeasureParkedListWidth());
             if (targetWidth < 1)
             {
                 targetWidth = 72;
@@ -348,6 +395,60 @@ public partial class MainWindow : Window
                 });
             ParkedDivider.Margin = dividerMargin;
         }
+    }
+
+    private void SnapChipVolumeHosts()
+    {
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject container)
+            {
+                continue;
+            }
+
+            var host = FindDescendantByName(container, "ChipVolumeHost") as FrameworkElement;
+            if (host is null)
+            {
+                continue;
+            }
+
+            var open = ParkedList.Items[i] is SideSessionViewModel side && side.IsVolumeEditorOpen;
+            host.BeginAnimation(WidthProperty, null);
+            host.Width = open ? ChipVolumeOpenWidth : ChipVolumeClosedWidth;
+        }
+    }
+
+    private double MeasureParkedListWidth()
+    {
+        ParkedList.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var width = ParkedList.DesiredSize.Width;
+        if (width < 1)
+        {
+            width = ParkedList.ActualWidth;
+        }
+
+        return width;
+    }
+
+    private static DependencyObject? FindDescendantByName(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement fe && fe.Name == name)
+        {
+            return root;
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            var match = FindDescendantByName(child, name);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     private static void AnimateOpacity(

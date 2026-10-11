@@ -20,7 +20,7 @@ public sealed class AppVolumeService : IDisposable
     private long _lastRefreshTicks;
     private bool _disposed;
 
-    public AppVolumeState GetState(string? appId)
+    public AppVolumeState GetState(string? appId, bool forceRefresh = false)
     {
         if (string.IsNullOrWhiteSpace(appId))
         {
@@ -29,7 +29,7 @@ public sealed class AppVolumeService : IDisposable
 
         lock (_gate)
         {
-            EnsureDevice();
+            EnsureDevice(forceRefresh);
             using var matches = FindMatchingSessions(appId);
             if (matches.Count == 0)
             {
