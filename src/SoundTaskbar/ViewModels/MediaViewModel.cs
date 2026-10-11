@@ -30,6 +30,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _hasSession;
     private bool _canSkipNext;
     private bool _canSkipPrevious;
+    private bool _canSeek;
     private bool _canTogglePlayback;
     private BitmapImage? _artwork;
     private float _volumeLevel = 1f;
@@ -44,7 +45,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private double _anchorSeconds;
     private double _playbackRate;
 
-    public const double MeterHeight = 28;
+    public const double MeterHeight = 24;
 
     public MediaViewModel()
     {
@@ -53,9 +54,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _media.Changed += OnMediaChanged;
         _media.TimelineChanged += OnTimelineChanged;
 
-        PreviousCommand = new RelayCommand(async _ => await _media.SkipPreviousAsync(), _ => CanSkipPrevious);
+        PreviousCommand = new RelayCommand(
+            async _ => await _media.PreviousOrSeekBackAsync(),
+            _ => CanGoPrevious);
         PlayPauseCommand = new RelayCommand(async _ => await _media.TogglePlayPauseAsync(), _ => CanTogglePlayback);
-        NextCommand = new RelayCommand(async _ => await _media.SkipNextAsync(), _ => CanSkipNext);
+        NextCommand = new RelayCommand(
+            async _ => await _media.NextOrSeekForwardAsync(),
+            _ => CanGoNext);
 
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
         _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -125,14 +130,59 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public bool CanSkipNext
     {
         get => _canSkipNext;
-        private set => SetField(ref _canSkipNext, value);
+        private set
+        {
+            if (SetField(ref _canSkipNext, value))
+            {
+                OnPropertyChanged(nameof(CanGoNext));
+                OnPropertyChanged(nameof(NextGlyph));
+                OnPropertyChanged(nameof(NextToolTip));
+            }
+        }
     }
 
     public bool CanSkipPrevious
     {
         get => _canSkipPrevious;
-        private set => SetField(ref _canSkipPrevious, value);
+        private set
+        {
+            if (SetField(ref _canSkipPrevious, value))
+            {
+                OnPropertyChanged(nameof(CanGoPrevious));
+                OnPropertyChanged(nameof(PreviousGlyph));
+                OnPropertyChanged(nameof(PreviousToolTip));
+            }
+        }
     }
+
+    public bool CanSeek
+    {
+        get => _canSeek;
+        private set
+        {
+            if (SetField(ref _canSeek, value))
+            {
+                OnPropertyChanged(nameof(CanGoNext));
+                OnPropertyChanged(nameof(CanGoPrevious));
+                OnPropertyChanged(nameof(NextGlyph));
+                OnPropertyChanged(nameof(PreviousGlyph));
+                OnPropertyChanged(nameof(NextToolTip));
+                OnPropertyChanged(nameof(PreviousToolTip));
+            }
+        }
+    }
+
+    public bool CanGoNext => CanSkipNext || CanSeek;
+
+    public bool CanGoPrevious => CanSkipPrevious || CanSeek;
+
+    public string NextGlyph => CanSkipNext ? "⏭" : "⏩";
+
+    public string PreviousGlyph => CanSkipPrevious ? "⏮" : "⏪";
+
+    public string NextToolTip => CanSkipNext ? "Следующий" : "Вперёд 10с";
+
+    public string PreviousToolTip => CanSkipPrevious ? "Предыдущий" : "Назад 10с";
 
     public bool CanTogglePlayback
     {
@@ -353,6 +403,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             IsPlaying = false;
             CanSkipNext = false;
             CanSkipPrevious = false;
+            CanSeek = false;
             CanTogglePlayback = false;
             CanControlVolume = false;
             IsVolumeEditorOpen = false;
@@ -375,6 +426,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         AppId = snapshot.AppId;
         CanSkipNext = snapshot.CanSkipNext;
         CanSkipPrevious = snapshot.CanSkipPrevious;
+        CanSeek = snapshot.CanSeek;
         CanTogglePlayback = snapshot.IsPlaying ? snapshot.CanPause : snapshot.CanPlay;
 
         if (appChanged || !CanControlVolume)

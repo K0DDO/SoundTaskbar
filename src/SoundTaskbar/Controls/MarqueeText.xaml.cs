@@ -12,16 +12,24 @@ public partial class MarqueeText : UserControl
             nameof(Text),
             typeof(string),
             typeof(MarqueeText),
-            new PropertyMetadata(string.Empty, (_, _) => { /* bound to TextBlock */ }));
+            new PropertyMetadata(string.Empty));
 
-    private DoubleAnimation? _animation;
     private bool _restartQueued;
+    private bool _isHovering;
 
     public MarqueeText()
     {
         InitializeComponent();
-        Loaded += (_, _) => Restart();
-        IsVisibleChanged += (_, _) => Restart();
+        MouseEnter += (_, _) =>
+        {
+            _isHovering = true;
+            Restart();
+        };
+        MouseLeave += (_, _) =>
+        {
+            _isHovering = false;
+            Stop();
+        };
     }
 
     public string Text
@@ -45,19 +53,32 @@ public partial class MarqueeText : UserControl
         Dispatcher.BeginInvoke(() =>
         {
             _restartQueued = false;
-            Restart();
+            if (_isHovering)
+            {
+                Restart();
+            }
+            else
+            {
+                Stop();
+            }
         }, DispatcherPriority.Background);
+    }
+
+    private void Stop()
+    {
+        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, null);
+        Slide.X = 0;
     }
 
     private void Restart()
     {
-        if (!IsLoaded)
+        if (!IsLoaded || !_isHovering)
         {
+            Stop();
             return;
         }
 
-        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, null);
-        Slide.X = 0;
+        Stop();
 
         var viewWidth = Host.ActualWidth;
         var textWidth = RunText.ActualWidth;
@@ -67,21 +88,20 @@ public partial class MarqueeText : UserControl
         }
 
         var distance = textWidth - viewWidth + 12;
-        var seconds = Math.Max(4, distance / 28);
+        var seconds = Math.Max(3.5, distance / 32);
 
-        _animation = new DoubleAnimation
+        var animation = new DoubleAnimation
         {
             From = 0,
             To = -distance,
             Duration = TimeSpan.FromSeconds(seconds),
             AutoReverse = true,
             RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+            BeginTime = TimeSpan.FromMilliseconds(250)
         };
 
-        // Pause briefly at each end.
-        _animation.BeginTime = TimeSpan.FromSeconds(1.2);
-        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, _animation);
+        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, animation);
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)

@@ -34,5 +34,10 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="CompactMediaButton" TargetType="Button" BasedOn="{StaticResource MediaButton}">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
     </Application.Resources>
 </Application>

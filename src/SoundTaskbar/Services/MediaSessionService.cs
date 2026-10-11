@@ -16,6 +16,7 @@ public sealed class MediaSessionSnapshot
     public bool CanPause { get; init; }
     public bool CanSkipNext { get; init; }
     public bool CanSkipPrevious { get; init; }
+    public bool CanSeek { get; init; }
     public TimeSpan Position { get; init; }
     public TimeSpan Duration { get; init; }
     public BitmapImage? Artwork { get; init; }
@@ -60,6 +61,7 @@ public sealed class MediaSessionService : IDisposable
             CanPause = controls.IsPauseEnabled,
             CanSkipNext = controls.IsNextEnabled,
             CanSkipPrevious = controls.IsPreviousEnabled,
+            CanSeek = controls.IsPlaybackPositionEnabled,
             Position = timeline.Position,
             Duration = timeline.EndTime > timeline.StartTime
                 ? timeline.EndTime - timeline.StartTime
@@ -98,6 +100,7 @@ public sealed class MediaSessionService : IDisposable
             CanPause = snapshot.CanPause,
             CanSkipNext = snapshot.CanSkipNext,
             CanSkipPrevious = snapshot.CanSkipPrevious,
+            CanSeek = snapshot.CanSeek,
             Position = snapshot.Position,
             Duration = snapshot.Duration,
             Artwork = artwork
@@ -116,10 +119,59 @@ public sealed class MediaSessionService : IDisposable
     public Task<bool> SkipPreviousAsync() =>
         _session is null ? Task.FromResult(false) : _session.TrySkipPreviousAsync().AsTask();
 
+    public async Task<bool> SeekByAsync(TimeSpan delta)
+    {
+        if (_session is null)
+        {
+            return false;
+        }
+
+        var snapshot = Capture();
+        if (!snapshot.CanSeek)
+        {
+            return false;
+        }
+
+        var target = snapshot.Position + delta;
+        if (target < TimeSpan.Zero)
+        {
+            target = TimeSpan.Zero;
+        }
+
+        if (snapshot.Duration > TimeSpan.Zero && target > snapshot.Duration)
+        {
+            target = snapshot.Duration;
+        }
+
+        return await _session.TryChangePlaybackPositionAsync(target.Ticks).AsTask();
+    }
+
     public Task<bool> TogglePlayPauseAsync()
     {
         var snapshot = Capture();
         return snapshot.IsPlaying ? PauseAsync() : PlayAsync();
+    }
+
+    public Task<bool> PreviousOrSeekBackAsync()
+    {
+        var snapshot = Capture();
+        if (snapshot.CanSkipPrevious)
+        {
+            return SkipPreviousAsync();
+        }
+
+        return snapshot.CanSeek ? SeekByAsync(TimeSpan.FromSeconds(-10)) : Task.FromResult(false);
+    }
+
+    public Task<bool> NextOrSeekForwardAsync()
+    {
+        var snapshot = Capture();
+        if (snapshot.CanSkipNext)
+        {
+            return SkipNextAsync();
+        }
+
+        return snapshot.CanSeek ? SeekByAsync(TimeSpan.FromSeconds(10)) : Task.FromResult(false);
     }
 
     public void Dispose()
