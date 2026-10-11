@@ -68,7 +68,8 @@ dotnet run --project src/SoundTaskbar
 
 - SMTC + prev/play/next + smooth progress (anti-rewind)
 - Host: child на весь таскбар + region под виджет; прозрачный фон (TranslucentTB)
-- Per-app volume: кнопка 🔊 → вертикальный слайдер (не master volume)
+- UI: бегущий title, artist снизу, VU green/yellow/red, inline volume slider
+- Per-app volume через Core Audio (не master)
 - Должен переживать Win+D
 
 ## Следующие шаги

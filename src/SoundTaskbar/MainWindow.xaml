@@ -1,6 +1,7 @@
 ﻿<Window x:Class="SoundTaskbar.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SoundTaskbar.Controls"
         Title="SoundTaskbar"
         Height="48"
         Width="800"
@@ -22,20 +23,23 @@
 
     <Canvas x:Name="RootCanvas" Background="Transparent">
         <Border x:Name="WidgetRoot"
-                Width="380"
+                Width="420"
                 Height="48"
-                Padding="8,4"
+                Padding="8,3"
                 BorderThickness="0"
-                Background="Transparent"
-                VerticalAlignment="Center">
+                Background="Transparent">
             <Grid VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#44000000">
+                <!-- Artwork -->
+                <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#44000000"
+                        VerticalAlignment="Center">
                     <Grid>
                         <TextBlock x:Name="ArtworkPlaceholder"
                                    Text="♪"
@@ -47,18 +51,34 @@
                     </Grid>
                 </Border>
 
-                <StackPanel Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="HeadlineText"
-                               Text="{Binding Headline}"
-                               Foreground="#F5F5F5"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis">
+                <!-- Title + artist + progress -->
+                <Grid Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center" MinWidth="90">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <controls:MarqueeText x:Name="TitleMarquee"
+                                          Text="{Binding Title}"
+                                          FontSize="12"
+                                          FontWeight="SemiBold"
+                                          Foreground="#F5F5F5"
+                                          Height="15" />
+
+                    <TextBlock x:Name="ArtistText"
+                               Grid.Row="1"
+                               Text="{Binding Artist}"
+                               Foreground="#B8C0CC"
+                               FontSize="10"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,1,0,2">
                         <TextBlock.Effect>
-                            <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
+                            <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
                         </TextBlock.Effect>
                     </TextBlock>
-                    <Grid Margin="0,3,0,0">
+
+                    <Grid Grid.Row="2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -76,22 +96,66 @@
                                    Margin="6,0,0,0"
                                    VerticalAlignment="Center"
                                    Foreground="#C8CDD6"
-                                   FontSize="10"
-                                   Text="{Binding TimeText}">
-                            <TextBlock.Effect>
-                                <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
-                            </TextBlock.Effect>
-                        </TextBlock>
+                                   FontSize="9"
+                                   Text="{Binding TimeText}" />
                     </Grid>
+                </Grid>
+
+                <!-- VU meter (green / yellow / red) -->
+                <Grid Grid.Column="2"
+                      Width="10"
+                      Height="28"
+                      Margin="0,0,6,0"
+                      VerticalAlignment="Center"
+                      ToolTip="Уровень источника">
+                    <Border CornerRadius="2" Opacity="0.95">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                <GradientStop Color="#22C55E" Offset="0" />
+                                <GradientStop Color="#22C55E" Offset="0.55" />
+                                <GradientStop Color="#EAB308" Offset="0.78" />
+                                <GradientStop Color="#EF4444" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <!-- Dark cover from the top hides unused part of the scale -->
+                    <Border VerticalAlignment="Top"
+                            Height="{Binding PeakCoverHeight}"
+                            Background="#D0121212"
+                            CornerRadius="2,2,0,0"
+                            IsHitTestVisible="False" />
+                </Grid>
+
+                <!-- Volume: button + inline slider -->
+                <StackPanel Grid.Column="3"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="0,0,6,0">
+                    <Slider x:Name="VolumeSlider"
+                            Width="72"
+                            Minimum="0"
+                            Maximum="1"
+                            VerticalAlignment="Center"
+                            Margin="0,0,4,0"
+                            IsEnabled="{Binding CanControlVolume}"
+                            Visibility="{Binding VolumeEditorVisibility}"
+                            Value="{Binding Volume, Mode=TwoWay}"
+                            ToolTip="Громкость источника" />
+                    <Button x:Name="VolumeButton"
+                            Content="{Binding VolumeGlyph}"
+                            Style="{StaticResource MediaButton}"
+                            IsEnabled="{Binding CanControlVolume}"
+                            Click="OnVolumeClick"
+                            ToolTip="Громкость источника" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- Transport -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Content="⏮"
                             Style="{StaticResource MediaButton}"
                             Command="{Binding PreviousCommand}"
                             ToolTip="Previous" />
-                    <Button x:Name="PlayPauseButton"
-                            Content="{Binding PlayPauseLabel}"
+                    <Button Content="{Binding PlayPauseLabel}"
                             Style="{StaticResource MediaButton}"
                             Command="{Binding PlayPauseCommand}"
                             ToolTip="Play / Pause"
@@ -100,13 +164,6 @@
                             Style="{StaticResource MediaButton}"
                             Command="{Binding NextCommand}"
                             ToolTip="Next" />
-                    <Button x:Name="VolumeButton"
-                            Content="{Binding VolumeGlyph}"
-                            Style="{StaticResource MediaButton}"
-                            Margin="4,0,0,0"
-                            IsEnabled="{Binding CanControlVolume}"
-                            Click="OnVolumeClick"
-                            ToolTip="Громкость источника" />
                 </StackPanel>
             </Grid>
         </Border>

@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using SoundTaskbar.Helpers;
 using SoundTaskbar.Services;
+using Visibility = System.Windows.Visibility;
 
 namespace SoundTaskbar.ViewModels;
 
@@ -34,11 +35,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private float _volumeLevel = 1f;
     private bool _isMuted;
     private bool _canControlVolume;
+    private bool _isVolumeEditorOpen;
+    private double _peakLevel;
+    private bool _suppressVolumeWrite;
 
     private TimeSpan _anchorPosition;
     private TimeSpan _duration;
     private double _anchorSeconds;
     private double _playbackRate;
+
+    public const double MeterHeight = 28;
 
     public MediaViewModel()
     {
@@ -55,7 +61,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _uiTicker.Tick += (_, _) => TickProgress();
 
-        _volumeTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        // Peak meter needs a fast poll; volume number can update with it.
+        _volumeTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _volumeTicker.Tick += (_, _) => RefreshVolume();
     }
 
@@ -68,29 +75,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public string Title
     {
         get => _title;
-        private set
-        {
-            if (SetField(ref _title, value))
-            {
-                OnPropertyChanged(nameof(Headline));
-            }
-        }
+        private set => SetField(ref _title, value);
     }
 
     public string Artist
     {
         get => _artist;
-        private set
-        {
-            if (SetField(ref _artist, value))
-            {
-                OnPropertyChanged(nameof(Headline));
-            }
-        }
+        private set => SetField(ref _artist, value);
     }
-
-    public string Headline =>
-        string.IsNullOrWhiteSpace(Artist) ? Title : $"{Title}  ·  {Artist}";
 
     public string AppId
     {
@@ -157,13 +149,28 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public float Volume
     {
         get => _volumeLevel;
-        private set
+        set
         {
-            if (SetField(ref _volumeLevel, value))
+            var clamped = Math.Clamp(value, 0f, 1f);
+            if (Math.Abs(_volumeLevel - clamped) < 0.0005f)
             {
-                OnPropertyChanged(nameof(VolumePercent));
-                OnPropertyChanged(nameof(VolumeGlyph));
+                return;
             }
+
+            if (!_suppressVolumeWrite && CanControlVolume && !string.IsNullOrWhiteSpace(AppId))
+            {
+                _volume.TrySetVolume(AppId, clamped);
+            }
+
+            _volumeLevel = clamped;
+            if (_volumeLevel > 0.001f)
+            {
+                IsMuted = false;
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(VolumePercent));
+            OnPropertyChanged(nameof(VolumeGlyph));
         }
     }
 
@@ -187,6 +194,35 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         private set => SetField(ref _canControlVolume, value);
     }
 
+    public bool IsVolumeEditorOpen
+    {
+        get => _isVolumeEditorOpen;
+        set
+        {
+            if (SetField(ref _isVolumeEditorOpen, value))
+            {
+                OnPropertyChanged(nameof(VolumeEditorVisibility));
+            }
+        }
+    }
+
+    public Visibility VolumeEditorVisibility =>
+        IsVolumeEditorOpen ? Visibility.Visible : Visibility.Collapsed;
+
+    public double PeakLevel
+    {
+        get => _peakLevel;
+        private set
+        {
+            if (SetField(ref _peakLevel, value))
+            {
+                OnPropertyChanged(nameof(PeakCoverHeight));
+            }
+        }
+    }
+
+    public double PeakCoverHeight => Math.Clamp((1.0 - PeakLevel) * MeterHeight, 0, MeterHeight);
+
     public string VolumeGlyph =>
         !CanControlVolume ? "🔈" :
         IsMuted || Volume <= 0.001f ? "🔇" :
@@ -205,6 +241,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (_disposed || string.IsNullOrWhiteSpace(AppId))
         {
             CanControlVolume = false;
+            PeakLevel = 0;
             return;
         }
 
@@ -212,41 +249,31 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         CanControlVolume = state.Found;
         if (!state.Found)
         {
-            return;
-        }
-
-        Volume = state.Volume;
-        IsMuted = state.IsMuted;
-    }
-
-    public void SetVolume(float value)
-    {
-        if (!CanControlVolume || string.IsNullOrWhiteSpace(AppId))
-        {
-            return;
-        }
-
-        if (_volume.TrySetVolume(AppId, value))
-        {
-            Volume = Math.Clamp(value, 0f, 1f);
-            if (Volume > 0.001f)
+            PeakLevel = 0;
+            if (IsVolumeEditorOpen)
             {
-                IsMuted = false;
+                IsVolumeEditorOpen = false;
+            }
+
+            return;
+        }
+
+        if (!IsVolumeEditorOpen)
+        {
+            _suppressVolumeWrite = true;
+            try
+            {
+                Volume = state.Volume;
+            }
+            finally
+            {
+                _suppressVolumeWrite = false;
             }
         }
-    }
 
-    public void ToggleMute()
-    {
-        if (!CanControlVolume || string.IsNullOrWhiteSpace(AppId))
-        {
-            return;
-        }
-
-        if (_volume.TryToggleMute(AppId))
-        {
-            RefreshVolume();
-        }
+        IsMuted = state.IsMuted;
+        // Visual loudness ≈ signal peak (and zero when muted).
+        PeakLevel = state.IsMuted ? 0 : state.Peak;
     }
 
     public void Dispose()
@@ -317,7 +344,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (!snapshot.HasSession)
         {
             Title = "Нет активного медиа";
-            Artist = "Запусти Spotify, Яндекс Музыку или видео";
+            Artist = "Запусти музыку или видео";
             AppId = string.Empty;
             _duration = TimeSpan.Zero;
             SetTimelineAnchor(TimeSpan.Zero, playing: false);
@@ -328,6 +355,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             CanSkipPrevious = false;
             CanTogglePlayback = false;
             CanControlVolume = false;
+            IsVolumeEditorOpen = false;
+            PeakLevel = 0;
             Artwork = null;
             return;
         }

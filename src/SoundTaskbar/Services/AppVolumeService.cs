@@ -3,9 +3,9 @@ using NAudio.CoreAudioApi;
 
 namespace SoundTaskbar.Services;
 
-public readonly record struct AppVolumeState(bool Found, float Volume, bool IsMuted)
+public readonly record struct AppVolumeState(bool Found, float Volume, bool IsMuted, float Peak)
 {
-    public static AppVolumeState Missing { get; } = new(false, 0, false);
+    public static AppVolumeState Missing { get; } = new(false, 0, false, 0);
 }
 
 /// <summary>
@@ -35,10 +35,21 @@ public sealed class AppVolumeService : IDisposable
                 return AppVolumeState.Missing;
             }
 
+            var peak = 0f;
+            try
+            {
+                peak = session.AudioMeterInformation.MasterPeakValue;
+            }
+            catch
+            {
+                // meter unavailable for some sessions
+            }
+
             return new AppVolumeState(
                 Found: true,
                 Volume: session.SimpleAudioVolume.Volume,
-                IsMuted: session.SimpleAudioVolume.Mute);
+                IsMuted: session.SimpleAudioVolume.Mute,
+                Peak: Math.Clamp(peak, 0f, 1f));
         }
     }
 

@@ -11,13 +11,12 @@ public partial class MainWindow : Window
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;
     private readonly EventHandler<TaskbarLayout> _layoutHandler;
-    private readonly SolidColorBrush _headlineBrush = new(Color.FromRgb(0xF5, 0xF5, 0xF5));
-    private readonly SolidColorBrush _mutedBrush = new(Color.FromRgb(0xC8, 0xCD, 0xD6));
+    private readonly SolidColorBrush _titleBrush = new(Color.FromRgb(0xF5, 0xF5, 0xF5));
+    private readonly SolidColorBrush _mutedBrush = new(Color.FromRgb(0xB8, 0xC0, 0xCC));
     private readonly SolidColorBrush _progressTrackBrush = new(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
     private readonly SolidColorBrush _progressFillBrush = new(Color.FromRgb(0x9E, 0xC5, 0xFF));
     private TaskbarHostService? _taskbarHost;
     private TaskbarAppearanceService? _appearance;
-    private VolumeFlyout? _volumeFlyout;
 
     public MainWindow()
     {
@@ -26,7 +25,8 @@ public partial class MainWindow : Window
         _appearanceHandler = (_, appearance) => ApplyAppearance(appearance);
         _layoutHandler = (_, layout) => ApplyLayout(layout);
 
-        HeadlineText.Foreground = _headlineBrush;
+        TitleMarquee.Foreground = _titleBrush;
+        ArtistText.Foreground = _mutedBrush;
         TimeText.Foreground = _mutedBrush;
         ArtworkPlaceholder.Foreground = _mutedBrush;
         ProgressBar.Background = _progressTrackBrush;
@@ -49,9 +49,6 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        _volumeFlyout?.Close();
-        _volumeFlyout = null;
-
         if (_taskbarHost is not null)
         {
             _taskbarHost.LayoutChanged -= _layoutHandler;
@@ -75,21 +72,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _volumeFlyout ??= new VolumeFlyout(_viewModel);
-        if (_volumeFlyout.IsVisible)
-        {
-            _volumeFlyout.Hide();
-            return;
-        }
-
-        _volumeFlyout.SyncFromViewModel();
-
-        // PointToScreen works for taskbar-hosted child windows.
-        var screen = VolumeButton.PointToScreen(new Point(VolumeButton.ActualWidth / 2, 0));
-        _volumeFlyout.Left = screen.X - (_volumeFlyout.Width / 2);
-        _volumeFlyout.Top = screen.Y - _volumeFlyout.Height - 10;
-        _volumeFlyout.Show();
-        _volumeFlyout.Activate();
+        _viewModel.IsVolumeEditorOpen = !_viewModel.IsVolumeEditorOpen;
     }
 
     private void ApplyLayout(TaskbarLayout layout)
@@ -102,12 +85,13 @@ public partial class MainWindow : Window
 
     private void ApplyAppearance(TaskbarAppearance appearance)
     {
-        _headlineBrush.Color = appearance.Foreground;
+        _titleBrush.Color = appearance.Foreground;
         _mutedBrush.Color = appearance.MutedForeground;
         _progressTrackBrush.Color = appearance.ProgressTrack;
         _progressFillBrush.Color = appearance.IsLight
             ? Color.FromRgb(0x00, 0x6C, 0xBE)
             : Color.FromRgb(0x9E, 0xC5, 0xFF);
+        TitleMarquee.Foreground = _titleBrush;
     }
 
     private void OnExitClick(object sender, RoutedEventArgs e) =>
