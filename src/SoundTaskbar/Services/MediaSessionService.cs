@@ -152,6 +152,8 @@ public sealed class MediaSessionService : IDisposable
         return snapshot.IsPlaying ? PauseAsync() : PlayAsync();
     }
 
+    public const int SeekStepSeconds = 10;
+
     public Task<bool> PreviousOrSeekBackAsync()
     {
         var snapshot = Capture();
@@ -160,7 +162,9 @@ public sealed class MediaSessionService : IDisposable
             return SkipPreviousAsync();
         }
 
-        return snapshot.CanSeek ? SeekByAsync(TimeSpan.FromSeconds(-10)) : Task.FromResult(false);
+        return snapshot.CanSeek
+            ? SeekByAsync(TimeSpan.FromSeconds(-SeekStepSeconds))
+            : Task.FromResult(false);
     }
 
     public Task<bool> NextOrSeekForwardAsync()
@@ -171,7 +175,9 @@ public sealed class MediaSessionService : IDisposable
             return SkipNextAsync();
         }
 
-        return snapshot.CanSeek ? SeekByAsync(TimeSpan.FromSeconds(10)) : Task.FromResult(false);
+        return snapshot.CanSeek
+            ? SeekByAsync(TimeSpan.FromSeconds(SeekStepSeconds))
+            : Task.FromResult(false);
     }
 
     public void Dispose()

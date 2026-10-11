@@ -62,6 +62,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         NextCommand = new RelayCommand(
             async _ => await _media.NextOrSeekForwardAsync(),
             _ => CanGoNext);
+        ToggleMuteCommand = new RelayCommand(
+            _ => ToggleMute(),
+            _ => CanControlVolume);
 
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
         _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -84,6 +87,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand PreviousCommand { get; }
     public RelayCommand PlayPauseCommand { get; }
     public RelayCommand NextCommand { get; }
+    public RelayCommand ToggleMuteCommand { get; }
+
+    public int SeekSeconds => MediaSessionService.SeekStepSeconds;
 
     public string Title
     {
@@ -223,6 +229,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(VolumePercent));
             OnPropertyChanged(nameof(VolumeGlyph));
+            OnPropertyChanged(nameof(MuteGlyph));
 
             if (!_suppressVolumeWrite && IsVolumeEditorOpen)
             {
@@ -241,6 +248,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (SetField(ref _isMuted, value))
             {
                 OnPropertyChanged(nameof(VolumeGlyph));
+                OnPropertyChanged(nameof(MuteGlyph));
             }
         }
     }
@@ -248,7 +256,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public bool CanControlVolume
     {
         get => _canControlVolume;
-        private set => SetField(ref _canControlVolume, value);
+        private set
+        {
+            if (SetField(ref _canControlVolume, value))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
     }
 
     public bool IsVolumeEditorOpen
@@ -290,6 +304,25 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         !CanControlVolume ? "🔈" :
         IsMuted || Volume <= 0.001f ? "🔇" :
         Volume < 0.35f ? "🔉" : "🔊";
+
+    public string MuteGlyph => IsMuted || Volume <= 0.001f ? "🔇" : "🔈";
+
+    public void ToggleMute()
+    {
+        if (!CanControlVolume || string.IsNullOrWhiteSpace(AppId))
+        {
+            return;
+        }
+
+        if (_volume.TryToggleMute(AppId))
+        {
+            RefreshVolume();
+            if (IsVolumeEditorOpen)
+            {
+                BounceVolumeHideTimer();
+            }
+        }
+    }
 
     public async Task InitializeAsync()
     {

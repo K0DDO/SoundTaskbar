@@ -11,7 +11,8 @@ namespace SoundTaskbar;
 public partial class MainWindow : Window
 {
     private const double VolumeClosedWidth = 18;
-    private const double VolumeOpenWidth = 74;
+    private const double VolumeOpenWidth = 56;
+    private const double VolumeButtonWidth = 18;
 
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;
@@ -124,8 +125,17 @@ public partial class MainWindow : Window
             new DoubleAnimation
             {
                 To = open ? 0 : 1,
-                Duration = TimeSpan.FromMilliseconds(open ? 140 : 200),
-                BeginTime = open ? TimeSpan.Zero : TimeSpan.FromMilliseconds(40),
+                Duration = TimeSpan.FromMilliseconds(open ? 120 : 180),
+                BeginTime = open ? TimeSpan.Zero : TimeSpan.FromMilliseconds(60),
+                EasingFunction = ease
+            });
+
+        VolumeButton.BeginAnimation(
+            WidthProperty,
+            new DoubleAnimation
+            {
+                To = open ? 0 : VolumeButtonWidth,
+                Duration = duration,
                 EasingFunction = ease
             });
 

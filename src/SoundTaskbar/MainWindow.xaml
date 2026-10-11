@@ -35,6 +35,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
                 <!-- Artwork -->
@@ -124,12 +125,12 @@
                             IsHitTestVisible="False" />
                 </Grid>
 
-                <!-- Volume: rolls out left from the icon; icon fades while open -->
+                <!-- Volume: rolls out left from the icon; icon collapses while open -->
                 <Grid x:Name="VolumeHost"
                       Grid.Column="3"
                       Width="18"
                       Height="18"
-                      Margin="0,0,3,0"
+                      Margin="0,0,1,0"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
                     <StackPanel x:Name="VolumePanel"
@@ -150,12 +151,21 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Transport: skip track icons, or seek icons when skip unavailable -->
-                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- Mute sits in the gap between slider and prev; remembers session mute -->
+                <Button x:Name="MuteButton"
+                        Grid.Column="4"
+                        Content="{Binding MuteGlyph}"
+                        Style="{StaticResource CompactMediaButton}"
+                        Command="{Binding ToggleMuteCommand}"
+                        Margin="0,0,2,0" />
+
+                <!-- Transport: skip track, or circular ±N seek when skip unavailable -->
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource CompactMediaButton}"
                             Command="{Binding PreviousCommand}">
                         <controls:TransportIcon x:Name="PreviousIcon"
                                                   Kind="{Binding PreviousIconKind}"
+                                                  Seconds="{Binding SeekSeconds}"
                                                   Foreground="#F2F4F7" />
                     </Button>
                     <Button Content="{Binding PlayPauseLabel}"
@@ -166,6 +176,7 @@
                             Command="{Binding NextCommand}">
                         <controls:TransportIcon x:Name="NextIcon"
                                                   Kind="{Binding NextIconKind}"
+                                                  Seconds="{Binding SeekSeconds}"
                                                   Foreground="#F2F4F7" />
                     </Button>
                 </StackPanel>
