@@ -444,6 +444,7 @@ public partial class MainWindow : Window
         if (!open && !_parkedOpen)
         {
             _viewModel.CompleteParkedDismiss();
+            _viewModel.ApplyParkedCompositeWidth(null);
             return;
         }
 
@@ -480,6 +481,7 @@ public partial class MainWindow : Window
                         Duration = TimeSpan.FromMilliseconds(260),
                         EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                     });
+                _viewModel.ApplyParkedCompositeWidth(targetWidth);
                 return;
             }
 
@@ -526,6 +528,11 @@ public partial class MainWindow : Window
             if (!open)
             {
                 _viewModel.CompleteParkedDismiss();
+                _viewModel.ApplyParkedCompositeWidth(null);
+            }
+            else
+            {
+                _viewModel.ApplyParkedCompositeWidth(targetWidth);
             }
 
             return;
@@ -542,7 +549,11 @@ public partial class MainWindow : Window
         };
         if (!open)
         {
-            widthAnim.Completed += (_, _) => _viewModel.CompleteParkedDismiss();
+            widthAnim.Completed += (_, _) =>
+            {
+                _viewModel.CompleteParkedDismiss();
+                _viewModel.ApplyParkedCompositeWidth(null);
+            };
         }
 
         ParkedHost.BeginAnimation(WidthProperty, widthAnim);
@@ -555,6 +566,11 @@ public partial class MainWindow : Window
                 Duration = duration,
                 EasingFunction = ease
             });
+
+        if (open)
+        {
+            _viewModel.ApplyParkedCompositeWidth(targetWidth);
+        }
 
         if (wasOpen != open)
         {

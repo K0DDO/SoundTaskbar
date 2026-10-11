@@ -66,16 +66,15 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- Парный layout: movable divider `parked | div | art | meta*`; meta растёт когда chip схлопывается
-- Expanded audio = mirror chrome + art|text; title marquee; accent progress; dual → mono icon, solo → source name
-- Solo widget width 310; pair/twin остаются 520
-- Title fade: edge-scrim справа у блока (OpacityMask на layered window не виден); гаснет у конца текста
-- Solo: mono icon + name; collapse имени синхронен с width volume (260ms / тот же ease)
-- Отступ text↔VU = 6px (3×), VU↔volume = 2px
-- Стоп песни → 1s hold, потом collapse; primary ширина возвращается
+- **Solo заморожен** (310, marquee/fade/icon/VU gaps) — не менять без явного запроса
+- pause+play: chip + divider + play; ширина = `(310 - 28) + parked + 16.5` через `ApplyParkedCompositeWidth`
+- Парный layout: movable divider `parked | div | art | meta*`; expanded pair / twin = 520
+- Title fade: edge-scrim; Solo: mono icon + name; volume collapse sync
+- Стоп песни → 1s hold, потом collapse
 
 ## Следующие шаги
 
-1. TwinVideo mirrored UX
-2. Seek по клику на прогресс
-3. Автозапуск с Windows
+1. play+play (PrimaryWithExpandedSide) от соло
+2. TwinVideo mirrored UX
+3. Seek по клику на прогресс
+4. Автозапуск с Windows

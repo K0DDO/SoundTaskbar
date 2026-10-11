@@ -57,7 +57,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _isDualPlaying;
     private bool _showParkedRail;
     private bool _parkedDismissPending;
-    private const double SoloWidgetWidth = 310;
+    /// <summary>Frozen solo baseline width — do not change for pause+play composition.</summary>
+    public const double SoloWidgetWidth = 310;
+
+    /// <summary>Play zone is slightly narrower than solo when a pause chip sits beside it.</summary>
+    private const double PausePlayTrim = 28;
+
+    /// <summary>ParkedDivider width 2.5 + margins 8+6.</summary>
+    private const double PausePlayDividerChrome = 16.5;
+
     private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
@@ -179,6 +187,25 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _desiredWidgetWidth;
         private set => SetField(ref _desiredWidgetWidth, value);
+    }
+
+    /// <summary>
+    /// pause+play: (solo - trim) + parked chip + divider. Solo-only / dual / expanded pair: leave alone or reset.
+    /// </summary>
+    public void ApplyParkedCompositeWidth(double? parkedMeasuredWidth)
+    {
+        if (IsDualPlaying || SideSessions.Any(s => s.ShowExpandedMeta))
+        {
+            return;
+        }
+
+        if (parkedMeasuredWidth is null || parkedMeasuredWidth < 1 || !ShowParkedRail)
+        {
+            DesiredWidgetWidth = SoloWidgetWidth;
+            return;
+        }
+
+        DesiredWidgetWidth = SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
     }
 
     /// <summary>
@@ -684,7 +711,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             ClearPairHold();
             IsDualPlaying = false;
             DualSessions.Clear();
-            DesiredWidgetWidth = SoloWidgetWidth;
 
             var parked = enriched
                 .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
@@ -698,9 +724,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedMeta: false);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
+                // Widget width: MainWindow ApplyParkedCompositeWidth after chip measure (not Solo clamp).
             }
             else
             {
+                DesiredWidgetWidth = SoloWidgetWidth;
                 RequestParkedDismiss();
             }
         }
