@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
@@ -7,6 +8,8 @@ namespace SoundTaskbar.Controls;
 
 public partial class MarqueeText : UserControl
 {
+    private const double FadeStartOffset = 0.78;
+
     public static readonly DependencyProperty TextProperty =
         DependencyProperty.Register(
             nameof(Text),
@@ -91,12 +94,28 @@ public partial class MarqueeText : UserControl
 
     private void Stop()
     {
-        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, null);
-        EllipsisMark.BeginAnimation(OpacityProperty, null);
+        Slide.BeginAnimation(TranslateTransform.XProperty, null);
+        FadeBegin.BeginAnimation(GradientStop.OffsetProperty, null);
+        FadeOut.BeginAnimation(GradientStop.OffsetProperty, null);
         Slide.X = 0;
         UpdateOverflowFlag();
-        // At rest: keep "..." while the title still overflows.
-        EllipsisMark.Opacity = _overflows ? 1 : 0;
+        ApplyFade(_overflows);
+    }
+
+    private void ApplyFade(bool show)
+    {
+        if (show)
+        {
+            FadeBegin.Offset = FadeStartOffset;
+            FadeOut.Offset = 1;
+            FadeOut.Color = Colors.Transparent;
+        }
+        else
+        {
+            FadeBegin.Offset = 1;
+            FadeOut.Offset = 1;
+            FadeOut.Color = Colors.Black;
+        }
     }
 
     private void UpdateOverflowFlag()
@@ -140,20 +159,33 @@ public partial class MarqueeText : UserControl
             BeginTime = begin
         };
 
-        // Keep "..." until the scroll reaches the end; AutoReverse brings them back.
-        var ellipsis = new DoubleAnimationUsingKeyFrames
+        // Keep right-edge fade until scroll reaches the end; AutoReverse restores it.
+        var fadeBeginAnim = new DoubleAnimationUsingKeyFrames
         {
             Duration = duration,
             AutoReverse = true,
             RepeatBehavior = RepeatBehavior.Forever,
             BeginTime = begin
         };
-        ellipsis.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0)));
-        ellipsis.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.92)));
-        ellipsis.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(1)));
+        fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0)));
+        fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0.88)));
+        fadeBeginAnim.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(1)));
 
-        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, slide);
-        EllipsisMark.BeginAnimation(OpacityProperty, ellipsis);
+        var fadeOutAnim = new DoubleAnimationUsingKeyFrames
+        {
+            Duration = duration,
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            BeginTime = begin
+        };
+        fadeOutAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0)));
+        fadeOutAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.88)));
+        fadeOutAnim.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(1)));
+
+        FadeOut.Color = Colors.Transparent;
+        Slide.BeginAnimation(TranslateTransform.XProperty, slide);
+        FadeBegin.BeginAnimation(GradientStop.OffsetProperty, fadeBeginAnim);
+        FadeOut.BeginAnimation(GradientStop.OffsetProperty, fadeOutAnim);
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)

@@ -3,7 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ClipToBounds="True"
              Height="16">
-    <Grid>
+    <Grid x:Name="Root">
+        <Grid.OpacityMask>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                <GradientStop x:Name="FadeKeep" Color="Black" Offset="0" />
+                <GradientStop x:Name="FadeBegin" Color="Black" Offset="1" />
+                <GradientStop x:Name="FadeOut" Color="Transparent" Offset="1" />
+            </LinearGradientBrush>
+        </Grid.OpacityMask>
         <Canvas x:Name="Host" SizeChanged="OnHostSizeChanged">
             <TextBlock x:Name="RunText"
                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -19,19 +26,5 @@
                 </TextBlock.Effect>
             </TextBlock>
         </Canvas>
-        <!-- Overflow cue: stays until marquee reaches the end of the title -->
-        <TextBlock x:Name="EllipsisMark"
-                   Text="..."
-                   HorizontalAlignment="Right"
-                   VerticalAlignment="Center"
-                   IsHitTestVisible="False"
-                   Opacity="0"
-                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}">
-            <TextBlock.Effect>
-                <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
-            </TextBlock.Effect>
-        </TextBlock>
     </Grid>
 </UserControl>

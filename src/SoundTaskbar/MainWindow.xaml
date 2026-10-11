@@ -666,7 +666,7 @@
 
                         <Grid x:Name="PrimaryMetaHost"
                               Grid.Column="3"
-                              Margin="5,0,4,0"
+                              Margin="5,0,0,0"
                               VerticalAlignment="Center">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -748,12 +748,12 @@
                 </Border>
                 </Grid>
 
-                <!-- VU meter (single mode) -->
+                <!-- VU meter (single mode); left gap = right gap to volume -->
                 <Grid x:Name="VuHost"
                       Grid.Column="1"
                       Width="8"
                       Height="24"
-                      Margin="0,0,4,0"
+                      Margin="4,0,4,0"
                       VerticalAlignment="Center">
                     <Border CornerRadius="2" Opacity="0.95">
                         <Border.Background>
