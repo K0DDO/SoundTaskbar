@@ -68,7 +68,7 @@ dotnet run --project src/SoundTaskbar
 
 - **Solo заморожен** (310, marquee/fade/icon/VU gaps) — не менять без явного запроса
 - pause+play: chip + divider + play; ширина = `(310 - 28) + parked + 16.5`
-- pause chip anim: right-align wipe from divider; shell width animated in lockstep (no play jerk)
+- pause chip anim: right-align wipe from divider; shell width in lockstep; dismiss = reverse appear (`SealParkedReveal` + 1→0 EaseIn 340ms)
 - Парный layout: movable divider `parked | div | art | meta*`; expanded pair / twin = 520
 - Title fade: edge-scrim; Solo: mono icon + name; volume collapse sync
 - Стоп песни → 1s hold, потом collapse
