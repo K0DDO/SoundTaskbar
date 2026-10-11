@@ -215,8 +215,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Animate meta rail 0↔102 and grow ParkedHost by the same delta.
-    /// Art + divider stay fixed; volume/prev slide left.
+    /// Animate meta rail and resize ParkedHost to the full measured chip width.
+    /// Must remasure (not just +delta): right-aligned clip otherwise eats volume + VU.
     /// </summary>
     private void ExpandChipMetaInPlace()
     {
@@ -228,7 +228,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        double metaDelta = 0;
+        // Remember per-chip meta from/to, then snap meta to target for an accurate measure.
+        var metaAnims = new List<(FrameworkElement Host, double From, double To, SideSessionViewModel Side)>();
         for (var i = 0; i < ParkedList.Items.Count; i++)
         {
             if (ParkedList.Items[i] is not SideSessionViewModel side)
@@ -238,45 +239,63 @@ public partial class MainWindow : Window
 
             var target = side.TargetMetaRailWidth;
             var from = side.MetaRailWidth;
-            metaDelta += target - from;
-
-            if (Math.Abs(target - from) < 0.5)
-            {
-                continue;
-            }
-
             if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is DependencyObject container &&
                 FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
-                metaHost.BeginAnimation(WidthProperty, null);
-                metaHost.Width = from;
-                var anim = new DoubleAnimation
-                {
-                    From = from,
-                    To = target,
-                    Duration = TimeSpan.FromMilliseconds(260),
-                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-                };
-                var captured = side;
-                var capturedTo = target;
-                anim.Completed += (_, _) =>
-                {
-                    captured.MetaRailWidth = capturedTo;
-                    metaHost.BeginAnimation(WidthProperty, null);
-                    metaHost.Width = capturedTo;
-                };
-                metaHost.BeginAnimation(WidthProperty, anim);
+                metaAnims.Add((metaHost, from, target, side));
             }
 
             side.MetaRailWidth = target;
         }
 
-        if (Math.Abs(metaDelta) < 0.5)
+        SyncChipMetaWidths(animate: false);
+
+        // Unconstrain host so DesiredSize includes volume + VU + meta + art.
+        ParkedHost.BeginAnimation(WidthProperty, null);
+        ParkedHost.Width = double.NaN;
+        ParkedHost.UpdateLayout();
+        ParkedList.UpdateLayout();
+        var parkedTo = Math.Ceiling(MeasureParkedListWidth());
+        ParkedHost.Width = parkedFrom;
+        if (parkedTo < 1)
+        {
+            parkedTo = parkedFrom;
+        }
+
+        // Animate meta  from→to (volume/VU stay visible; host grows to full measure).
+        foreach (var (metaHost, from, to, side) in metaAnims)
+        {
+            if (Math.Abs(to - from) < 0.5)
+            {
+                continue;
+            }
+
+            metaHost.BeginAnimation(WidthProperty, null);
+            metaHost.Width = from;
+            var anim = new DoubleAnimation
+            {
+                From = from,
+                To = to,
+                Duration = TimeSpan.FromMilliseconds(260),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            var capturedHost = metaHost;
+            var capturedTo = to;
+            var capturedSide = side;
+            anim.Completed += (_, _) =>
+            {
+                capturedSide.MetaRailWidth = capturedTo;
+                capturedHost.BeginAnimation(WidthProperty, null);
+                capturedHost.Width = capturedTo;
+            };
+            metaHost.BeginAnimation(WidthProperty, anim);
+        }
+
+        if (Math.Abs(parkedTo - parkedFrom) < 0.5)
         {
             return;
         }
 
-        var parkedTo = Math.Max(0, parkedFrom + metaDelta);
         ParkedHost.BeginAnimation(WidthProperty, null);
         ParkedHost.Width = parkedFrom;
         ParkedHost.Opacity = 1;
