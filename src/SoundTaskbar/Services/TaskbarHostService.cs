@@ -30,7 +30,11 @@ public sealed class TaskbarHostService : IDisposable
     private int _lastHeight = int.MinValue;
     private int _lastRegionLeft = int.MinValue;
     private int _lastRegionWidth = int.MinValue;
+    private int _lastRevealWidth = int.MinValue;
     private double _desiredWidgetWidthDip = 310;
+    private double _revealFraction = 1;
+    private IntPtr _taskbar;
+    private IntPtr _tray;
 
     public TaskbarHostService(Window window)
     {
@@ -55,7 +59,27 @@ public sealed class TaskbarHostService : IDisposable
             }
 
             _desiredWidgetWidthDip = clamped;
-            AttachAndPosition();
+            UpdateRegion();
+        }
+    }
+
+    /// <summary>
+    /// 0 = fully hidden (empty region), 1 = whole widget band. The visible band is
+    /// anchored at the tray edge so hide/show wipes toward the tray; layout is untouched.
+    /// </summary>
+    public double RevealFraction
+    {
+        get => _revealFraction;
+        set
+        {
+            var clamped = Math.Clamp(value, 0, 1);
+            if (Math.Abs(_revealFraction - clamped) < 0.0005)
+            {
+                return;
+            }
+
+            _revealFraction = clamped;
+            UpdateRegion();
         }
     }
 
@@ -114,27 +138,57 @@ public sealed class TaskbarHostService : IDisposable
             return;
         }
 
-        var style = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_STYLE);
-        style = (style & ~NativeMethods.WS_POPUP & ~NativeMethods.WS_CAPTION & ~NativeMethods.WS_THICKFRAME & ~NativeMethods.WS_SYSMENU)
-                | NativeMethods.WS_CHILD
-                | NativeMethods.WS_VISIBLE;
-        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_STYLE, style);
+        // SetWindowLong always sends WM_STYLECHANGING/CHANGED ? only write on real change.
+        var oldStyle = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_STYLE);
+        var style = (oldStyle & ~NativeMethods.WS_POPUP & ~NativeMethods.WS_CAPTION & ~NativeMethods.WS_THICKFRAME & ~NativeMethods.WS_SYSMENU)
+                    | NativeMethods.WS_CHILD
+                    | NativeMethods.WS_VISIBLE;
+        if (style != oldStyle)
+        {
+            NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_STYLE, style);
+        }
 
-        var ex = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE);
-        ex |= NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW;
-        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE, ex);
+        var oldEx = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE);
+        var ex = oldEx | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW;
+        if (ex != oldEx)
+        {
+            NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE, ex);
+        }
 
         if (NativeMethods.GetParent(_hwnd) != taskbar)
         {
             NativeMethods.SetParent(_hwnd, taskbar);
         }
 
+        _taskbar = taskbar;
+        _tray = NativeMethods.FindWindowEx(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);
+        Position(taskbar, _tray);
+    }
+
+    /// <summary>Per-frame path for width / reveal tweens: geometry + region only.</summary>
+    private void UpdateRegion()
+    {
+        if (_disposed || _hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_taskbar == IntPtr.Zero || !NativeMethods.IsWindow(_taskbar) || NativeMethods.GetParent(_hwnd) != _taskbar)
+        {
+            AttachAndPosition();
+            return;
+        }
+
+        Position(_taskbar, _tray);
+    }
+
+    private void Position(IntPtr taskbar, IntPtr tray)
+    {
         if (!NativeMethods.GetWindowRect(taskbar, out var taskbarRect))
         {
             return;
         }
 
-        var tray = NativeMethods.FindWindowEx(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);
         NativeMethods.RECT trayRect;
         if (tray == IntPtr.Zero || !NativeMethods.GetWindowRect(tray, out trayRect))
         {
@@ -173,6 +227,8 @@ public sealed class TaskbarHostService : IDisposable
 
         var barChanged = barWidth != _lastWidth || barHeight != _lastHeight;
         var regionChanged = widgetPoint.X != _lastRegionLeft || widgetWidth != _lastRegionWidth;
+        var revealWidth = (int)Math.Round(widgetWidth * _revealFraction);
+        var revealChanged = revealWidth != _lastRevealWidth;
 
         // SetWindowPos only when the taskbar bar itself moves/resizes — not every shell-width frame.
         if (barChanged || _lastWidth == int.MinValue)
@@ -190,27 +246,32 @@ public sealed class TaskbarHostService : IDisposable
                 NativeMethods.SWP_ASYNCWINDOWPOS);
         }
 
-        if (!regionChanged && !barChanged)
+        if (!regionChanged && !barChanged && !revealChanged)
         {
             return;
         }
 
         _lastRegionLeft = widgetPoint.X;
         _lastRegionWidth = widgetWidth;
+        _lastRevealWidth = revealWidth;
         _lastWidth = barWidth;
         _lastHeight = barHeight;
 
-        var region = NativeMethods.CreateRectRgn(
-            widgetPoint.X,
-            0,
-            widgetPoint.X + widgetWidth,
-            barHeight);
+        var regionRight = widgetPoint.X + widgetWidth;
+        var region = revealWidth <= 0
+            ? NativeMethods.CreateRectRgn(0, 0, 0, 0)
+            : NativeMethods.CreateRectRgn(regionRight - revealWidth, 0, regionRight, barHeight);
         if (region != IntPtr.Zero)
         {
             if (NativeMethods.SetWindowRgn(_hwnd, region, true) == 0)
             {
                 NativeMethods.DeleteObject(region);
             }
+        }
+
+        if (!regionChanged && !barChanged)
+        {
+            return;
         }
 
         var layout = new TaskbarLayout(

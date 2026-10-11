@@ -27,6 +27,7 @@
 
         <!-- Compact paused chip OR expanded = mirrored primary chrome + same art|text block -->
         <DataTemplate x:Key="SessionArtChip">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Grid Margin="0,0,2,0" VerticalAlignment="Center">
                 <!-- Compact: paused side chip (frozen pause+play) -->
                 <StackPanel Orientation="Horizontal"
@@ -414,6 +415,15 @@
                     </Grid>
                 </StackPanel>
             </Grid>
+            <!-- Between side chips (3+ sources); last chip uses ParkedDivider -->
+            <Border Width="2.5"
+                    Height="28"
+                    CornerRadius="1.25"
+                    Background="#AAFFFFFF"
+                    Margin="6,0,6,0"
+                    VerticalAlignment="Center"
+                    Visibility="{Binding DividerVisibility}" />
+            </StackPanel>
         </DataTemplate>
     </Window.Resources>
 
@@ -424,6 +434,7 @@
                 Padding="6,2"
                 BorderThickness="0"
                 Background="Transparent">
+            <Grid>
             <Grid VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -476,7 +487,8 @@
                                 Opacity="0"
                                 VerticalAlignment="Center" />
 
-                        <Border Grid.Column="2"
+                        <Border x:Name="PrimaryArtHost"
+                                Grid.Column="2"
                                 Width="28"
                                 Height="28"
                                 CornerRadius="4"
@@ -679,6 +691,11 @@
                                                   Foreground="#F2F4F7" />
                     </Button>
                 </StackPanel>
+            </Grid>
+            <!-- Primary swap: snapshots of the old frame fly out here -->
+            <Canvas x:Name="SwapOverlay"
+                    IsHitTestVisible="False"
+                    ClipToBounds="True" />
             </Grid>
         </Border>
     </Canvas>

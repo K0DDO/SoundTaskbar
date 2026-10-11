@@ -12,6 +12,13 @@ using SoundTaskbar.Services;
 
 namespace SoundTaskbar.ViewModels;
 
+/// <summary>Old primary becomes a side chip, the side chip <see cref="ToKey"/> becomes primary.</summary>
+public sealed class PrimarySwapEventArgs(string fromKey, string toKey) : EventArgs
+{
+    public string FromKey { get; } = fromKey;
+    public string ToKey { get; } = toKey;
+}
+
 public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MediaSessionService _media;
@@ -79,6 +86,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Hold pair UI across Win+D / minimize-all SMTC blips.</summary>
     private const int PairExitGraceMs = 2500;
     private const int EmptySessionsGraceMs = 2000;
+    /// <summary>Our own play/pause click is not an SMTC blip — skip the pair hold.</summary>
+    private const int UserToggleGraceSkipMs = 1500;
+    /// <summary>Side rail cap: expanded play chip + small paused chips, separated by dividers.</summary>
+    private const int MaxSideChips = 3;
+    private DateTimeOffset _skipPairGraceUntil;
+    private string _displayedPrimaryKey = string.Empty;
+    private bool _staleVisuals;
     private BitmapImage? _appIcon;
     private readonly Dictionary<string, BitmapImage?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
     private string? _iconLoadAppId;
@@ -110,6 +124,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 }
 
                 CloseSideVolumeEditors();
+                _skipPairGraceUntil = DateTimeOffset.UtcNow.AddMilliseconds(UserToggleGraceSkipMs);
                 await _media.TogglePlayPauseAsync(_primarySessionKey);
             },
             _ => CanTogglePlayback);
@@ -148,6 +163,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public event EventHandler? ParkedLayoutChanged;
+
+    /// <summary>
+    /// Raised right before a side session takes over the primary slot (roles swap).
+    /// UI snapshots the old frame here, before any bound property changes.
+    /// </summary>
+    public event EventHandler<PrimarySwapEventArgs>? PrimarySwapping;
 
     public RelayCommand PreviousCommand { get; }
     public RelayCommand PlayPauseCommand { get; }
@@ -720,12 +741,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (playing.Count >= 2)
         {
             _pairExitAfter = null;
-            // Keep parked side key so pause+play → play+play morphs in place.
-            var parkedSideKey = ShowParkedRail && SideSessions.Count > 0
-                ? SideSessions[0].SessionKey
-                : null;
-            primary = ApplyPairPlan(
-                PairLayoutPlanner.Plan(playing, _primarySessionKey, parkedSideKey));
+            // Keep the chip that started playing on the side so pause+play → play+play morphs in place.
+            var parkedSideKey = ShowParkedRail ? PickParkedSideKey(playing) : null;
+            var plan = PairLayoutPlanner.Plan(playing, _primarySessionKey, parkedSideKey);
+            RaiseSwapIfNeeded(plan.Primary.SessionKey);
+            primary = ApplyPairPlan(plan, enriched);
         }
         else if (TryHoldPairGrace(enriched, playing, out var heldPrimary))
         {
@@ -734,17 +754,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         else
         {
             ClearPairHold();
+            RaiseSwapIfNeeded(primary.SessionKey);
 
-            var parked = enriched
-                .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
-                .OrderByDescending(s => s.Artwork is not null)
-                .Take(2)
-                .ToList();
+            var parked = BuildSideList(enriched, primary.SessionKey, expanded: null);
 
             if (parked.Count > 0)
             {
                 _parkedDismissPending = false;
-                SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedMeta: false);
+                SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
                 // Widget width: MainWindow ApplyParkedCompositeWidth after chip measure (not Solo clamp).
@@ -794,7 +811,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         // Still two playing — planner should have handled; do not hold.
-        if (playing.Count >= 2)
+        if (playing.Count >= 2 || DateTimeOffset.UtcNow < _skipPairGraceUntil)
         {
             return false;
         }
@@ -809,13 +826,60 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _parkedDismissPending = false;
         SyncCollection(
             SideSessions,
-            new List<MediaSessionSnapshot> { left },
+            BuildSideList(enriched, right.SessionKey, left),
             freezeTransportIcons: true,
-            expandedMeta: true);
+            expandedKey: left.SessionKey);
         ShowParkedRail = true;
         UpdateParkedWatchdog();
         primary = right;
         return true;
+    }
+
+    /// <summary>Extra sources as small chips (left), the expanded play chip last (next to primary).</summary>
+    private List<MediaSessionSnapshot> BuildSideList(
+        List<MediaSessionSnapshot> enriched,
+        string primaryKey,
+        MediaSessionSnapshot? expanded)
+    {
+        var slots = MaxSideChips - (expanded is null ? 0 : 1);
+        var list = enriched
+            .Where(s => s.SessionKey != primaryKey &&
+                        s.SessionKey != expanded?.SessionKey &&
+                        s.IsParkable &&
+                        (s.IsPlaying || _volume.IsAppRunning(s.AppId)))
+            .OrderByDescending(s => s.Artwork is not null)
+            .Take(slots)
+            .ToList();
+        if (expanded is not null)
+        {
+            list.Add(expanded);
+        }
+
+        return list;
+    }
+
+    private string? PickParkedSideKey(List<MediaSessionSnapshot> playing)
+    {
+        var expanded = SideSessions.FirstOrDefault(s => s.ShowExpandedMeta);
+        if (expanded is not null)
+        {
+            return expanded.SessionKey;
+        }
+
+        return SideSessions.FirstOrDefault(s => playing.Any(p => p.SessionKey == s.SessionKey))?.SessionKey;
+    }
+
+    private void RaiseSwapIfNeeded(string nextPrimaryKey)
+    {
+        if (!HasSession ||
+            string.IsNullOrEmpty(_displayedPrimaryKey) ||
+            string.Equals(nextPrimaryKey, _displayedPrimaryKey, StringComparison.Ordinal) ||
+            SideSessions.All(s => s.SessionKey != nextPrimaryKey))
+        {
+            return;
+        }
+
+        PrimarySwapping?.Invoke(this, new PrimarySwapEventArgs(_displayedPrimaryKey, nextPrimaryKey));
     }
 
     private void ClearPairHold()
@@ -825,7 +889,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _pairExitAfter = null;
     }
 
-    private MediaSessionSnapshot ApplyPairPlan(PairPlan plan)
+    private MediaSessionSnapshot ApplyPairPlan(PairPlan plan, List<MediaSessionSnapshot> enriched)
     {
         switch (plan.Kind)
         {
@@ -833,13 +897,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 // SingleHost + expanded side chip; shell width from MainWindow measure.
                 _parkedDismissPending = false;
                 _pairPrimaryKey = plan.Primary.SessionKey;
-                _pairSideKey = plan.SideSessions.Count > 0 ? plan.SideSessions[0].SessionKey : null;
+                var expanded = plan.SideSessions.Count > 0 ? plan.SideSessions[0] : null;
+                _pairSideKey = expanded?.SessionKey;
                 _pairExitAfter = null;
                 SyncCollection(
                     SideSessions,
-                    plan.SideSessions.ToList(),
+                    BuildSideList(enriched, plan.Primary.SessionKey, expanded),
                     freezeTransportIcons: true,
-                    expandedMeta: true);
+                    expandedKey: _pairSideKey);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
                 return plan.Primary;
@@ -943,7 +1008,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         ObservableCollection<SideSessionViewModel> target,
         List<MediaSessionSnapshot> source,
         bool freezeTransportIcons,
-        bool expandedMeta = false)
+        string? expandedKey = null)
     {
         for (var i = target.Count - 1; i >= 0; i--)
         {
@@ -989,6 +1054,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     lockMode: false);
             }
 
+            var expandedMeta = string.Equals(snap.SessionKey, expandedKey, StringComparison.Ordinal);
             existing.AppId = snap.AppId;
             existing.Artwork = snap.Artwork ?? existing.Artwork;
             existing.Title = string.IsNullOrWhiteSpace(snap.Title) ? existing.Title : snap.Title;
@@ -1055,6 +1121,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _primarySessionKey = sessionKey;
+        _skipPairGraceUntil = DateTimeOffset.UtcNow.AddMilliseconds(UserToggleGraceSkipMs);
         _media.Focus(sessionKey);
         await _media.TogglePlayPauseAsync(sessionKey);
         await RefreshAsync(full: true);
@@ -1110,10 +1177,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         // Process quit → slide rail away (chips stay visible during animation).
-        var dead = SideSessions.Any(s => !_volume.IsAppRunning(s.AppId));
-        if (dead)
+        var deadCount = SideSessions.Count(s => !_volume.IsAppRunning(s.AppId));
+        if (deadCount == SideSessions.Count)
         {
             RequestParkedDismiss();
+            return;
+        }
+
+        if (deadCount > 0)
+        {
+            _ = RefreshAsync(full: false);
             return;
         }
 
@@ -1123,36 +1196,33 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// No source left: UI collapses and hides the widget. Last title/art stay on screen
+    /// during the collapse and are replaced on the next session (<see cref="_staleVisuals"/>).
+    /// </summary>
     private void ClearAllSessions()
     {
+        if (!HasSession && SideSessions.Count == 0)
+        {
+            return;
+        }
+
         DesiredWidgetWidth = SoloWidgetWidth;
-        _parkedDismissPending = false;
-        ShowParkedRail = false;
-        SideSessions.Clear();
+        RequestParkedDismiss();
         _kindCache.Clear();
         ClearPairHold();
         _emptySessionsGraceUntil = null;
-        UpdateParkedWatchdog();
         _primarySessionKey = string.Empty;
-        Title = "Нет активного медиа";
-        Artist = "Запусти музыку или видео";
-        AppId = string.Empty;
-        OnPropertyChanged(nameof(SourceName));
-        _duration = TimeSpan.Zero;
-        SetTimelineAnchor(TimeSpan.Zero, playing: false);
-        TimeText = "0:00 / 0:00";
-        Progress = 0;
+        _displayedPrimaryKey = string.Empty;
+        _staleVisuals = true;
+        SetTimelineAnchor(_anchorPosition, playing: false);
         IsPlaying = false;
         CanSkipNext = false;
         CanSkipPrevious = false;
         CanSeek = false;
         CanTogglePlayback = false;
-        CanControlVolume = false;
         IsVolumeEditorOpen = false;
         PeakLevel = 0;
-        Artwork = null;
-        AppIcon = null;
-        _iconLoadAppId = null;
         HasSession = false;
     }
 
@@ -1212,17 +1282,24 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void ApplyPrimary(MediaSessionSnapshot snapshot, bool keepArtwork)
     {
-        HasSession = true;
+        var fresh = _staleVisuals;
+        _staleVisuals = false;
         _primarySessionKey = snapshot.SessionKey;
+        _displayedPrimaryKey = snapshot.SessionKey;
 
-        if (!keepArtwork || !string.IsNullOrWhiteSpace(snapshot.Title))
+        if (!keepArtwork || fresh || !string.IsNullOrWhiteSpace(snapshot.Title))
         {
             Title = string.IsNullOrWhiteSpace(snapshot.Title) ? "Без названия" : snapshot.Title;
         }
 
-        if (!keepArtwork || !string.IsNullOrWhiteSpace(snapshot.Artist))
+        if (!keepArtwork || fresh || !string.IsNullOrWhiteSpace(snapshot.Artist))
         {
             Artist = snapshot.Artist?.Trim() ?? string.Empty;
+        }
+
+        if (fresh)
+        {
+            Artwork = snapshot.Artwork;
         }
 
         var appChanged = !string.Equals(AppId, snapshot.AppId, StringComparison.OrdinalIgnoreCase);
@@ -1262,6 +1339,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             Artwork = snapshot.Artwork ?? Artwork;
         }
 
+        // Last, so the reveal starts with the new frame already bound.
+        HasSession = true;
         CommandManager.InvalidateRequerySuggested();
     }
 

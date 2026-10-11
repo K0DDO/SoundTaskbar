@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using SoundTaskbar.Controls;
 using SoundTaskbar.Services;
@@ -43,12 +44,26 @@ public partial class MainWindow : Window
     private double _parkedChipTarget;
     private CancellationTokenSource? _parkedRemeasureCts;
     private AnimationClockHolder? _playPlayClock;
+    private AnimationClockHolder? _visibilityClock;
+    private AnimationClockHolder? _swapClock;
+    private FrameworkElement? _swapChip;
+    private bool _widgetShown;
+    private bool _revealAnimating;
+    private bool _morphAfterReveal;
+    private bool _morphScheduled;
     private bool _appearanceIsLight;
     private Color? _traySample;
+    private readonly TranslateTransform _widgetShift = new();
+    private readonly TranslateTransform _primaryArtShift = new();
+    private readonly TranslateTransform _primaryMetaShift = new();
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
     private const int PlayPlayMorphMs = 340;
+    private const int WidgetRevealMs = 360;
+    /// <summary>Hide/show slides the content toward the tray by this much.</summary>
+    private const double WidgetRevealShift = 18;
+    private const int PrimarySwapMs = 420;
 
     private double ParkedReveal
     {
@@ -68,10 +83,16 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged += OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged += OnParkedLayoutChanged;
+        _viewModel.PrimarySwapping += OnPrimarySwapping;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged += OnSideSessionPropertyChanged;
         }
+
+        WidgetRoot.RenderTransform = _widgetShift;
+        WidgetRoot.Opacity = 0;
+        PrimaryArtHost.RenderTransform = _primaryArtShift;
+        PrimaryMetaHost.RenderTransform = _primaryMetaShift;
 
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
@@ -103,6 +124,8 @@ public partial class MainWindow : Window
         _layoutReady = true;
         _taskbarHost = new TaskbarHostService(this);
         _taskbarHost.LayoutChanged += _layoutHandler;
+        // Hidden until a source shows up.
+        _taskbarHost.RevealFraction = 0;
         _taskbarHost.Start();
 
         _appearance = new TaskbarAppearanceService(this);
@@ -113,8 +136,9 @@ public partial class MainWindow : Window
         await _viewModel.InitializeAsync();
         _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
         AnimateParkedHost(_viewModel.ShowParkedRail, animate: false);
-        MorphPlayPlay(_viewModel.IsPlayPlay, animate: false);
+        MorphSideChips(animate: false);
         AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: false);
+        AnimateWidgetVisibility(_viewModel.HasSession);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -124,6 +148,7 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged -= OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
+        _viewModel.PrimarySwapping -= OnPrimarySwapping;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged -= OnSideSessionPropertyChanged;
@@ -159,6 +184,13 @@ public partial class MainWindow : Window
             if (_viewModel.ShowPairAppIcon != _pairNameCollapsed)
             {
                 AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: _layoutReady);
+            }
+        }
+        else if (e.PropertyName == nameof(MediaViewModel.HasSession))
+        {
+            if (_layoutReady && _taskbarHost is not null)
+            {
+                AnimateWidgetVisibility(_viewModel.HasSession);
             }
         }
         else if (e.PropertyName == nameof(MediaViewModel.DesiredWidgetWidth))
@@ -197,7 +229,7 @@ public partial class MainWindow : Window
 
         if (_parkedOpen && ParkedHost.ActualWidth > 1)
         {
-            EnsurePlayPlayMorph();
+            ScheduleSideMorph();
         }
         else
         {
@@ -232,7 +264,7 @@ public partial class MainWindow : Window
         {
             if (_playPlayOpen || _viewModel.IsPlayPlay)
             {
-                EnsurePlayPlayMorph();
+                ScheduleSideMorph();
             }
             else
             {
@@ -248,26 +280,31 @@ public partial class MainWindow : Window
         _ = RemeasureParkedAfterSettleAsync(token);
     }
 
-    /// <summary>Morph only when expand target differs from current visual state.</summary>
-    private void EnsurePlayPlayMorph()
+    /// <summary>Coalesce side-rail changes (SyncCollection fires many) into one morph after layout.</summary>
+    private void ScheduleSideMorph()
     {
-        var want = _viewModel.IsPlayPlay;
-        var progress = 0.0;
-        foreach (var item in ParkedList.Items)
+        if (_revealAnimating)
         {
-            if (item is SideSessionViewModel s)
-            {
-                progress = s.ExpandProgress;
-                break;
-            }
+            _morphAfterReveal = true;
+            return;
         }
 
-        if (want == _playPlayOpen && Math.Abs(progress - (want ? 1 : 0)) < 0.02)
+        if (_morphScheduled)
         {
             return;
         }
 
-        MorphPlayPlay(want, animate: true);
+        _morphScheduled = true;
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                _morphScheduled = false;
+                if (_viewModel.ShowParkedRail && _parkedOpen && ParkedHost.ActualWidth > 1)
+                {
+                    MorphSideChips(animate: true);
+                }
+            },
+            DispatcherPriority.Loaded);
     }
 
     private async Task RemeasureParkedAfterSettleAsync(CancellationToken token)
@@ -294,7 +331,7 @@ public partial class MainWindow : Window
                 {
                     if (_parkedOpen && ParkedHost.ActualWidth > 1)
                     {
-                        EnsurePlayPlayMorph();
+                        ScheduleSideMorph();
                     }
                     else
                     {
@@ -312,34 +349,20 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Morph pause chip ↔ play+play: ExpandProgress crossfade + meta + host + shell one clock.
+    /// Morph every side chip to its own target: the play+play chip expands (mirrored chrome + meta),
+    /// extra sources stay small paused chips. Chip host + shell ride one clock.
     /// Does not touch frozen pause+play appear/dismiss (ParkedReveal).
     /// </summary>
-    private void MorphPlayPlay(bool expand, bool animate)
+    private void MorphSideChips(bool animate)
     {
         if (!_viewModel.ShowParkedRail || ParkedList.Items.Count == 0)
         {
-            _playPlayOpen = false;
             return;
         }
 
-        var progressFrom = 0.0;
-        foreach (var item in ParkedList.Items)
-        {
-            if (item is SideSessionViewModel s)
-            {
-                progressFrom = s.ExpandProgress;
-                break;
-            }
-        }
-
-        var progressTo = expand ? 1.0 : 0.0;
-        if (expand == _playPlayOpen && Math.Abs(progressFrom - progressTo) < 0.02 && _playPlayClock is null)
-        {
-            return;
-        }
-
-        var parkedFrom = ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
+        var parkedFrom = !double.IsNaN(ParkedHost.Width) && ParkedHost.Width > 1
+            ? ParkedHost.Width
+            : ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
         if (parkedFrom < 1)
         {
             SnapChipVolumeHosts();
@@ -347,151 +370,123 @@ public partial class MainWindow : Window
             AnimateParkedHost(open: true, animate: animate);
             return;
         }
+
+        _playPlayClock?.Cancel();
+        _playPlayClock = null;
+
+        var sides = ParkedList.Items.OfType<SideSessionViewModel>().ToList();
+        var progressFrom = sides.Select(s => s.ExpandProgress).ToArray();
+        var progressTo = sides.Select(s => s.ShowExpandedMeta ? 1.0 : 0.0).ToArray();
+        // MeasuredMetaRailWidth so collapse still knows the expanded size after ShowExpandedMeta flips.
+        var metaTargets = sides.Select(s => s.MeasuredMetaRailWidth).ToArray();
+        var expand = progressTo.Any(p => p > 0.5);
         var shellFrom = _taskbarHost?.DesiredWidgetWidthDip
                         ?? _viewModel.ComputeParkedCompositeWidth(parkedFrom);
 
-        // Measure compact width (progress 0, meta 0).
-        foreach (var item in ParkedList.Items)
-        {
-            if (item is SideSessionViewModel side)
-            {
-                side.ExpandProgress = 0;
-                side.MetaRailWidth = 0;
-            }
-        }
-
-        PushChipMetaHostWidths();
+        // Containers for freshly added chips must exist before ChipMetaHost widths are pushed.
+        ParkedList.UpdateLayout();
+        SnapChipVolumeHosts();
+        SetChipProgress(sides, progressFrom, progressTo, metaTargets, 1);
         ParkedHost.BeginAnimation(WidthProperty, null);
         ParkedHost.Width = double.NaN;
         ParkedHost.UpdateLayout();
         ParkedList.UpdateLayout();
-        var compactWidth = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
-
-        // Measure expanded width (progress 1, meta target). Use MeasuredMetaRailWidth so
-        // collapse still knows the expanded size after ShowExpandedMeta flips false.
-        foreach (var item in ParkedList.Items)
-        {
-            if (item is SideSessionViewModel side)
-            {
-                side.ExpandProgress = 1;
-                side.MetaRailWidth = side.MeasuredMetaRailWidth;
-            }
-        }
-
-        PushChipMetaHostWidths();
-        ParkedHost.Width = double.NaN;
-        ParkedHost.UpdateLayout();
-        ParkedList.UpdateLayout();
-        var expandedWidth = Math.Max(compactWidth, Math.Ceiling(MeasureParkedListWidth()));
-
-        var chipTo = expand ? expandedWidth : compactWidth;
+        var chipTo = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
         var shellTo = expand
-            ? _viewModel.ComputePlayPlayCompositeWidth(expandedWidth)
-            : _viewModel.ComputeParkedCompositeWidth(compactWidth);
+            ? _viewModel.ComputePlayPlayCompositeWidth(chipTo)
+            : _viewModel.ComputeParkedCompositeWidth(chipTo);
 
-        // Restore start frame before tween.
-        foreach (var item in ParkedList.Items)
-        {
-            if (item is SideSessionViewModel side)
-            {
-                side.ExpandProgress = progressFrom;
-                side.MetaRailWidth = progressFrom * side.MeasuredMetaRailWidth;
-            }
-        }
-
-        PushChipMetaHostWidths();
+        SetChipProgress(sides, progressFrom, progressTo, metaTargets, 0);
         ParkedHost.Width = parkedFrom;
         ParkedHost.Opacity = 1;
         _parkedChipTarget = chipTo;
+        var wasExpanded = _playPlayOpen;
         _playPlayOpen = expand;
 
-        if (!animate || (Math.Abs(progressTo - progressFrom) < 0.01 && Math.Abs(chipTo - parkedFrom) < 0.5))
+        void Finish()
         {
-            ApplyPlayPlayFrame(progressTo, chipTo, shellTo);
+            ApplySideFrame(sides, progressFrom, progressTo, metaTargets, 1, chipTo, shellTo);
             if (expand)
             {
-                _viewModel.ApplyPlayPlayCompositeWidth(expandedWidth);
+                _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
             }
             else
             {
-                _viewModel.ApplyParkedCompositeWidth(compactWidth);
+                _viewModel.ApplyParkedCompositeWidth(chipTo);
             }
 
             _taskbarHost?.FlushRegion();
             ApplyChipMarqueeScrims();
             _playPlayClock = null;
+        }
+
+        var progressSettled = progressFrom.Zip(progressTo).All(p => Math.Abs(p.First - p.Second) < 0.01);
+        if (!animate ||
+            (progressSettled && Math.Abs(chipTo - parkedFrom) < 0.5 && Math.Abs(shellTo - shellFrom) < 0.5))
+        {
+            Finish();
+            if (expand != wasExpanded)
+            {
+                AnimateSourceNameForPair(expand, animate: false);
+            }
+
             return;
         }
 
-        var ease = new CubicEase { EasingMode = expand ? EasingMode.EaseOut : EasingMode.EaseIn };
-        var duration = TimeSpan.FromMilliseconds(PlayPlayMorphMs);
-        var chipFrom = parkedFrom;
-        var p0 = progressFrom;
-        var p1 = progressTo;
-        var metaTargets = new List<double>();
-        foreach (var item in ParkedList.Items)
+        var clock = new AnimationClockHolder();
+        clock.ProgressChanged += t =>
         {
-            metaTargets.Add(item is SideSessionViewModel side ? side.MeasuredMetaRailWidth : 0);
-        }
-
-        _playPlayClock = new AnimationClockHolder();
-        _playPlayClock.ProgressChanged += t =>
-        {
-            var p = p0 + (p1 - p0) * t;
-            var chip = chipFrom + (chipTo - chipFrom) * t;
+            var chip = parkedFrom + (chipTo - parkedFrom) * t;
             var shell = shellFrom + (shellTo - shellFrom) * t;
-            ApplyPlayPlayFrame(p, chip, shell, metaTargets);
+            ApplySideFrame(sides, progressFrom, progressTo, metaTargets, t, chip, shell);
         };
-        _playPlayClock.Start(
+        _playPlayClock = clock;
+        clock.Start(
             0,
             1,
-            duration,
-            ease,
-            () =>
-            {
-                ApplyPlayPlayFrame(progressTo, chipTo, shellTo);
-                if (expand)
-                {
-                    _viewModel.ApplyPlayPlayCompositeWidth(expandedWidth);
-                }
-                else
-                {
-                    _viewModel.ApplyParkedCompositeWidth(compactWidth);
-                }
+            TimeSpan.FromMilliseconds(PlayPlayMorphMs),
+            new CubicEase { EasingMode = EasingMode.EaseInOut },
+            Finish);
 
-                _taskbarHost?.FlushRegion();
-                ApplyChipMarqueeScrims();
-                _playPlayClock = null;
-            });
-
-        AnimateSourceNameForPair(expand, animate: true);
+        if (expand != wasExpanded)
+        {
+            AnimateSourceNameForPair(expand, animate: true);
+        }
     }
 
-    private void ApplyPlayPlayFrame(
-        double progress,
-        double chipWidth,
-        double shellWidth,
-        IReadOnlyList<double>? metaTargets = null)
+    /// <summary>Per-chip ExpandProgress / meta lerp at t (0 = from, 1 = to) without touching hosts.</summary>
+    private void SetChipProgress(
+        IReadOnlyList<SideSessionViewModel> sides,
+        double[] from,
+        double[] to,
+        double[] metaTargets,
+        double t)
     {
-        for (var i = 0; i < ParkedList.Items.Count; i++)
+        for (var i = 0; i < sides.Count; i++)
         {
-            if (ParkedList.Items[i] is not SideSessionViewModel side)
-            {
-                continue;
-            }
-
-            side.ExpandProgress = progress;
-            var metaTo = metaTargets is not null && i < metaTargets.Count
-                ? metaTargets[i]
-                : side.MeasuredMetaRailWidth;
-            side.MetaRailWidth = metaTo * progress;
-            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is DependencyObject container &&
+            var side = sides[i];
+            var p = from[i] + (to[i] - from[i]) * t;
+            side.ExpandProgress = p;
+            side.MetaRailWidth = metaTargets[i] * p;
+            if (ParkedList.ItemContainerGenerator.ContainerFromItem(side) is DependencyObject container &&
                 FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
                 metaHost.BeginAnimation(WidthProperty, null);
                 metaHost.Width = side.EffectiveMetaRailWidth;
             }
         }
+    }
+
+    private void ApplySideFrame(
+        IReadOnlyList<SideSessionViewModel> sides,
+        double[] from,
+        double[] to,
+        double[] metaTargets,
+        double t,
+        double chipWidth,
+        double shellWidth)
+    {
+        SetChipProgress(sides, from, to, metaTargets, t);
 
         ParkedHost.BeginAnimation(WidthProperty, null);
         ParkedHost.Width = chipWidth;
@@ -699,6 +694,7 @@ public partial class MainWindow : Window
         if (!open && !_parkedOpen)
         {
             _viewModel.CompleteParkedDismiss();
+            _playPlayOpen = false;
             _viewModel.ApplyParkedCompositeWidth(null);
             SealParkedReveal(0);
             return;
@@ -788,6 +784,7 @@ public partial class MainWindow : Window
             if (!open)
             {
                 _viewModel.CompleteParkedDismiss();
+                _playPlayOpen = false;
                 _viewModel.ApplyParkedCompositeWidth(null);
             }
             else
@@ -820,6 +817,7 @@ public partial class MainWindow : Window
         };
         anim.Completed += (_, _) =>
         {
+            _revealAnimating = false;
             SealParkedReveal(to);
             if (open)
             {
@@ -828,11 +826,23 @@ public partial class MainWindow : Window
             else
             {
                 _viewModel.CompleteParkedDismiss();
+                _playPlayOpen = false;
                 _viewModel.ApplyParkedCompositeWidth(null);
             }
 
             _taskbarHost?.FlushRegion();
+            if (_morphAfterReveal)
+            {
+                _morphAfterReveal = false;
+                if (open)
+                {
+                    ScheduleSideMorph();
+                }
+            }
         };
+        _playPlayClock?.Cancel();
+        _playPlayClock = null;
+        _revealAnimating = true;
         BeginAnimation(ParkedRevealProperty, anim);
     }
 
@@ -862,8 +872,10 @@ public partial class MainWindow : Window
         ParkedHost.Opacity = fade;
         ParkedDivider.Opacity = fade;
 
+        // play+play dismiss starts from the tighter play+play shell (no 32px jump); pause+play unchanged.
+        var trim = MediaViewModel.PausePlayTrim + (_playPlayOpen ? MediaViewModel.PlayPlayExtraTrim : 0);
         var shell = MediaViewModel.SoloWidgetWidth +
-                    p * (_parkedChipTarget + MediaViewModel.PausePlayDividerChrome - MediaViewModel.PausePlayTrim);
+                    p * (_parkedChipTarget + MediaViewModel.PausePlayDividerChrome - trim);
         if (_taskbarHost is not null)
         {
             _taskbarHost.DesiredWidgetWidthDip = shell;
@@ -888,8 +900,17 @@ public partial class MainWindow : Window
         }
 
         public Action<double>? ProgressChanged;
+        private bool _cancelled;
 
         protected override Freezable CreateInstanceCore() => new AnimationClockHolder();
+
+        /// <summary>Stop ticking and drop the completion callback (a newer tween took over).</summary>
+        public void Cancel()
+        {
+            _cancelled = true;
+            ProgressChanged = null;
+            BeginAnimation(ValueProperty, null);
+        }
 
         public void Start(double from, double to, Duration duration, IEasingFunction ease, Action? onDone)
         {
@@ -905,6 +926,11 @@ public partial class MainWindow : Window
             };
             anim.Completed += (_, _) =>
             {
+                if (_cancelled)
+                {
+                    return;
+                }
+
                 BeginAnimation(ValueProperty, null);
                 Value = to;
                 onDone?.Invoke();
@@ -1119,6 +1145,195 @@ public partial class MainWindow : Window
         };
 
         SourceNameHost.BeginAnimation(WidthProperty, widthAnim);
+    }
+
+    /// <summary>No source: wipe toward the tray and drop the region entirely. Source back: reverse.</summary>
+    private void AnimateWidgetVisibility(bool show)
+    {
+        if (_taskbarHost is null || show == _widgetShown)
+        {
+            return;
+        }
+
+        _widgetShown = show;
+        _visibilityClock?.Cancel();
+        var from = _taskbarHost.RevealFraction;
+        var to = show ? 1.0 : 0.0;
+        var clock = new AnimationClockHolder();
+        clock.ProgressChanged += t => ApplyWidgetReveal(from + (to - from) * t);
+        _visibilityClock = clock;
+        clock.Start(
+            0,
+            1,
+            TimeSpan.FromMilliseconds(WidgetRevealMs * Math.Max(0.35, Math.Abs(to - from))),
+            new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseIn },
+            () =>
+            {
+                ApplyWidgetReveal(to);
+                _visibilityClock = null;
+            });
+    }
+
+    private void ApplyWidgetReveal(double p)
+    {
+        p = Math.Clamp(p, 0, 1);
+        if (_taskbarHost is not null)
+        {
+            _taskbarHost.RevealFraction = p;
+        }
+
+        WidgetRoot.Opacity = p;
+        _widgetShift.X = (1 - p) * WidgetRevealShift;
+    }
+
+    /// <summary>
+    /// Side chip takes over the primary slot: ghosts of the old frame cross over
+    /// (old primary → left, old chip → right) while the new content slides in from the opposite side.
+    /// </summary>
+    private void OnPrimarySwapping(object? sender, PrimarySwapEventArgs e)
+    {
+        if (!_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        {
+            return;
+        }
+
+        ResetSwapVisuals();
+
+        var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var artLeft = PrimaryArtHost.TranslatePoint(new Point(0, 0), SwapOverlay).X;
+        var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
+        var oldChip = oldChipItem is null
+            ? null
+            : ParkedList.ItemContainerGenerator.ContainerFromItem(oldChipItem) as FrameworkElement;
+        var chipCenter = oldChip is not null && oldChip.ActualWidth > 1
+            ? oldChip.TranslatePoint(new Point(oldChip.ActualWidth / 2, 0), SwapOverlay).X
+            : artLeft - 60;
+        var dx = Math.Max(40, artLeft + PrimaryArtHost.ActualWidth / 2 - chipCenter);
+
+        var ghosts = new List<(UIElement Ghost, TranslateTransform Shift, double Direction)>();
+        void AddGhost(FrameworkElement source, double direction)
+        {
+            var bitmap = Snapshot(source, pixelsPerDip);
+            if (bitmap is null)
+            {
+                return;
+            }
+
+            var pos = source.TranslatePoint(new Point(0, 0), SwapOverlay);
+            var shift = new TranslateTransform();
+            var ghost = new Image
+            {
+                Source = bitmap,
+                Width = source.ActualWidth,
+                Height = source.ActualHeight,
+                RenderTransform = shift
+            };
+            Canvas.SetLeft(ghost, pos.X);
+            Canvas.SetTop(ghost, pos.Y);
+            SwapOverlay.Children.Add(ghost);
+            ghosts.Add((ghost, shift, direction));
+        }
+
+        AddGhost(PrimaryArtHost, -1);
+        AddGhost(PrimaryMetaHost, -1);
+        if (oldChip is not null)
+        {
+            AddGhost(oldChip, 1);
+        }
+
+        void ApplyFrame(double t)
+        {
+            var fadeOut = Math.Max(0, 1 - t * 1.6);
+            foreach (var (ghost, shift, direction) in ghosts)
+            {
+                ghost.Opacity = fadeOut;
+                shift.X = direction * dx * t;
+            }
+
+            var fadeIn = Math.Clamp((t - 0.1) * 1.4, 0, 1);
+            _primaryArtShift.X = -dx * (1 - t);
+            _primaryMetaShift.X = -dx * (1 - t);
+            PrimaryArtHost.Opacity = fadeIn;
+            PrimaryMetaHost.Opacity = fadeIn;
+
+            // New chip (old primary) is generated after this event — pick it up once it exists.
+            if (_swapChip is null)
+            {
+                var item = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.FromKey);
+                if (item is not null &&
+                    ParkedList.ItemContainerGenerator.ContainerFromItem(item) is FrameworkElement container)
+                {
+                    _swapChip = container;
+                    _swapChip.RenderTransform = new TranslateTransform();
+                }
+            }
+
+            if (_swapChip?.RenderTransform is TranslateTransform chipShift)
+            {
+                chipShift.X = dx * (1 - t);
+                _swapChip.Opacity = fadeIn;
+            }
+        }
+
+        ApplyFrame(0);
+        var clock = new AnimationClockHolder();
+        clock.ProgressChanged += ApplyFrame;
+        _swapClock = clock;
+        clock.Start(
+            0,
+            1,
+            TimeSpan.FromMilliseconds(PrimarySwapMs),
+            new CubicEase { EasingMode = EasingMode.EaseOut },
+            ResetSwapVisuals);
+    }
+
+    private void ResetSwapVisuals()
+    {
+        _swapClock?.Cancel();
+        _swapClock = null;
+        SwapOverlay.Children.Clear();
+        _primaryArtShift.X = 0;
+        _primaryMetaShift.X = 0;
+        PrimaryArtHost.Opacity = 1;
+        PrimaryMetaHost.Opacity = 1;
+        if (_swapChip is not null)
+        {
+            _swapChip.RenderTransform = Transform.Identity;
+            _swapChip.Opacity = 1;
+            _swapChip = null;
+        }
+    }
+
+    private static BitmapSource? Snapshot(FrameworkElement source, double pixelsPerDip)
+    {
+        var width = source.ActualWidth;
+        var height = source.ActualHeight;
+        if (width < 1 || height < 1)
+        {
+            return null;
+        }
+
+        var bitmap = new RenderTargetBitmap(
+            (int)Math.Ceiling(width * pixelsPerDip),
+            (int)Math.Ceiling(height * pixelsPerDip),
+            96 * pixelsPerDip,
+            96 * pixelsPerDip,
+            PixelFormats.Pbgra32);
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            var brush = new VisualBrush(source)
+            {
+                Stretch = Stretch.Fill,
+                ViewboxUnits = BrushMappingMode.Absolute,
+                Viewbox = new Rect(0, 0, width, height)
+            };
+            dc.DrawRectangle(brush, null, new Rect(0, 0, width, height));
+        }
+
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
     }
 
     private void ApplyLayout(TaskbarLayout layout)

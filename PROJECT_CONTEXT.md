@@ -69,12 +69,17 @@ dotnet run --project src/SoundTaskbar
 - **Solo заморожен** (310, marquee/fade/icon/VU gaps) — не менять без явного запроса
 - **pause+play заморожен** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms) — не трогать
 - **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`; volume steals meta; name→icon latched; DualHost удалён
-- Win+D / minimize-all: reject hide + uncloak timer; pair/empty SMTC grace 2–2.5s (no collapse blip)
-- Shell width: throttled SetWindowRgn (~32ms) + FlushRegion at anim end
-- Title fade: edge-scrim from tray sample
-- Стоп / pair exit → 2.5s hold, потом collapse
+- **3+ источника**: `MaxSideChips=3`; лишние — маленькие paused-чипы слева, разделители между чипами (`DividerVisibility` в шаблоне); expanded play-чип всегда последний (у основного). `MorphSideChips` — прогресс на каждый чип, один clock, коалесинг через `ScheduleSideMorph` (ждёт конец ParkedReveal)
+- **Нет источника** → `HasSession=false` → wipe к трею + fade (`TaskbarHostService.RevealFraction`, пустой регион). Последний трек остаётся на экране во время collapse (`_staleVisuals`)
+- **Смена доминирующего** (чип стал основным): `PrimarySwapping` → снапшоты старого кадра в `SwapOverlay` разъезжаются, новый контент въезжает навстречу (420ms)
+- Хост: таймер 800ms делает attach (стили пишутся только при изменении); анимации ширины/reveal идут через лёгкий `UpdateRegion` (только геометрия + регион). Win+D-защиты сейчас нет (откат в d7fc9cf)
+- pair/empty SMTC grace 2–2.5s; клик play/pause из виджета grace пропускает (1.5s)
+- Title fade: edge-scrim from tray sample; ресурсные кисти не мутировать (frozen) — только заменять
+- Необработанные UI-исключения → `%LOCALAPPDATA%\SoundTaskbar\errors.log`, приложение не падает
 
 ## Следующие шаги
 
-1. Seek по клику на прогресс
-2. Автозапуск с Windows
+1. Проверить вживую: 3 источника, swap pause+play ↔ play+pause, collapse при закрытии всех плееров
+2. Win+D: безопасная защита без перехвата WM_SHOWWINDOW (прошлая попытка ломала отрисовку)
+3. Seek по клику на прогресс
+4. Автозапуск с Windows
