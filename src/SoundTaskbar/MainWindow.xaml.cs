@@ -573,9 +573,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Chip + divider + shell share one clock so play stays put (grows only by trim).
-        var durationMs = open ? 340 : 300;
-        var duration = TimeSpan.FromMilliseconds(durationMs);
+        // Appear and dismiss share the same clock (mirror): wipe from/into divider + shell.
+        var duration = TimeSpan.FromMilliseconds(340);
         var easeAnim = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
         var shellTo = open
             ? _viewModel.ComputeParkedCompositeWidth(targetWidth)
@@ -594,14 +593,14 @@ public partial class MainWindow : Window
                 ParkedDivider.Margin = new Thickness(0);
             }
 
-            // Fade in with the wipe from the divider; fade out near the end on dismiss.
+            // No BeginTime on dismiss — fold into the divider immediately, same cadence as appear.
             ParkedHost.BeginAnimation(
                 OpacityProperty,
                 new DoubleAnimation
                 {
+                    From = open ? 0 : 1,
                     To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(open ? 160 : 140),
-                    BeginTime = open ? TimeSpan.Zero : TimeSpan.FromMilliseconds(140),
+                    Duration = TimeSpan.FromMilliseconds(160),
                     EasingFunction = easeAnim
                 });
 
@@ -609,9 +608,9 @@ public partial class MainWindow : Window
                 OpacityProperty,
                 new DoubleAnimation
                 {
+                    From = open ? 0 : 1,
                     To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 160),
-                    BeginTime = open ? TimeSpan.Zero : TimeSpan.FromMilliseconds(100),
+                    Duration = TimeSpan.FromMilliseconds(200),
                     EasingFunction = easeAnim
                 });
 
@@ -626,9 +625,12 @@ public partial class MainWindow : Window
                 });
         }
 
+        var chipFrom = open ? 0 : Math.Max(ParkedHost.ActualWidth, 1);
+        var divFrom = open ? 0 : Math.Max(ParkedDivider.ActualWidth, 0.1);
+
         var widthAnim = new DoubleAnimation
         {
-            From = open ? 0 : ParkedHost.ActualWidth,
+            From = chipFrom,
             To = open ? targetWidth : 0,
             Duration = duration,
             EasingFunction = easeAnim
@@ -650,7 +652,7 @@ public partial class MainWindow : Window
             WidthProperty,
             new DoubleAnimation
             {
-                From = open ? 0 : ParkedDivider.ActualWidth,
+                From = divFrom,
                 To = open ? ParkedDividerWidth : 0,
                 Duration = duration,
                 EasingFunction = easeAnim
