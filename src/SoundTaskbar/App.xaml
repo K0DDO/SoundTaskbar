@@ -48,32 +48,34 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="RepeatButton">
                         <Border Background="{TemplateBinding Background}"
-                                Height="4"
-                                CornerRadius="2"
+                                Height="1.5"
+                                CornerRadius="0.75"
                                 VerticalAlignment="Center" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
+        <!-- Hairline track + small thumb -->
         <Style x:Key="VolumeSlider" TargetType="Slider">
-            <Setter Property="Height" Value="22" />
+            <Setter Property="Height" Value="16" />
             <Setter Property="Minimum" Value="0" />
             <Setter Property="Maximum" Value="1" />
             <Setter Property="IsMoveToPointEnabled" Value="True" />
             <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
-                        <Grid VerticalAlignment="Center" Margin="2,0">
-                            <Border Height="4"
-                                    CornerRadius="2"
-                                    Background="#2AFFFFFF"
+                        <Grid VerticalAlignment="Center" Height="16">
+                            <Border Height="1.5"
+                                    CornerRadius="0.75"
+                                    Background="#33FFFFFF"
                                     VerticalAlignment="Center" />
                             <Track x:Name="PART_Track">
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton Style="{StaticResource VolumeSliderRepeat}"
-                                                  Background="#9EC5FF"
+                                                  Background="#E6FFFFFF"
                                                   Command="{x:Static Slider.DecreaseLarge}" />
                                 </Track.DecreaseRepeatButton>
                                 <Track.IncreaseRepeatButton>
@@ -82,13 +84,10 @@
                                                   Command="{x:Static Slider.IncreaseLarge}" />
                                 </Track.IncreaseRepeatButton>
                                 <Track.Thumb>
-                                    <Thumb Width="13" Height="13">
+                                    <Thumb Width="6" Height="6">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Grid>
-                                                    <Ellipse Fill="#101010" Opacity="0.25" Margin="-1" />
-                                                    <Ellipse Fill="#F7F9FC" Stroke="#B8D6FF" StrokeThickness="1.5" />
-                                                </Grid>
+                                                <Ellipse Fill="#F5F5F5" />
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -97,10 +96,7 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.4" />
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Cursor" Value="Hand" />
+                                <Setter Property="Opacity" Value="0.35" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

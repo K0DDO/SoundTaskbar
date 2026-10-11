@@ -5,9 +5,9 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using SoundTaskbar.Controls;
 using SoundTaskbar.Helpers;
 using SoundTaskbar.Services;
-using Visibility = System.Windows.Visibility;
 
 namespace SoundTaskbar.ViewModels;
 
@@ -143,8 +143,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (SetField(ref _canSkipNext, value))
             {
                 OnPropertyChanged(nameof(CanGoNext));
-                OnPropertyChanged(nameof(NextGlyph));
-                OnPropertyChanged(nameof(NextToolTip));
+                OnPropertyChanged(nameof(NextIconKind));
             }
         }
     }
@@ -157,8 +156,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (SetField(ref _canSkipPrevious, value))
             {
                 OnPropertyChanged(nameof(CanGoPrevious));
-                OnPropertyChanged(nameof(PreviousGlyph));
-                OnPropertyChanged(nameof(PreviousToolTip));
+                OnPropertyChanged(nameof(PreviousIconKind));
             }
         }
     }
@@ -172,10 +170,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(CanGoNext));
                 OnPropertyChanged(nameof(CanGoPrevious));
-                OnPropertyChanged(nameof(NextGlyph));
-                OnPropertyChanged(nameof(PreviousGlyph));
-                OnPropertyChanged(nameof(NextToolTip));
-                OnPropertyChanged(nameof(PreviousToolTip));
+                OnPropertyChanged(nameof(NextIconKind));
+                OnPropertyChanged(nameof(PreviousIconKind));
             }
         }
     }
@@ -184,13 +180,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public bool CanGoPrevious => CanSkipPrevious || CanSeek;
 
-    public string NextGlyph => CanSkipNext ? "⏭" : "⏩";
+    public TransportIconKind NextIconKind =>
+        CanSkipNext ? TransportIconKind.SkipNext : TransportIconKind.SeekForward;
 
-    public string PreviousGlyph => CanSkipPrevious ? "⏮" : "⏪";
-
-    public string NextToolTip => CanSkipNext ? "Следующий" : "Вперёд 10с";
-
-    public string PreviousToolTip => CanSkipPrevious ? "Предыдущий" : "Назад 10с";
+    public TransportIconKind PreviousIconKind =>
+        CanSkipPrevious ? TransportIconKind.SkipPrevious : TransportIconKind.SeekBack;
 
     public bool CanTogglePlayback
     {
@@ -267,9 +261,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 return;
             }
 
-            OnPropertyChanged(nameof(VolumeEditorVisibility));
-            OnPropertyChanged(nameof(VolumeButtonVisibility));
-
             if (value)
             {
                 BounceVolumeHideTimer();
@@ -280,12 +271,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
         }
     }
-
-    public Visibility VolumeEditorVisibility =>
-        IsVolumeEditorOpen ? Visibility.Visible : Visibility.Collapsed;
-
-    public Visibility VolumeButtonVisibility =>
-        IsVolumeEditorOpen ? Visibility.Collapsed : Visibility.Visible;
 
     public double PeakLevel
     {

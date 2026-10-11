@@ -124,38 +124,50 @@
                             IsHitTestVisible="False" />
                 </Grid>
 
-                <!-- Volume: icon hides while slider is open -->
-                <Grid Grid.Column="3"
-                      VerticalAlignment="Center"
+                <!-- Volume: rolls out left from the icon; icon fades while open -->
+                <Grid x:Name="VolumeHost"
+                      Grid.Column="3"
+                      Width="22"
+                      Height="22"
                       Margin="0,0,4,0"
-                      MinWidth="22">
-                    <Slider x:Name="VolumeSlider"
-                            Width="64"
-                            Style="{StaticResource VolumeSlider}"
-                            IsEnabled="{Binding CanControlVolume}"
-                            Visibility="{Binding VolumeEditorVisibility}"
-                            Value="{Binding Volume, Mode=TwoWay}" />
-                    <Button x:Name="VolumeButton"
-                            Content="{Binding VolumeGlyph}"
-                            Style="{StaticResource CompactMediaButton}"
-                            IsEnabled="{Binding CanControlVolume}"
-                            Visibility="{Binding VolumeButtonVisibility}"
-                            Click="OnVolumeClick"
-                            HorizontalAlignment="Left" />
+                      ClipToBounds="True"
+                      VerticalAlignment="Center">
+                    <StackPanel x:Name="VolumePanel"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <Slider x:Name="VolumeSlider"
+                                Width="54"
+                                Margin="0,0,2,0"
+                                Style="{StaticResource VolumeSlider}"
+                                IsEnabled="{Binding CanControlVolume}"
+                                Value="{Binding Volume, Mode=TwoWay}" />
+                        <Button x:Name="VolumeButton"
+                                Content="{Binding VolumeGlyph}"
+                                Style="{StaticResource CompactMediaButton}"
+                                IsEnabled="{Binding CanControlVolume}"
+                                Click="OnVolumeClick" />
+                    </StackPanel>
                 </Grid>
 
-                <!-- Transport: skip track, or seek ±10s when skip unavailable -->
+                <!-- Transport: skip track icons, or seek icons when skip unavailable -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="{Binding PreviousGlyph}"
-                            Style="{StaticResource CompactMediaButton}"
-                            Command="{Binding PreviousCommand}" />
+                    <Button Style="{StaticResource CompactMediaButton}"
+                            Command="{Binding PreviousCommand}">
+                        <controls:TransportIcon x:Name="PreviousIcon"
+                                                  Kind="{Binding PreviousIconKind}"
+                                                  Foreground="#F2F4F7" />
+                    </Button>
                     <Button Content="{Binding PlayPauseLabel}"
                             Style="{StaticResource CompactMediaButton}"
                             Command="{Binding PlayPauseCommand}"
                             Margin="1,0" />
-                    <Button Content="{Binding NextGlyph}"
-                            Style="{StaticResource CompactMediaButton}"
-                            Command="{Binding NextCommand}" />
+                    <Button Style="{StaticResource CompactMediaButton}"
+                            Command="{Binding NextCommand}">
+                        <controls:TransportIcon x:Name="NextIcon"
+                                                  Kind="{Binding NextIconKind}"
+                                                  Foreground="#F2F4F7" />
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
