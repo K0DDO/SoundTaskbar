@@ -114,8 +114,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public string AppId
     {
         get => _appId;
-        private set => SetField(ref _appId, value);
+        private set
+        {
+            if (SetField(ref _appId, value))
+            {
+                OnPropertyChanged(nameof(SourceName));
+            }
+        }
     }
+
+    public string SourceName => MediaSourceFormatter.Format(AppId);
 
     public string TimeText
     {
@@ -470,6 +478,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             Title = "Нет активного медиа";
             Artist = "Запусти музыку или видео";
             AppId = string.Empty;
+            OnPropertyChanged(nameof(SourceName));
             _duration = TimeSpan.Zero;
             SetTimelineAnchor(TimeSpan.Zero, playing: false);
             TimeText = "0:00 / 0:00";
@@ -493,7 +502,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (!keepArtwork || !string.IsNullOrWhiteSpace(snapshot.Artist))
         {
-            Artist = string.IsNullOrWhiteSpace(snapshot.Artist) ? snapshot.AppId : snapshot.Artist;
+            Artist = snapshot.Artist?.Trim() ?? string.Empty;
         }
 
         var appChanged = !string.Equals(AppId, snapshot.AppId, StringComparison.OrdinalIgnoreCase);

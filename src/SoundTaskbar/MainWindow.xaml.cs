@@ -34,6 +34,7 @@ public partial class MainWindow : Window
 
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
+        SourceText.Foreground = _mutedBrush;
         TimeText.Foreground = _mutedBrush;
         ArtworkPlaceholder.Foreground = _mutedBrush;
         ProgressBar.Background = _progressTrackBrush;
@@ -179,6 +180,8 @@ public partial class MainWindow : Window
             ? Color.FromRgb(0x00, 0x6C, 0xBE)
             : Color.FromRgb(0x9E, 0xC5, 0xFF);
         TitleMarquee.Foreground = _titleBrush;
+        ArtistText.Foreground = _mutedBrush;
+        SourceText.Foreground = _mutedBrush;
 
         var iconBrush = new SolidColorBrush(appearance.Foreground);
         PreviousIcon.Foreground = iconBrush;
