@@ -171,8 +171,10 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         set => SetField(ref _metaRailWidth, value);
     }
 
+    public const double ExpandedMetaWidth = 78;
+
     public double TargetMetaRailWidth =>
-        ShowExpandedMeta && !IsVolumeEditorOpen ? 102 : 0;
+        ShowExpandedMeta && !IsVolumeEditorOpen ? ExpandedMetaWidth : 0;
 
     public DualCardStyle DualCardStyle
     {
@@ -374,6 +376,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
 
         DurationText = FormatTime(safeDuration);
+        // Same as primary video: elapsed / total length.
         TimeText = $"{FormatTime(safePosition)} / {FormatTime(safeDuration)}";
         Progress = safeDuration.TotalSeconds <= 0
             ? 0

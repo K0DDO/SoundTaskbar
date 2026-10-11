@@ -136,32 +136,34 @@
                                             Foreground="#F2F4F7" />
                 </Button>
 
-                <!-- Audio+video: grows so vol/prev shift left of art; text flush to art (right) -->
+                <!-- Audio+video: compact meta — vol/prev slide a short distance; time like primary -->
                 <Grid x:Name="ChipMetaHost"
                       Width="0"
-                      Height="28"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center"
                                 HorizontalAlignment="Right"
-                                Margin="0,0,6,0"
-                                Width="96">
+                                Margin="0,0,5,0"
+                                Width="72">
                         <TextBlock Text="{Binding Title}"
                                    Foreground="#F5F5F5"
                                    FontSize="10"
                                    FontWeight="SemiBold"
                                    TextAlignment="Right"
-                                   TextTrimming="CharacterEllipsis" />
+                                   TextTrimming="CharacterEllipsis"
+                                   LineHeight="12" />
                         <TextBlock Text="{Binding Artist}"
                                    Foreground="#B8C0CC"
                                    FontSize="8"
                                    TextAlignment="Right"
                                    TextTrimming="CharacterEllipsis"
+                                   LineHeight="10"
                                    Margin="0,1,0,0" />
-                        <TextBlock Text="{Binding DurationText}"
+                        <TextBlock Text="{Binding TimeText}"
                                    Foreground="#C8CDD6"
                                    FontSize="8"
                                    TextAlignment="Right"
+                                   LineHeight="10"
                                    Margin="0,1,0,0" />
                     </StackPanel>
                 </Grid>
