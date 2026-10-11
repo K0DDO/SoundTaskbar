@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -17,15 +16,13 @@ public readonly record struct TaskbarLayout(
 
 /// <summary>
 /// FluentFlyout-style host: child of Shell_TrayWnd sized to the full taskbar,
-/// clipped with SetWindowRgn to the widget band. Survives Win+D / Show Desktop
-/// by rejecting hide and restoring if Windows cloaks or minimizes us.
+/// clipped with SetWindowRgn to the widget band. Survives Win+D and stays visible
+/// on Win11 where a small child window is covered by the XAML taskbar layer.
 /// </summary>
 public sealed class TaskbarHostService : IDisposable
 {
     private readonly Window _window;
-    private readonly DispatcherTimer _attachTimer;
-    private readonly DispatcherTimer _visibilityTimer;
-    private readonly DispatcherTimer _regionThrottle;
+    private readonly DispatcherTimer _timer;
     private IntPtr _hwnd;
     private bool _hooked;
     private bool _disposed;
@@ -34,31 +31,12 @@ public sealed class TaskbarHostService : IDisposable
     private int _lastRegionLeft = int.MinValue;
     private int _lastRegionWidth = int.MinValue;
     private double _desiredWidgetWidthDip = 310;
-    private bool _regionDirty;
 
     public TaskbarHostService(Window window)
     {
         _window = window;
-        _attachTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
-        _attachTimer.Tick += (_, _) => AttachAndPosition(forceBar: false);
-
-        // Show Desktop / minimize-all can hide or cloak us — bring back quickly.
-        _visibilityTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-        _visibilityTimer.Tick += (_, _) => EnsureVisible();
-
-        // Coalesce SetWindowRgn during shell-width animation (was every frame → lag).
-        _regionThrottle = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(32) };
-        _regionThrottle.Tick += (_, _) =>
-        {
-            if (!_regionDirty)
-            {
-                return;
-            }
-
-            _regionDirty = false;
-            AttachAndPosition(forceBar: false);
-        };
-
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _timer.Tick += (_, _) => AttachAndPosition();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
     }
 
@@ -69,27 +47,20 @@ public sealed class TaskbarHostService : IDisposable
         get => _desiredWidgetWidthDip;
         set
         {
+            // Sub-pixel threshold: avoid Attach spam during shell width animation.
             var clamped = Math.Clamp(value, 220, 720);
-            if (Math.Abs(_desiredWidgetWidthDip - clamped) < 0.5)
+            if (Math.Abs(_desiredWidgetWidthDip - clamped) < 0.25)
             {
                 return;
             }
 
             _desiredWidgetWidthDip = clamped;
-            _regionDirty = true;
-            if (!_regionThrottle.IsEnabled)
-            {
-                _regionThrottle.Start();
-            }
+            AttachAndPosition();
         }
     }
 
-    /// <summary>Flush pending region now (end of morph / appear).</summary>
-    public void FlushRegion()
-    {
-        _regionDirty = false;
-        AttachAndPosition(forceBar: false);
-    }
+    /// <summary>Re-apply region after a morph ends (same as AttachAndPosition).</summary>
+    public void FlushRegion() => AttachAndPosition();
 
     public void Start()
     {
@@ -101,10 +72,9 @@ public sealed class TaskbarHostService : IDisposable
             _hooked = true;
         }
 
-        AttachAndPosition(forceBar: true);
+        AttachAndPosition();
         NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        _attachTimer.Start();
-        _visibilityTimer.Start();
+        _timer.Start();
     }
 
     public void Dispose()
@@ -115,9 +85,7 @@ public sealed class TaskbarHostService : IDisposable
         }
 
         _disposed = true;
-        _attachTimer.Stop();
-        _visibilityTimer.Stop();
-        _regionThrottle.Stop();
+        _timer.Stop();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
 
         if (_hwnd != IntPtr.Zero && NativeMethods.IsWindow(_hwnd))
@@ -131,98 +99,9 @@ public sealed class TaskbarHostService : IDisposable
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
-        _window.Dispatcher.BeginInvoke(() => AttachAndPosition(forceBar: true));
+        _window.Dispatcher.BeginInvoke(AttachAndPosition);
 
-    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (msg == NativeMethods.WM_GETOBJECT)
-        {
-            handled = true;
-            return IntPtr.Zero;
-        }
-
-        // Soft refuse hide from Show Desktop — do not mark handled (breaks WPF child paint).
-        if (msg == NativeMethods.WM_WINDOWPOSCHANGING && lParam != IntPtr.Zero)
-        {
-            var pos = Marshal.PtrToStructure<NativeMethods.WINDOWPOS>(lParam);
-            if ((pos.flags & NativeMethods.SWP_HIDEWINDOW) != 0)
-            {
-                pos.flags &= ~NativeMethods.SWP_HIDEWINDOW;
-                pos.flags |= NativeMethods.SWP_SHOWWINDOW;
-                Marshal.StructureToPtr(pos, lParam, false);
-            }
-        }
-
-        if (msg == NativeMethods.WM_SHOWWINDOW && wParam == IntPtr.Zero)
-        {
-            _window.Dispatcher.BeginInvoke(
-                () => EnsureVisible(force: true),
-                DispatcherPriority.Normal);
-        }
-
-        if (msg == NativeMethods.WM_SIZE && wParam.ToInt32() == NativeMethods.SIZE_MINIMIZED)
-        {
-            _window.Dispatcher.BeginInvoke(() =>
-            {
-                if (_window.WindowState != WindowState.Normal)
-                {
-                    _window.WindowState = WindowState.Normal;
-                }
-
-                EnsureVisible(force: true);
-            });
-        }
-
-        return IntPtr.Zero;
-    }
-
-    private void EnsureVisible() => EnsureVisible(force: false);
-
-    private void EnsureVisible(bool force)
-    {
-        if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
-        {
-            return;
-        }
-
-        var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
-        var parent = NativeMethods.GetParent(_hwnd);
-        var reparentNeeded = taskbar != IntPtr.Zero && parent != taskbar;
-
-        var cloaked = IsCloaked(_hwnd);
-        var visible = NativeMethods.IsWindowVisible(_hwnd);
-        if (!force && visible && !cloaked && !reparentNeeded &&
-            _window.Visibility == Visibility.Visible &&
-            _window.WindowState == WindowState.Normal)
-        {
-            return;
-        }
-
-        if (_window.WindowState != WindowState.Normal)
-        {
-            _window.WindowState = WindowState.Normal;
-        }
-
-        if (_window.Visibility != Visibility.Visible)
-        {
-            _window.Visibility = Visibility.Visible;
-        }
-
-        NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        AttachAndPosition(forceBar: force || reparentNeeded);
-    }
-
-    private static bool IsCloaked(IntPtr hwnd)
-    {
-        var hr = NativeMethods.DwmGetWindowAttribute(
-            hwnd,
-            NativeMethods.DWMWA_CLOAKED,
-            out var cloaked,
-            sizeof(int));
-        return hr == 0 && cloaked != 0;
-    }
-
-    private void AttachAndPosition(bool forceBar)
+    private void AttachAndPosition()
     {
         if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
         {
@@ -248,7 +127,6 @@ public sealed class TaskbarHostService : IDisposable
         if (NativeMethods.GetParent(_hwnd) != taskbar)
         {
             NativeMethods.SetParent(_hwnd, taskbar);
-            forceBar = true;
         }
 
         if (!NativeMethods.GetWindowRect(taskbar, out var taskbarRect))
@@ -293,9 +171,10 @@ public sealed class TaskbarHostService : IDisposable
 
         var trayWidthPx = Math.Max(0, taskbarRect.Right - trayRect.Left);
 
-        var barChanged = forceBar || barWidth != _lastWidth || barHeight != _lastHeight;
+        var barChanged = barWidth != _lastWidth || barHeight != _lastHeight;
         var regionChanged = widgetPoint.X != _lastRegionLeft || widgetWidth != _lastRegionWidth;
 
+        // SetWindowPos only when the taskbar bar itself moves/resizes — not every shell-width frame.
         if (barChanged || _lastWidth == int.MinValue)
         {
             NativeMethods.SetWindowPos(
@@ -360,5 +239,16 @@ public sealed class TaskbarHostService : IDisposable
         var dpi = NativeMethods.GetDpiForWindow(hwnd);
         var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
         return (int)Math.Round(value * scale);
+    }
+
+    private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == NativeMethods.WM_GETOBJECT)
+        {
+            handled = true;
+            return IntPtr.Zero;
+        }
+
+        return IntPtr.Zero;
     }
 }
