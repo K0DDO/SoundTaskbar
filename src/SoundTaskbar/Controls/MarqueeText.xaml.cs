@@ -20,22 +20,32 @@ public partial class MarqueeText : UserControl
     public MarqueeText()
     {
         InitializeComponent();
-        MouseEnter += (_, _) =>
-        {
-            _isHovering = true;
-            Restart();
-        };
-        MouseLeave += (_, _) =>
-        {
-            _isHovering = false;
-            Stop();
-        };
+        // Hover is driven by a larger parent hit-zone via SetHovering
+        // (artwork + title + artist), not by this control alone.
     }
 
     public string Text
     {
         get => (string)GetValue(TextProperty);
         set => SetValue(TextProperty, value);
+    }
+
+    public void SetHovering(bool hovering)
+    {
+        if (_isHovering == hovering)
+        {
+            return;
+        }
+
+        _isHovering = hovering;
+        if (hovering)
+        {
+            Restart();
+        }
+        else
+        {
+            Stop();
+        }
     }
 
     private void OnHostSizeChanged(object sender, SizeChangedEventArgs e) => QueueRestart();

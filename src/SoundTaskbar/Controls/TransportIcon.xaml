@@ -1,8 +1,8 @@
 <UserControl x:Class="SoundTaskbar.Controls.TransportIcon"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Width="14"
-             Height="14">
+             Width="11"
+             Height="11">
     <Grid>
         <!-- Skip track: triangle + bar -->
         <Path x:Name="SkipPath"
@@ -16,11 +16,11 @@
             <Path x:Name="SeekArc"
                   Stretch="Uniform"
                   Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                  StrokeThickness="1.35"
+                  StrokeThickness="1.15"
                   StrokeStartLineCap="Round"
                   StrokeEndLineCap="Flat"
                   Fill="Transparent"
-                  Margin="0.5"
+                  Margin="0.4"
                   Data="M 12,7 A 5,5 0 1 1 7,2"
                   RenderTransformOrigin="0.5,0.5">
                 <Path.RenderTransform>
@@ -38,13 +38,13 @@
             </Path>
             <TextBlock x:Name="SeekLabel"
                        Text="10"
-                       FontSize="6.5"
+                       FontSize="5.5"
                        FontWeight="SemiBold"
                        FontFamily="Segoe UI"
                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
-                       Margin="0,1,0,0" />
+                       Margin="0,0.5,0,0" />
         </Grid>
     </Grid>
 </UserControl>

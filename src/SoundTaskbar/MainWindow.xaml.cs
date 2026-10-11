@@ -10,9 +10,9 @@ namespace SoundTaskbar;
 
 public partial class MainWindow : Window
 {
-    private const double VolumeClosedWidth = 18;
+    private const double VolumeClosedWidth = 16;
     private const double VolumeOpenWidth = 74;
-    private const double VolumeButtonWidth = 18;
+    private const double VolumeButtonWidth = 16;
 
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;
@@ -86,6 +86,12 @@ public partial class MainWindow : Window
             AnimateVolumeEditor(_viewModel.IsVolumeEditorOpen);
         }
     }
+
+    private void OnMarqueeZoneEnter(object sender, System.Windows.Input.MouseEventArgs e) =>
+        TitleMarquee.SetHovering(true);
+
+    private void OnMarqueeZoneLeave(object sender, System.Windows.Input.MouseEventArgs e) =>
+        TitleMarquee.SetHovering(false);
 
     private void OnVolumeClick(object sender, RoutedEventArgs e)
     {
