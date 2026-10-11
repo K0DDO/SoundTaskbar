@@ -3,7 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ClipToBounds="True"
              Height="16">
-    <Grid x:Name="Root" ClipToBounds="True" SizeChanged="OnHostSizeChanged">
+    <!-- Near-opaque hit target: keeps IsMouseOver while glyphs slide away under the cursor -->
+    <Grid x:Name="Root"
+          Background="#01000000"
+          ClipToBounds="True"
+          SizeChanged="OnHostSizeChanged">
         <!-- Canvas: text keeps its natural full width (Grid would clamp ActualWidth = viewport) -->
         <Canvas x:Name="Host" ClipToBounds="False">
             <TextBlock x:Name="ShadowText"
@@ -24,6 +28,7 @@
                        FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
                        Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
                        TextWrapping="NoWrap"
+                       IsHitTestVisible="False"
                        SizeChanged="OnTextSizeChanged">
                 <TextBlock.RenderTransform>
                     <TranslateTransform x:Name="Slide" />

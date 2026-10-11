@@ -335,8 +335,18 @@ public partial class MainWindow : Window
     private void OnMarqueeZoneEnter(object sender, System.Windows.Input.MouseEventArgs e) =>
         TitleMarquee.SetHovering(true);
 
-    private void OnMarqueeZoneLeave(object sender, System.Windows.Input.MouseEventArgs e) =>
-        TitleMarquee.SetHovering(false);
+    private void OnMarqueeZoneLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // RenderTransform moves glyphs out from under the cursor and can false-fire Leave.
+        // Re-check after layout/input so we only stop when the pointer really left the zone.
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!SingleHost.IsMouseOver)
+            {
+                TitleMarquee.SetHovering(false);
+            }
+        }, DispatcherPriority.Input);
+    }
 
     private void OnVolumeClick(object sender, RoutedEventArgs e)
     {
