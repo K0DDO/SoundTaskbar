@@ -25,12 +25,21 @@ Windows-приложение: медиа-контролы в таскбаре д
 4. Per-app volume: менять громкость конкретного audio session, не master volume.
 5. Если источников несколько — выбрать активный или переключаться между ними (детали UX уточняются).
 
-## Стек (черновик)
+## Стек
 
 - Платформа: Windows 10/11
-- Язык / UI: уточняется (предпочтительно native: C# / WinUI 3 или WPF; Electron только если native окажется тупиком)
-- Медиа-метаданные и транспорт: Windows System Media Transport Controls / GlobalSystemMediaTransportControls
-- Громкость по приложению: Windows Core Audio (IAudioSession*)
+- UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
+- Медиа-метаданные и транспорт: `GlobalSystemMediaTransportControlsSessionManager`
+- Громкость по приложению: Windows Core Audio (IAudioSession*) — ещё не сделано
+- Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
+
+## Запуск
+
+```powershell
+dotnet run --project src/SoundTaskbar
+```
+
+Нужен .NET 8 SDK. Перед проверкой запусти медиа (Spotify / Яндекс / браузер с видео).
 
 ## Правила коммитов
 
@@ -45,22 +54,25 @@ Windows-приложение: медиа-контролы в таскбаре д
 2. Перед исчерпанием контекста обнови «Текущее состояние» и «Следующие шаги», затем закоммить изменения контекста.
 3. Не коммить секреты, ключи, личные токены.
 4. Не раздувай scope: делай только то, о чём попросили в текущем сообщении.
-5. После логического куска работы — коммит в стиле выше (когда пользователь просит коммитить или когда это часть явной договорённости сессии).
+5. После логического куска работы — коммит в стиле выше (договорённость сессии: коммитить сделанное).
 
 ## Текущее состояние
 
-- Репозиторий инициализирован, remote: `https://github.com/K0DDO/SoundTaskbar.git`
-- Есть этот файл контекста, README и cursor rule
-- Кода приложения ещё нет
+- Репозиторий: `https://github.com/K0DDO/SoundTaskbar.git`
+- WPF skeleton собран и билдится
+- SMTC: title, artist, artwork, playback status, timeline
+- Кнопки previous / play-pause / next работают через session API
+- Окно компактное, topmost, стартует у правого нижнего угла рабочей области (рядом с таскбаром), можно перетаскивать
+- Per-app volume ещё нет
+- Настоящей интеграции в таскбар (thumbnail toolbar / shell) ещё нет — пока отдельное окно
 
 ## Следующие шаги
 
-1. Выбрать стек (WinUI 3 vs WPF) и создать skeleton проекта
-2. Прочитать активную SMTC-сессию: title, artist, artwork, playback status
-3. Кнопки play/pause/next/previous
-4. Прогресс и длительность
-5. Per-app volume slider для текущего источника
-6. Размещение UI у таскбара
+1. Per-app volume slider (Core Audio session по процессу источника)
+2. Уточнить UX у таскбара (закрепление / авто-скрытие / tray)
+3. Переключение между несколькими SMTC-сессиями
+4. Seek по клику на прогресс-бар
+5. Автозапуск с Windows
 
 ## Открытые решения
 
