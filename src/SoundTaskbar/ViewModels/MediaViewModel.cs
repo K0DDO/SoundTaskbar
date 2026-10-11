@@ -620,7 +620,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (playing.Count >= 2)
         {
-            primary = ApplyPairPlan(PairLayoutPlanner.Plan(playing, _primarySessionKey));
+            // If pause+play chip is already on screen, pass its key so we morph in place
+            // and never flash the old DualHost compact UI.
+            var parkedSideKey = !IsDualPlaying && ShowParkedRail && SideSessions.Count > 0
+                ? SideSessions[0].SessionKey
+                : null;
+            primary = ApplyPairPlan(
+                PairLayoutPlanner.Plan(playing, _primarySessionKey, parkedSideKey));
         }
         else
         {
@@ -658,7 +664,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         switch (plan.Kind)
         {
-            case PairKind.MixedAv:
+            case PairKind.PrimaryWithExpandedSide:
+                // Stay on SingleHost — only expand the side chip (no DualHost).
                 IsDualPlaying = false;
                 DualSessions.Clear();
                 _parkedDismissPending = false;
@@ -669,12 +676,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     expandedMeta: true);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
-                // Force remasure after containers exist (meta width + right-aligned chip).
                 ParkedLayoutChanged?.Invoke(this, EventArgs.Empty);
                 return plan.Primary;
 
             case PairKind.TwinVideo:
-            case PairKind.TwinAudio:
                 IsDualPlaying = true;
                 RequestParkedDismiss();
                 SyncCollection(
@@ -682,7 +687,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     plan.DualSessions.ToList(),
                     freezeTransportIcons: false,
                     expandedMeta: false,
-                    twinVideo: plan.DualTwinVideo);
+                    twinVideo: true);
                 return plan.Primary;
 
             default:
@@ -739,12 +744,25 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             ? snap.Artist
             : meta.Artist ?? string.Empty;
 
-        // AppId beats PlaybackType heuristics (Spotify must never become "video").
-        var isVideo = MediaKindHelper.IsKnownMusicAppId(snap.AppId)
-            ? false
-            : MediaKindHelper.IsKnownVideoAppId(snap.AppId)
-                ? true
-                : snap.IsVideo;
+        // Sticky kind: known apps win; once video, stay video unless known music.
+        bool isVideo;
+        if (MediaKindHelper.IsKnownMusicAppId(snap.AppId))
+        {
+            isVideo = false;
+        }
+        else if (MediaKindHelper.IsKnownVideoAppId(snap.AppId) || snap.IsVideo)
+        {
+            isVideo = true;
+        }
+        else if (_kindCache.TryGetValue(snap.SessionKey, out var cached))
+        {
+            isVideo = cached;
+        }
+        else
+        {
+            isVideo = false;
+        }
+
         _kindCache[snap.SessionKey] = isVideo;
 
         return new MediaSessionSnapshot
