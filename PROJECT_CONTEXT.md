@@ -47,7 +47,15 @@ cd C:\Users\dima4ka\Documents\VScode\SoundTaskbar
 dotnet run --project src/SoundTaskbar
 ```
 
-Правый клик по виджету → Выход.
+Правый клик по виджету → «Запускать с Windows» / Выход.
+
+Портативный exe (self-contained, single-file, .NET внутри):
+
+```powershell
+dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTaskbar.exe
+```
+
+Автозапуск: `HKCU\...\Run\SoundTaskbar`, включается при первом запуске exe (не из bin\Debug), путь обновляется если exe перенесли. Один экземпляр (mutex).
 
 ## Правила коммитов
 
@@ -82,4 +90,3 @@ dotnet run --project src/SoundTaskbar
 1. Проверить вживую: 3 источника, swap pause+play ↔ play+pause, collapse при закрытии всех плееров
 2. Win+D: безопасная защита без перехвата WM_SHOWWINDOW (прошлая попытка ломала отрисовку)
 3. Seek по клику на прогресс
-4. Автозапуск с Windows
