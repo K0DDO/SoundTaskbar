@@ -163,14 +163,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public Visibility DualModeVisibility =>
         IsDualPlaying ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>Two sources active (twin dual or A/V expanded pair) → app icon; else source name.</summary>
+    /// <summary>Two sources active (twin dual or A/V expanded pair) → icon only; solo → icon + name.</summary>
     public bool ShowPairAppIcon =>
         IsDualPlaying ||
         (ShowParkedRail && SideSessions.Any(s => s.ShowExpandedMeta));
 
     public Visibility AppIconVisibility =>
-        ShowPairAppIcon && AppIcon is not null ? Visibility.Visible : Visibility.Collapsed;
+        AppIcon is not null ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>Solo: source name beside icon (collapses in UI when volume opens); pair: icon only.</summary>
     public Visibility SourceLabelVisibility =>
         ShowPairAppIcon ? Visibility.Collapsed : Visibility.Visible;
 

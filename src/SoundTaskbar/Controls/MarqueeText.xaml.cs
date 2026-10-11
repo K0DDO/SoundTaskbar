@@ -8,7 +8,8 @@ namespace SoundTaskbar.Controls;
 
 public partial class MarqueeText : UserControl
 {
-    private const double FadeStartOffset = 0.62;
+    /// <summary>Fade lives on the right edge of the title block (not the text end).</summary>
+    private const double FadeStartOffset = 0.72;
 
     public static readonly DependencyProperty TextProperty =
         DependencyProperty.Register(
@@ -30,16 +31,18 @@ public partial class MarqueeText : UserControl
     private bool _restartQueued;
     private bool _isHovering;
     private bool _overflows;
+    private bool _atTextEnd;
 
     public MarqueeText()
     {
         InitializeComponent();
 
-        // Build mask in code so the brush stays unfrozen and animatable.
+        // Unfrozen brush so offsets stay animatable.
         _fadeBrush = new LinearGradientBrush
         {
             StartPoint = new Point(0, 0),
             EndPoint = new Point(1, 0),
+            MappingMode = BrushMappingMode.RelativeToBoundingBox,
             GradientStops =
             {
                 new GradientStop(Colors.Black, 0),
@@ -48,6 +51,7 @@ public partial class MarqueeText : UserControl
             }
         };
         FadeHost.OpacityMask = _fadeBrush;
+        Loaded += (_, _) => QueueRestart();
     }
 
     public string Text
@@ -104,7 +108,7 @@ public partial class MarqueeText : UserControl
             {
                 Stop();
             }
-        }, DispatcherPriority.Background);
+        }, DispatcherPriority.Loaded);
     }
 
     private void Stop()
@@ -113,8 +117,10 @@ public partial class MarqueeText : UserControl
         _fadeBegin.BeginAnimation(GradientStop.OffsetProperty, null);
         _fadeOut.BeginAnimation(GradientStop.OffsetProperty, null);
         Slide.X = 0;
+        _atTextEnd = false;
         UpdateOverflowFlag();
-        ApplyFade(_overflows);
+        // Block-edge fade while clipped; off when the visible end is the real text end.
+        ApplyFade(_overflows && !_atTextEnd);
     }
 
     private void ApplyFade(bool show)
@@ -159,7 +165,7 @@ public partial class MarqueeText : UserControl
 
         var viewWidth = Host.ActualWidth;
         var textWidth = RunText.ActualWidth;
-        var distance = textWidth - viewWidth + 12;
+        var distance = textWidth - viewWidth + 8;
         var seconds = Math.Max(3.5, distance / 32);
         var duration = TimeSpan.FromSeconds(seconds);
         var begin = TimeSpan.FromMilliseconds(250);
@@ -176,7 +182,7 @@ public partial class MarqueeText : UserControl
             BeginTime = begin
         };
 
-        // Keep right-edge fade until scroll reaches the end; AutoReverse restores it.
+        // Fade marks the block's right edge; hide only when scroll reaches the text end.
         var fadeBeginAnim = new DoubleAnimationUsingKeyFrames
         {
             Duration = duration,
@@ -185,7 +191,7 @@ public partial class MarqueeText : UserControl
             BeginTime = begin
         };
         fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0)));
-        fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0.88)));
+        fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0.9)));
         fadeBeginAnim.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(1)));
 
         ApplyFade(true);

@@ -696,30 +696,37 @@
                                         <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
                                     </TextBlock.Effect>
                                 </TextBlock>
-                                <!-- Dual: small mono app icon; single: source name -->
-                                <Image Grid.Column="1"
-                                       Source="{Binding AppIcon}"
-                                       Width="9"
-                                       Height="9"
-                                       Margin="5,0,0,0"
-                                       Stretch="Uniform"
-                                       Opacity="0.9"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding AppIconVisibility}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                                <TextBlock x:Name="SourceText"
-                                           Grid.Column="1"
-                                           Text="{Binding SourceName}"
-                                           Foreground="#B8C0CC"
-                                           FontSize="8"
-                                           Margin="5,0,0,0"
+                                <!-- Solo: mono icon + app name; name collapses into icon when volume opens -->
+                                <StackPanel x:Name="SourceSlot"
+                                            Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Margin="5,0,0,0"
+                                            VerticalAlignment="Center">
+                                    <Image x:Name="SourceAppIcon"
+                                           Source="{Binding AppIcon}"
+                                           Width="8"
+                                           Height="8"
+                                           Stretch="Uniform"
+                                           Opacity="0.9"
                                            VerticalAlignment="Center"
-                                           TextAlignment="Right"
-                                           Visibility="{Binding SourceLabelVisibility}">
-                                    <TextBlock.Effect>
-                                        <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
-                                    </TextBlock.Effect>
-                                </TextBlock>
+                                           Visibility="{Binding AppIconVisibility}"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <Grid x:Name="SourceNameHost"
+                                          ClipToBounds="True"
+                                          VerticalAlignment="Center">
+                                        <TextBlock x:Name="SourceText"
+                                                   Text="{Binding SourceName}"
+                                                   Foreground="#B8C0CC"
+                                                   FontSize="8"
+                                                   Margin="3,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Visibility="{Binding SourceLabelVisibility}">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
+                                            </TextBlock.Effect>
+                                        </TextBlock>
+                                    </Grid>
+                                </StackPanel>
                             </Grid>
 
                             <Grid Grid.Row="2">
@@ -748,12 +755,12 @@
                 </Border>
                 </Grid>
 
-                <!-- VU meter: 2px gaps match transport button spacing -->
+                <!-- VU: 6px (3x) from text block, 2px to volume like transport -->
                 <Grid x:Name="VuHost"
                       Grid.Column="1"
                       Width="8"
                       Height="24"
-                      Margin="2,0,2,0"
+                      Margin="6,0,2,0"
                       VerticalAlignment="Center">
                     <Border CornerRadius="2" Opacity="0.95">
                         <Border.Background>

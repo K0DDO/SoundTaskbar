@@ -726,6 +726,56 @@ public partial class MainWindow : Window
         VolumeSlider.IsHitTestVisible = open;
         MuteButton.IsHitTestVisible = open;
         VolumeButton.IsHitTestVisible = !open;
+
+        AnimateSourceNameForVolume(open);
+    }
+
+    /// <summary>Solo: collapse app name into the mono icon while the volume slider is open.</summary>
+    private void AnimateSourceNameForVolume(bool volumeOpen)
+    {
+        if (_viewModel.ShowPairAppIcon || SourceText.Visibility != Visibility.Visible)
+        {
+            SourceNameHost.BeginAnimation(WidthProperty, null);
+            SourceNameHost.Width = double.NaN;
+            SourceText.BeginAnimation(OpacityProperty, null);
+            SourceText.Opacity = 1;
+            return;
+        }
+
+        SourceText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var full = Math.Max(1, Math.Ceiling(SourceText.DesiredSize.Width));
+
+        SourceNameHost.BeginAnimation(WidthProperty, null);
+        if (double.IsNaN(SourceNameHost.Width) || SourceNameHost.ActualWidth < 0.5)
+        {
+            SourceNameHost.Width = volumeOpen ? full : 0;
+        }
+
+        var ease = new CubicEase { EasingMode = volumeOpen ? EasingMode.EaseIn : EasingMode.EaseOut };
+        var widthAnim = new DoubleAnimation
+        {
+            To = volumeOpen ? 0 : full,
+            Duration = TimeSpan.FromMilliseconds(220),
+            EasingFunction = ease
+        };
+        if (!volumeOpen)
+        {
+            widthAnim.Completed += (_, _) =>
+            {
+                SourceNameHost.BeginAnimation(WidthProperty, null);
+                SourceNameHost.Width = double.NaN;
+            };
+        }
+
+        SourceNameHost.BeginAnimation(WidthProperty, widthAnim);
+        SourceText.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation
+            {
+                To = volumeOpen ? 0 : 1,
+                Duration = TimeSpan.FromMilliseconds(160),
+                EasingFunction = ease
+            });
     }
 
     private void ApplyLayout(TaskbarLayout layout)
