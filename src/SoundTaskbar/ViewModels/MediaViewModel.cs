@@ -350,10 +350,19 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void PublishTimeline(TimeSpan position)
     {
-        TimeText = $"{Format(position)} / {Format(_duration)}";
-        Progress = _duration.TotalSeconds <= 0
+        var nextText = $"{Format(position)} / {Format(_duration)}";
+        var nextProgress = _duration.TotalSeconds <= 0
             ? 0
             : Math.Clamp(position.TotalSeconds / _duration.TotalSeconds, 0, 1);
+
+        // Skip tiny progress repaints that force layered-window redraws.
+        if (nextText == TimeText && Math.Abs(nextProgress - Progress) < 0.0025)
+        {
+            return;
+        }
+
+        TimeText = nextText;
+        Progress = nextProgress;
     }
 
     private static string Format(TimeSpan value)

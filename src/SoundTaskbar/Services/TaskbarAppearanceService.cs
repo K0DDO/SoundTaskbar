@@ -31,8 +31,8 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
 }
 
 /// <summary>
-/// Tracks taskbar look including TranslucentTB dynamic accents.
-/// Samples the taskbar strip and only reapplies composition when the look actually changes.
+/// Tracks taskbar look including TranslucentTB.
+/// Acrylic composition is toggled only when blur on/off changes — tint updates go through WPF brushes.
 /// </summary>
 public sealed class TaskbarAppearanceService : IDisposable
 {
@@ -41,12 +41,12 @@ public sealed class TaskbarAppearanceService : IDisposable
     private IntPtr _hwnd;
     private bool _disposed;
     private TaskbarAppearance? _last;
+    private bool? _blurEnabled;
 
     public TaskbarAppearanceService(Window window)
     {
         _window = window;
-        // TranslucentTB can restyle the bar often — poll, but apply only on real deltas.
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         _timer.Tick += (_, _) => Refresh();
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
@@ -58,7 +58,7 @@ public sealed class TaskbarAppearanceService : IDisposable
     public void Start()
     {
         _hwnd = new System.Windows.Interop.WindowInteropHelper(_window).EnsureHandle();
-        Refresh();
+        Refresh(force: true);
         _timer.Start();
     }
 
@@ -75,9 +75,9 @@ public sealed class TaskbarAppearanceService : IDisposable
     }
 
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e) =>
-        _window.Dispatcher.BeginInvoke(Refresh);
+        _window.Dispatcher.BeginInvoke(() => Refresh(force: true));
 
-    private void Refresh()
+    private void Refresh(bool force = false)
     {
         if (_disposed)
         {
@@ -85,15 +85,37 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
 
         var appearance = Detect();
-        if (_last is not null && _last.Equals(appearance))
+
+        // Re-applying accent policy every tint change flashes the layered window.
+        if (force || _blurEnabled != appearance.UseBlur)
+        {
+            ApplyBlur(_hwnd, appearance.UseBlur);
+            _blurEnabled = appearance.UseBlur;
+        }
+
+        if (!force && _last is not null && IsVisuallySame(_last, appearance))
         {
             return;
         }
 
-        ApplyBlur(_hwnd, appearance.UseBlur, appearance.PanelColor);
         _last = appearance;
         Current = appearance;
         Changed?.Invoke(this, appearance);
+    }
+
+    private static bool IsVisuallySame(TaskbarAppearance a, TaskbarAppearance b) =>
+        a.UseBlur == b.UseBlur &&
+        a.IsLight == b.IsLight &&
+        ColorDistance(a.PanelColor, b.PanelColor) < 18 &&
+        a.Foreground == b.Foreground;
+
+    private static double ColorDistance(Color a, Color b)
+    {
+        var dr = a.R - b.R;
+        var dg = a.G - b.G;
+        var db = a.B - b.B;
+        var da = a.A - b.A;
+        return Math.Sqrt(dr * dr + dg * dg + db * db + da * da);
     }
 
     private TaskbarAppearance Detect()
@@ -113,7 +135,7 @@ public sealed class TaskbarAppearanceService : IDisposable
         {
             if (sample.HasColor)
             {
-                var a = (byte)(translucentTb ? 0x40 : 0x55);
+                var a = (byte)(translucentTb ? 0x48 : 0x55);
                 panel = Color.FromArgb(a, sample.Average.R, sample.Average.G, sample.Average.B);
             }
             else
@@ -134,7 +156,7 @@ public sealed class TaskbarAppearanceService : IDisposable
                 : Color.FromRgb(0x20, 0x20, 0x20);
         }
 
-        panel = Quantize(panel, step: 8);
+        panel = Quantize(panel, step: 12);
 
         return new TaskbarAppearance
         {
@@ -206,7 +228,7 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
     }
 
-    private SampleResult SampleTaskbar()
+    private static SampleResult SampleTaskbar()
     {
         var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
         if (taskbar == IntPtr.Zero || !NativeMethods.GetWindowRect(taskbar, out var rect))
@@ -214,7 +236,6 @@ public sealed class TaskbarAppearanceService : IDisposable
             return SampleResult.Empty;
         }
 
-        // Sample on the left side of the bar so we don't read our own overlay (near the tray).
         var y = rect.Top + Math.Max(2, rect.Height / 2);
         var points = new (int X, int Y)[]
         {
@@ -263,10 +284,7 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
 
         variance /= colors.Count;
-        // High variance across nearby pixels ≈ see-through taskbar (wallpaper/TranslucentTB).
-        var looksTransparent = variance > 12;
-
-        return new SampleResult(avg, looksTransparent, true);
+        return new SampleResult(avg, variance > 12, true);
     }
 
     private static Color? SampleScreenColor(int x, int y)
@@ -305,22 +323,21 @@ public sealed class TaskbarAppearanceService : IDisposable
     private static double PerceivedBrightness(Color c) =>
         (0.299 * c.R) + (0.587 * c.G) + (0.114 * c.B);
 
-    private static void ApplyBlur(IntPtr hwnd, bool enable, Color tint)
+    private static void ApplyBlur(IntPtr hwnd, bool enable)
     {
         if (hwnd == IntPtr.Zero)
         {
             return;
         }
 
+        // Neutral acrylic; live tint comes from the WPF brush so TranslucentTB color shifts don't flash.
         var accent = new AccentPolicy
         {
             AccentState = enable
-                ? AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND
+                ? AccentState.ACCENT_ENABLE_BLURBEHIND
                 : AccentState.ACCENT_DISABLED,
             AccentFlags = 2,
-            GradientColor = enable
-                ? ((uint)tint.A << 24) | ((uint)tint.B << 16) | ((uint)tint.G << 8) | tint.R
-                : 0
+            GradientColor = enable ? 0x01000000u : 0
         };
 
         var accentSize = Marshal.SizeOf<AccentPolicy>();

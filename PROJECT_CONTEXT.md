@@ -62,8 +62,8 @@ dotnet run --project src/SoundTaskbar
 - SMTC: title, artist, artwork, status, timeline + prev/play/next
 - UI pinned на полосу таскбара слева от трея (overlay, topmost tool window)
 - Прогресс: локальная экстраполяция; SMTC stale position не откатывает таймер назад (anti-rewind)
-- Фон: sample таскбара + поддержка TranslucentTB; blur/composition только при реальной смене вида (без мигания)
-- Overlay: SetWindowPos без лишнего SHOW/resize; z-order отдельно
+- Фон: sample таскбара + TranslucentTB; acrylic toggle только on/off, tint через WPF brush
+- Overlay: без периодического TOPMOST (из‑за него моргало при Alt-Tab); геометрия редко
 - Per-app volume ещё нет
 
 ## Следующие шаги

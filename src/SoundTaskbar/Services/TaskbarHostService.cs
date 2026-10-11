@@ -1,13 +1,14 @@
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using SoundTaskbar.Native;
 
 namespace SoundTaskbar.Services;
 
 /// <summary>
 /// Pins a top-level tool window onto the taskbar strip (left of the tray).
-/// Uses screen-space overlay instead of SetParent — reliable on Windows 11 24H2/25H2.
+/// Avoids periodic z-order bumps — those cause visible flicker on focus changes.
 /// </summary>
 public sealed class TaskbarHostService : IDisposable
 {
@@ -23,15 +24,17 @@ public sealed class TaskbarHostService : IDisposable
     public TaskbarHostService(Window window)
     {
         _window = window;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(750) };
-        _timer.Tick += (_, _) => PositionOnTaskbar();
+        // Geometry only; do not touch z-order on a timer.
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _timer.Tick += (_, _) => PositionOnTaskbar(forceZOrder: false);
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
     }
 
     public void Start()
     {
         _hwnd = new WindowInteropHelper(_window).EnsureHandle();
         ApplyWindowStyles(_hwnd);
-        PositionOnTaskbar(force: true);
+        PositionOnTaskbar(forceZOrder: true);
         NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
         _timer.Start();
     }
@@ -45,9 +48,13 @@ public sealed class TaskbarHostService : IDisposable
 
         _disposed = true;
         _timer.Stop();
+        SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
     }
 
-    private void PositionOnTaskbar(bool force = false)
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
+        _window.Dispatcher.BeginInvoke(() => PositionOnTaskbar(forceZOrder: true));
+
+    private void PositionOnTaskbar(bool forceZOrder)
     {
         if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
         {
@@ -111,11 +118,15 @@ public sealed class TaskbarHostService : IDisposable
         }
 
         var geometryChanged =
-            force ||
             x != _lastX ||
             y != _lastY ||
             width != _lastWidth ||
             height != _lastHeight;
+
+        if (!geometryChanged && !forceZOrder)
+        {
+            return;
+        }
 
         if (geometryChanged)
         {
@@ -135,31 +146,21 @@ public sealed class TaskbarHostService : IDisposable
             {
                 _window.Height = logicalHeight;
             }
+        }
 
-            NativeMethods.SetWindowPos(
-                _hwnd,
-                NativeMethods.HWND_TOPMOST,
-                x,
-                y,
-                width,
-                height,
-                NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_ASYNCWINDOWPOS);
-        }
-        else
+        var flags = NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_ASYNCWINDOWPOS;
+        var insertAfter = forceZOrder ? NativeMethods.HWND_TOPMOST : IntPtr.Zero;
+        if (!forceZOrder)
         {
-            // Re-assert z-order only — avoids flicker from repeated move/size/show.
-            NativeMethods.SetWindowPos(
-                _hwnd,
-                NativeMethods.HWND_TOPMOST,
-                0,
-                0,
-                0,
-                0,
-                NativeMethods.SWP_NOMOVE |
-                NativeMethods.SWP_NOSIZE |
-                NativeMethods.SWP_NOACTIVATE |
-                NativeMethods.SWP_ASYNCWINDOWPOS);
+            flags |= NativeMethods.SWP_NOZORDER;
         }
+
+        if (!geometryChanged)
+        {
+            flags |= NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE;
+        }
+
+        NativeMethods.SetWindowPos(_hwnd, insertAfter, x, y, width, height, flags);
     }
 
     private static void ApplyWindowStyles(IntPtr hwnd)
