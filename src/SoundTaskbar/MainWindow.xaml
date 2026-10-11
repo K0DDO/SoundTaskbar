@@ -64,8 +64,7 @@
                                           FontSize="11"
                                           FontWeight="SemiBold"
                                           Foreground="#F5F5F5"
-                                          Height="14"
-                                          ToolTip="Наведи, чтобы прокрутить название" />
+                                          Height="14" />
 
                     <TextBlock x:Name="ArtistText"
                                Grid.Row="1"
@@ -107,8 +106,7 @@
                       Width="8"
                       Height="24"
                       Margin="0,0,4,0"
-                      VerticalAlignment="Center"
-                      ToolTip="Уровень источника">
+                      VerticalAlignment="Center">
                     <Border CornerRadius="2" Opacity="0.95">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
@@ -126,44 +124,38 @@
                             IsHitTestVisible="False" />
                 </Grid>
 
-                <!-- Volume -->
-                <StackPanel Grid.Column="3"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center"
-                            Margin="0,0,4,0">
+                <!-- Volume: icon hides while slider is open -->
+                <Grid Grid.Column="3"
+                      VerticalAlignment="Center"
+                      Margin="0,0,4,0"
+                      MinWidth="22">
                     <Slider x:Name="VolumeSlider"
-                            Width="52"
-                            Minimum="0"
-                            Maximum="1"
-                            VerticalAlignment="Center"
-                            Margin="0,0,2,0"
+                            Width="64"
+                            Style="{StaticResource VolumeSlider}"
                             IsEnabled="{Binding CanControlVolume}"
                             Visibility="{Binding VolumeEditorVisibility}"
-                            Value="{Binding Volume, Mode=TwoWay}"
-                            ToolTip="Громкость источника" />
+                            Value="{Binding Volume, Mode=TwoWay}" />
                     <Button x:Name="VolumeButton"
                             Content="{Binding VolumeGlyph}"
                             Style="{StaticResource CompactMediaButton}"
                             IsEnabled="{Binding CanControlVolume}"
+                            Visibility="{Binding VolumeButtonVisibility}"
                             Click="OnVolumeClick"
-                            ToolTip="Громкость источника" />
-                </StackPanel>
+                            HorizontalAlignment="Left" />
+                </Grid>
 
                 <!-- Transport: skip track, or seek ±10s when skip unavailable -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Content="{Binding PreviousGlyph}"
                             Style="{StaticResource CompactMediaButton}"
-                            Command="{Binding PreviousCommand}"
-                            ToolTip="{Binding PreviousToolTip}" />
+                            Command="{Binding PreviousCommand}" />
                     <Button Content="{Binding PlayPauseLabel}"
                             Style="{StaticResource CompactMediaButton}"
                             Command="{Binding PlayPauseCommand}"
-                            ToolTip="Play / Pause"
                             Margin="1,0" />
                     <Button Content="{Binding NextGlyph}"
                             Style="{StaticResource CompactMediaButton}"
-                            Command="{Binding NextCommand}"
-                            ToolTip="{Binding NextToolTip}" />
+                            Command="{Binding NextCommand}" />
                 </StackPanel>
             </Grid>
         </Border>

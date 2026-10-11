@@ -17,6 +17,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private readonly AppVolumeService _volume;
     private readonly DispatcherTimer _uiTicker;
     private readonly DispatcherTimer _volumeTicker;
+    private readonly DispatcherTimer _volumeHideTimer;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _disposed;
@@ -69,6 +70,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         // Peak meter needs a fast poll; volume number can update with it.
         _volumeTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _volumeTicker.Tick += (_, _) => RefreshVolume();
+
+        _volumeHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+        _volumeHideTimer.Tick += (_, _) =>
+        {
+            _volumeHideTimer.Stop();
+            IsVolumeEditorOpen = false;
+        };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -221,6 +229,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(VolumePercent));
             OnPropertyChanged(nameof(VolumeGlyph));
+
+            if (!_suppressVolumeWrite && IsVolumeEditorOpen)
+            {
+                BounceVolumeHideTimer();
+            }
         }
     }
 
@@ -249,15 +262,30 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         get => _isVolumeEditorOpen;
         set
         {
-            if (SetField(ref _isVolumeEditorOpen, value))
+            if (!SetField(ref _isVolumeEditorOpen, value))
             {
-                OnPropertyChanged(nameof(VolumeEditorVisibility));
+                return;
+            }
+
+            OnPropertyChanged(nameof(VolumeEditorVisibility));
+            OnPropertyChanged(nameof(VolumeButtonVisibility));
+
+            if (value)
+            {
+                BounceVolumeHideTimer();
+            }
+            else
+            {
+                _volumeHideTimer.Stop();
             }
         }
     }
 
     public Visibility VolumeEditorVisibility =>
         IsVolumeEditorOpen ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility VolumeButtonVisibility =>
+        IsVolumeEditorOpen ? Visibility.Collapsed : Visibility.Visible;
 
     public double PeakLevel
     {
@@ -336,11 +364,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _disposed = true;
         _uiTicker.Stop();
         _volumeTicker.Stop();
+        _volumeHideTimer.Stop();
         _media.Changed -= OnMediaChanged;
         _media.TimelineChanged -= OnTimelineChanged;
         _media.Dispose();
         _volume.Dispose();
         _refreshLock.Dispose();
+    }
+
+    private void BounceVolumeHideTimer()
+    {
+        _volumeHideTimer.Stop();
+        _volumeHideTimer.Start();
     }
 
     private void OnMediaChanged(object? sender, EventArgs e)
