@@ -19,6 +19,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private readonly Action? _onChipLayoutChanged;
     private readonly DispatcherTimer _volumeHideTimer;
     private BitmapImage? _artwork;
+    private BitmapImage? _appIcon;
     private string _title = string.Empty;
     private string _artist = string.Empty;
     private string _sourceName = string.Empty;
@@ -113,6 +114,21 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         set => SetField(ref _artwork, value);
     }
 
+    public BitmapImage? AppIcon
+    {
+        get => _appIcon;
+        set
+        {
+            if (SetField(ref _appIcon, value))
+            {
+                OnPropertyChanged(nameof(AppIconVisibility));
+            }
+        }
+    }
+
+    public Visibility AppIconVisibility =>
+        AppIcon is not null ? Visibility.Visible : Visibility.Collapsed;
+
     public string Title
     {
         get => _title;
@@ -195,6 +211,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(CompactOverlayVisibility));
                 OnPropertyChanged(nameof(CompactLayerOpacity));
                 OnPropertyChanged(nameof(ExpandedLayerOpacity));
+                OnPropertyChanged(nameof(EffectiveMetaRailWidth));
             }
         }
     }
@@ -218,16 +235,21 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     public double MetaRailWidth
     {
         get => _metaRailWidth;
-        set => SetField(ref _metaRailWidth, value);
+        set
+        {
+            if (SetField(ref _metaRailWidth, value))
+            {
+                OnPropertyChanged(nameof(EffectiveMetaRailWidth));
+            }
+        }
     }
 
-    /// <summary>Target chip meta width from max(title, artist) + padding.</summary>
+    /// <summary>Target chip meta width (0 when compact).</summary>
     public double TargetMetaRailWidth =>
-        ShowExpandedMeta && !IsVolumeEditorOpen ? _targetMetaRailWidth : 0;
+        ShowExpandedMeta ? _targetMetaRailWidth : 0;
 
     /// <summary>Raw meta width for morph measure (ignores ShowExpandedMeta so collapse can reverse).</summary>
-    public double MeasuredMetaRailWidth =>
-        IsVolumeEditorOpen ? 0 : _targetMetaRailWidth;
+    public double MeasuredMetaRailWidth => _targetMetaRailWidth;
 
     public double MetaContentWidth => Math.Max(0, _targetMetaRailWidth - 5);
 
@@ -344,9 +366,35 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
                 _volumeHideTimer.Stop();
             }
 
-            _onChipLayoutChanged?.Invoke();
+            OnPropertyChanged(nameof(EffectiveMetaRailWidth));
+
+            // play+play: volume steals from fixed meta in UI — do not remorph chip.
+            // pause+play compact: host must soft-resize for the open slider.
+            if (!ShowExpandedMeta)
+            {
+                _onChipLayoutChanged?.Invoke();
+            }
         }
     }
+
+    /// <summary>
+    /// Meta rail shown in the chip. play+play volume open steals width so art shifts, chip stays fixed.
+    /// </summary>
+    public double EffectiveMetaRailWidth
+    {
+        get
+        {
+            var baseWidth = MetaRailWidth;
+            if (ShowExpandedMeta && IsVolumeEditorOpen && ExpandProgress > 0.5)
+            {
+                baseWidth = Math.Max(0, baseWidth - (ChipVolumeOpenExtra));
+            }
+
+            return baseWidth;
+        }
+    }
+
+    public const double ChipVolumeOpenExtra = 50;
 
     public double PeakLevel
     {
@@ -438,13 +486,21 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
     private void RecalculateMetaWidth()
     {
-        var titleW = TextMeasure.Width(Title, fontSize: 10, FontWeights.SemiBold);
-        var artistW = TextMeasure.Width(Artist, fontSize: 8, FontWeights.Normal);
-        // Floor by typical time string so "1:23 / 3:45" is never clipped.
-        var timeW = TextMeasure.Width("0:00 / 0:00", fontSize: 8, FontWeights.Normal);
-        var content = Math.Max(titleW, Math.Max(artistW, timeW));
-        // +8 pad (incl. right margin); clamp long titles.
-        var next = Math.Clamp(Math.Ceiling(content) + 8, 44, 96);
+        // play+play: fixed meta width (same idea as primary column) — no live reflow/marquee churn.
+        double next;
+        if (ShowExpandedMeta)
+        {
+            next = MediaViewModel.PlayPlayMetaWidth;
+        }
+        else
+        {
+            var titleW = TextMeasure.Width(Title, fontSize: 10, FontWeights.SemiBold);
+            var artistW = TextMeasure.Width(Artist, fontSize: 8, FontWeights.Normal);
+            var timeW = TextMeasure.Width("0:00 / 0:00", fontSize: 8, FontWeights.Normal);
+            var content = Math.Max(titleW, Math.Max(artistW, timeW));
+            next = Math.Clamp(Math.Ceiling(content) + 8, 44, 96);
+        }
+
         if (Math.Abs(next - _targetMetaRailWidth) < 0.5)
         {
             return;
@@ -453,10 +509,14 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         _targetMetaRailWidth = next;
         OnPropertyChanged(nameof(TargetMetaRailWidth));
         OnPropertyChanged(nameof(MetaContentWidth));
-        if (ShowExpandedMeta && !IsVolumeEditorOpen)
+        OnPropertyChanged(nameof(MeasuredMetaRailWidth));
+        // Fixed play+play meta: do not remorph on title ticks.
+        if (ShowExpandedMeta)
         {
-            _onChipLayoutChanged?.Invoke();
+            return;
         }
+
+        _onChipLayoutChanged?.Invoke();
     }
 
     public bool ShowDivider

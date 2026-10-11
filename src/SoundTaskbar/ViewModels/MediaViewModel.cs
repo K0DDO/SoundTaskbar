@@ -65,6 +65,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Extra primary trim in play+play (name→icon + tighter meta). Frozen pause+play keeps PausePlayTrim only.</summary>
     public const double PlayPlayExtraTrim = 32;
 
+    /// <summary>Fixed left meta width in play+play (matches typical primary meta; no live reflow).</summary>
+    public const double PlayPlayMetaWidth = 96;
+
     /// <summary>ParkedDivider width 2.5 + margins 8+6.</summary>
     public const double PausePlayDividerChrome = 16.5;
 
@@ -978,6 +981,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.ShowExpandedMeta = expandedMeta;
             existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
+            if (_iconCache.TryGetValue(snap.AppId, out var cachedIcon))
+            {
+                existing.AppIcon = cachedIcon;
+            }
+            else if (existing.AppIcon is null && !string.IsNullOrWhiteSpace(snap.AppId))
+            {
+                _ = LoadSideAppIconAsync(existing, snap.AppId);
+            }
         }
 
         NotifySourceSlotChanged();
@@ -1139,6 +1150,35 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _iconCache[appId] = icon;
         AppIcon = icon;
+
+        foreach (var side in SideSessions)
+        {
+            if (string.Equals(side.AppId, appId, StringComparison.OrdinalIgnoreCase))
+            {
+                side.AppIcon = icon;
+            }
+        }
+    }
+
+    private async Task LoadSideAppIconAsync(SideSessionViewModel side, string appId)
+    {
+        if (_iconCache.TryGetValue(appId, out var cached))
+        {
+            side.AppIcon = cached;
+            return;
+        }
+
+        var icon = await AppIconLoader.TryLoadAsync(appId);
+        if (_disposed)
+        {
+            return;
+        }
+
+        _iconCache[appId] = icon;
+        if (string.Equals(side.AppId, appId, StringComparison.OrdinalIgnoreCase))
+        {
+            side.AppIcon = icon;
+        }
     }
 
     private void ApplyPrimary(MediaSessionSnapshot snapshot, bool keepArtwork)

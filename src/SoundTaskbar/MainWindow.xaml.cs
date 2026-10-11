@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using SoundTaskbar.Controls;
 using SoundTaskbar.Services;
 using SoundTaskbar.ViewModels;
 
@@ -37,10 +38,13 @@ public partial class MainWindow : Window
     private TaskbarAppearanceService? _appearance;
     private bool _parkedOpen;
     private bool _playPlayOpen;
+    private bool _pairNameCollapsed;
     private bool _layoutReady;
     private double _parkedChipTarget;
     private CancellationTokenSource? _parkedRemeasureCts;
     private AnimationClockHolder? _playPlayClock;
+    private bool _appearanceIsLight;
+    private Color? _traySample;
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
@@ -64,6 +68,10 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged += OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged += OnParkedLayoutChanged;
+        foreach (var side in _viewModel.SideSessions)
+        {
+            side.PropertyChanged += OnSideSessionPropertyChanged;
+        }
 
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
@@ -116,6 +124,10 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged -= OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
+        foreach (var side in _viewModel.SideSessions)
+        {
+            side.PropertyChanged -= OnSideSessionPropertyChanged;
+        }
 
         if (_taskbarHost is not null)
         {
@@ -144,7 +156,10 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.ShowPairAppIcon))
         {
-            AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: _layoutReady);
+            if (_viewModel.ShowPairAppIcon != _pairNameCollapsed)
+            {
+                AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: _layoutReady);
+            }
         }
         else if (e.PropertyName == nameof(MediaViewModel.DesiredWidgetWidth))
         {
@@ -157,6 +172,24 @@ public partial class MainWindow : Window
 
     private void OnSideSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (e.OldItems is not null)
+        {
+            foreach (SideSessionViewModel side in e.OldItems)
+            {
+                side.PropertyChanged -= OnSideSessionPropertyChanged;
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (SideSessionViewModel side in e.NewItems)
+            {
+                side.PropertyChanged += OnSideSessionPropertyChanged;
+            }
+        }
+
+        ApplyChipMarqueeScrims();
+
         if (!_viewModel.ShowParkedRail || !_layoutReady)
         {
             return;
@@ -164,11 +197,26 @@ public partial class MainWindow : Window
 
         if (_parkedOpen && ParkedHost.ActualWidth > 1)
         {
-            MorphPlayPlay(_viewModel.IsPlayPlay, animate: true);
+            EnsurePlayPlayMorph();
         }
         else
         {
             AnimateParkedHost(open: true, animate: true);
+        }
+    }
+
+    private void OnSideSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not SideSessionViewModel side)
+        {
+            return;
+        }
+
+        if (e.PropertyName == nameof(SideSessionViewModel.IsVolumeEditorOpen) &&
+            side.ShowExpandedMeta &&
+            side.ExpandProgress > 0.5)
+        {
+            AnimatePlayPlaySideVolume(side);
         }
     }
 
@@ -179,10 +227,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Chip on screen: morph pause↔play+play in place (never restart from width 0).
+        // Chip on screen: morph pause↔play+play; otherwise soft-resize (volume on pause chip).
         if (_parkedOpen && ParkedHost.ActualWidth > 1)
         {
-            MorphPlayPlay(_viewModel.IsPlayPlay, animate: true);
+            if (_playPlayOpen || _viewModel.IsPlayPlay)
+            {
+                EnsurePlayPlayMorph();
+            }
+            else
+            {
+                SoftResizeParkedChip();
+            }
+
             return;
         }
 
@@ -190,6 +246,28 @@ public partial class MainWindow : Window
         _parkedRemeasureCts = new CancellationTokenSource();
         var token = _parkedRemeasureCts.Token;
         _ = RemeasureParkedAfterSettleAsync(token);
+    }
+
+    /// <summary>Morph only when expand target differs from current visual state.</summary>
+    private void EnsurePlayPlayMorph()
+    {
+        var want = _viewModel.IsPlayPlay;
+        var progress = 0.0;
+        foreach (var item in ParkedList.Items)
+        {
+            if (item is SideSessionViewModel s)
+            {
+                progress = s.ExpandProgress;
+                break;
+            }
+        }
+
+        if (want == _playPlayOpen && Math.Abs(progress - (want ? 1 : 0)) < 0.02)
+        {
+            return;
+        }
+
+        MorphPlayPlay(want, animate: true);
     }
 
     private async Task RemeasureParkedAfterSettleAsync(CancellationToken token)
@@ -216,7 +294,7 @@ public partial class MainWindow : Window
                 {
                     if (_parkedOpen && ParkedHost.ActualWidth > 1)
                     {
-                        MorphPlayPlay(_viewModel.IsPlayPlay, animate: true);
+                        EnsurePlayPlayMorph();
                     }
                     else
                     {
@@ -245,15 +323,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        var parkedFrom = ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
-        if (parkedFrom < 1)
-        {
-            SnapChipVolumeHosts();
-            SyncChipMetaWidths(animate: false);
-            AnimateParkedHost(open: true, animate: animate);
-            return;
-        }
-
         var progressFrom = 0.0;
         foreach (var item in ParkedList.Items)
         {
@@ -265,6 +334,19 @@ public partial class MainWindow : Window
         }
 
         var progressTo = expand ? 1.0 : 0.0;
+        if (expand == _playPlayOpen && Math.Abs(progressFrom - progressTo) < 0.02 && _playPlayClock is null)
+        {
+            return;
+        }
+
+        var parkedFrom = ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
+        if (parkedFrom < 1)
+        {
+            SnapChipVolumeHosts();
+            SyncChipMetaWidths(animate: false);
+            AnimateParkedHost(open: true, animate: animate);
+            return;
+        }
         var shellFrom = _taskbarHost?.DesiredWidgetWidthDip
                         ?? _viewModel.ComputeParkedCompositeWidth(parkedFrom);
 
@@ -403,9 +485,11 @@ public partial class MainWindow : Window
                 FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
                 metaHost.BeginAnimation(WidthProperty, null);
-                metaHost.Width = side.MetaRailWidth;
+                metaHost.Width = side.EffectiveMetaRailWidth;
             }
         }
+
+        ApplyChipMarqueeScrims();
 
         ParkedHost.BeginAnimation(WidthProperty, null);
         ParkedHost.Width = chipWidth;
@@ -443,7 +527,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Push current MetaRailWidth to ChipMetaHost without reading TargetMetaRailWidth.</summary>
+    /// <summary>Push current EffectiveMetaRailWidth to ChipMetaHost without reading TargetMetaRailWidth.</summary>
     private void PushChipMetaHostWidths()
     {
         for (var i = 0; i < ParkedList.Items.Count; i++)
@@ -457,8 +541,126 @@ public partial class MainWindow : Window
                 FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
                 metaHost.BeginAnimation(WidthProperty, null);
-                metaHost.Width = side.MetaRailWidth;
+                metaHost.Width = side.EffectiveMetaRailWidth;
             }
+        }
+    }
+
+    /// <summary>pause+play: grow/shrink ParkedHost to measured chip (e.g. volume open) with animation.</summary>
+    private void SoftResizeParkedChip()
+    {
+        if (_playPlayOpen || !_parkedOpen)
+        {
+            return;
+        }
+
+        var from = ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
+        SnapChipVolumeHosts();
+        ParkedHost.BeginAnimation(WidthProperty, null);
+        ParkedHost.Width = double.NaN;
+        ParkedHost.UpdateLayout();
+        ParkedList.UpdateLayout();
+        var to = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
+        ParkedHost.Width = from;
+        if (Math.Abs(to - from) < 0.5)
+        {
+            _viewModel.ApplyParkedCompositeWidth(to);
+            return;
+        }
+
+        _parkedChipTarget = to;
+        var shellFrom = _taskbarHost?.DesiredWidgetWidthDip ?? _viewModel.ComputeParkedCompositeWidth(from);
+        var shellTo = _viewModel.ComputeParkedCompositeWidth(to);
+        var ease = new CubicEase { EasingMode = to > from ? EasingMode.EaseOut : EasingMode.EaseIn };
+        var holder = new AnimationClockHolder();
+        holder.ProgressChanged += t =>
+        {
+            var chip = from + (to - from) * t;
+            ParkedHost.Width = chip;
+            if (_taskbarHost is not null)
+            {
+                _taskbarHost.DesiredWidgetWidthDip = shellFrom + (shellTo - shellFrom) * t;
+            }
+        };
+        holder.Start(
+            0,
+            1,
+            TimeSpan.FromMilliseconds(260),
+            ease,
+            () =>
+            {
+                ParkedHost.Width = to;
+                _viewModel.ApplyParkedCompositeWidth(to);
+            });
+    }
+
+    /// <summary>play+play: volume grows by stealing meta width — art shifts, chip/shell stay fixed.</summary>
+    private void AnimatePlayPlaySideVolume(SideSessionViewModel side)
+    {
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (!ReferenceEquals(ParkedList.Items[i], side))
+            {
+                continue;
+            }
+
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject container ||
+                FindDescendantByName(container, "ChipMetaHost") is not FrameworkElement metaHost)
+            {
+                return;
+            }
+
+            var to = side.EffectiveMetaRailWidth;
+            var from = metaHost.ActualWidth > 0.5 ? metaHost.ActualWidth : metaHost.Width;
+            if (double.IsNaN(from) || from < 0)
+            {
+                from = to;
+            }
+
+            metaHost.BeginAnimation(WidthProperty, null);
+            metaHost.Width = from;
+            var ease = new CubicEase
+            {
+                EasingMode = side.IsVolumeEditorOpen ? EasingMode.EaseOut : EasingMode.EaseIn
+            };
+            metaHost.BeginAnimation(
+                WidthProperty,
+                new DoubleAnimation
+                {
+                    From = from,
+                    To = to,
+                    Duration = TimeSpan.FromMilliseconds(260),
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.HoldEnd
+                });
+            return;
+        }
+    }
+
+    private void ApplyChipMarqueeScrims()
+    {
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject container)
+            {
+                continue;
+            }
+
+            ApplyMarqueeScrims(container);
+        }
+    }
+
+    private void ApplyMarqueeScrims(DependencyObject root)
+    {
+        if (root is MarqueeText marquee)
+        {
+            marquee.SetEdgeScrim(_appearanceIsLight, _traySample);
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            ApplyMarqueeScrims(VisualTreeHelper.GetChild(root, i));
         }
     }
 
@@ -847,9 +1049,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (pair == _pairNameCollapsed && animate)
+        {
+            return;
+        }
+
         var duration = TimeSpan.FromMilliseconds(PlayPlayMorphMs);
         var ease = new CubicEase { EasingMode = pair ? EasingMode.EaseOut : EasingMode.EaseIn };
         AnimateSourceNameWidth(collapse: pair, animate, duration, ease);
+        _pairNameCollapsed = pair;
     }
 
     private void AnimateSourceNameWidth(
@@ -860,9 +1068,24 @@ public partial class MainWindow : Window
     {
         SourceText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var full = Math.Max(1, Math.Ceiling(SourceText.DesiredSize.Width + SourceText.Margin.Left));
+
+        // Already collapsed (Width latched at 0): do not restart from=full — that is the jitter.
+        var current = SourceNameHost.Width;
+        if (collapse && !double.IsNaN(current) && current < 0.5 && SourceNameHost.ActualWidth < 0.5)
+        {
+            SourceNameHost.BeginAnimation(WidthProperty, null);
+            SourceNameHost.Width = 0;
+            return;
+        }
+
+        if (!collapse && double.IsNaN(current) && SourceNameHost.ActualWidth > 0.5)
+        {
+            return;
+        }
+
         var from = SourceNameHost.ActualWidth > 0.5
             ? SourceNameHost.ActualWidth
-            : (collapse ? full : 0);
+            : (!double.IsNaN(current) && current >= 0 ? current : (collapse ? full : 0));
         var to = collapse ? 0 : full;
 
         if (!animate || Math.Abs(to - from) < 0.5)
@@ -882,7 +1105,7 @@ public partial class MainWindow : Window
             To = to,
             Duration = duration,
             EasingFunction = ease,
-            FillBehavior = FillBehavior.Stop
+            FillBehavior = FillBehavior.HoldEnd
         };
         widthAnim.Completed += (_, _) =>
         {
@@ -903,12 +1126,15 @@ public partial class MainWindow : Window
 
     private void ApplyAppearance(TaskbarAppearance appearance)
     {
+        _appearanceIsLight = appearance.IsLight;
+        _traySample = appearance.TraySample;
         _titleBrush.Color = appearance.Foreground;
         _mutedBrush.Color = appearance.MutedForeground;
         _progressTrackBrush.Color = appearance.ProgressTrack;
         _progressFillBrush.Color = appearance.ProgressFill;
         TitleMarquee.Foreground = _titleBrush;
-        TitleMarquee.SetEdgeScrim(appearance.IsLight);
+        TitleMarquee.SetEdgeScrim(appearance.IsLight, appearance.TraySample);
+        ApplyChipMarqueeScrims();
         ArtistText.Foreground = _mutedBrush;
         SourceText.Foreground = _mutedBrush;
 

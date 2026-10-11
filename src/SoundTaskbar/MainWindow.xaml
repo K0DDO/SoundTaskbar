@@ -364,18 +364,33 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
+                            <!-- Hover-only marquee like primary; edge scrim from ApplyAppearance -->
                             <controls:MarqueeText Text="{Binding Title}"
                                                   FontSize="11"
                                                   FontWeight="SemiBold"
                                                   Foreground="#F5F5F5"
-                                                  Height="14"
-                                                  ScrollWhenOverflow="True" />
-                            <TextBlock Grid.Row="1"
-                                       Text="{Binding Artist}"
-                                       Foreground="#B8C0CC"
-                                       FontSize="9"
-                                       TextTrimming="CharacterEllipsis"
-                                       Margin="0,1,0,1" />
+                                                  Height="14" />
+                            <Grid Grid.Row="1" Margin="0,1,0,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Artist}"
+                                           Foreground="#B8C0CC"
+                                           FontSize="9"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <Image Grid.Column="1"
+                                       Source="{Binding AppIcon}"
+                                       Width="8"
+                                       Height="8"
+                                       Margin="5,0,0,0"
+                                       Stretch="Uniform"
+                                       Opacity="0.9"
+                                       VerticalAlignment="Center"
+                                       Visibility="{Binding AppIconVisibility}"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Grid>
                             <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />

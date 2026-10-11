@@ -13,6 +13,8 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
     public required Color ProgressTrack { get; init; }
     public required Color ProgressFill { get; init; }
     public required bool IsLight { get; init; }
+    /// <summary>Sampled tray/taskbar pixel for edge scrims (transparent bar / wallpaper).</summary>
+    public Color? TraySample { get; init; }
 
     public bool Equals(TaskbarAppearance? other) =>
         other is not null &&
@@ -20,10 +22,11 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
         MutedForeground == other.MutedForeground &&
         ProgressTrack == other.ProgressTrack &&
         ProgressFill == other.ProgressFill &&
-        IsLight == other.IsLight;
+        IsLight == other.IsLight &&
+        TraySample == other.TraySample;
 
     public override bool Equals(object? obj) => Equals(obj as TaskbarAppearance);
-    public override int GetHashCode() => HashCode.Combine(Foreground, ProgressFill, IsLight);
+    public override int GetHashCode() => HashCode.Combine(Foreground, ProgressFill, IsLight, TraySample);
 }
 
 /// <summary>
@@ -94,10 +97,10 @@ public sealed class TaskbarAppearanceService : IDisposable
         var isLight = sample is not null
             ? PerceivedBrightness(sample.Value) > 160
             : IsLightTaskbar();
-        return Create(isLight, GetAccentColor(isLight));
+        return Create(isLight, GetAccentColor(isLight), sample);
     }
 
-    private static TaskbarAppearance Create(bool isLight, Color? accent = null)
+    private static TaskbarAppearance Create(bool isLight, Color? accent = null, Color? traySample = null)
     {
         var fill = accent ?? Color.FromRgb(0x00, 0x78, 0xD4);
         return new TaskbarAppearance
@@ -106,7 +109,8 @@ public sealed class TaskbarAppearanceService : IDisposable
             MutedForeground = isLight ? Color.FromRgb(0x4A, 0x4A, 0x4A) : Color.FromRgb(0xC8, 0xCD, 0xD6),
             ProgressTrack = isLight ? Color.FromArgb(0x55, 0x00, 0x00, 0x00) : Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF),
             ProgressFill = fill,
-            IsLight = isLight
+            IsLight = isLight,
+            TraySample = traySample
         };
     }
 

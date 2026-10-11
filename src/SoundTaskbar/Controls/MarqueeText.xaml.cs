@@ -33,6 +33,8 @@ public partial class MarqueeText : UserControl
     {
         InitializeComponent();
         Loaded += (_, _) => QueueRestart();
+        MouseEnter += (_, _) => SetHovering(true);
+        MouseLeave += (_, _) => SetHovering(false);
     }
 
     public string Text
@@ -47,8 +49,18 @@ public partial class MarqueeText : UserControl
         set => SetValue(ScrollWhenOverflowProperty, value);
     }
 
-    public void SetEdgeScrim(bool isLight)
+    /// <summary>
+    /// Edge fade matches the transparent taskbar sample (same source as contrast detection).
+    /// </summary>
+    public void SetEdgeScrim(bool isLight, Color? traySample = null)
     {
+        if (traySample is { } sample)
+        {
+            ScrimMid.Color = Color.FromArgb(0x70, sample.R, sample.G, sample.B);
+            ScrimEnd.Color = Color.FromArgb(0xE6, sample.R, sample.G, sample.B);
+            return;
+        }
+
         if (isLight)
         {
             ScrimMid.Color = Color.FromArgb(0x66, 0xE8, 0xE8, 0xE8);
