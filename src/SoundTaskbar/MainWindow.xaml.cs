@@ -36,6 +36,7 @@ public partial class MainWindow : Window
         _layoutHandler = (_, layout) => ApplyLayout(layout);
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged += OnSideSessionsChanged;
+        _viewModel.ParkedLayoutChanged += OnParkedLayoutChanged;
 
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
@@ -85,6 +86,7 @@ public partial class MainWindow : Window
     {
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.SideSessions.CollectionChanged -= OnSideSessionsChanged;
+        _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
 
         if (_taskbarHost is not null)
         {
@@ -123,6 +125,17 @@ public partial class MainWindow : Window
         if (_viewModel.ShowParkedRail && _layoutReady && !_viewModel.IsDualPlaying)
         {
             AnimateParkedHost(open: true, animate: true);
+        }
+    }
+
+    private void OnParkedLayoutChanged(object? sender, EventArgs e)
+    {
+        if (_viewModel.ShowParkedRail && _layoutReady && !_viewModel.IsDualPlaying)
+        {
+            // Chip volume open/close hides art+next — remasure rail width.
+            Dispatcher.BeginInvoke(
+                () => AnimateParkedHost(open: true, animate: true),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
     }
 

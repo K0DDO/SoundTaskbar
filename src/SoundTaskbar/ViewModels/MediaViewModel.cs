@@ -120,6 +120,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    public event EventHandler? ParkedLayoutChanged;
+
     public RelayCommand PreviousCommand { get; }
     public RelayCommand PlayPauseCommand { get; }
     public RelayCommand NextCommand { get; }
@@ -733,6 +735,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                             IsVolumeEditorOpen = false;
                         }
                     },
+                    onChipLayoutChanged: () => ParkedLayoutChanged?.Invoke(this, EventArgs.Empty),
                     ToggleSideSessionAsync,
                     PreviousSideSessionAsync,
                     NextSideSessionAsync);

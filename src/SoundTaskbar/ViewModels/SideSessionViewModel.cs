@@ -15,6 +15,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
     private readonly AppVolumeService _volume;
     private readonly Action _onVolumeEditorOpened;
+    private readonly Action? _onChipLayoutChanged;
     private readonly DispatcherTimer _volumeHideTimer;
     private BitmapImage? _artwork;
     private string _title = string.Empty;
@@ -38,6 +39,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         string sessionKey,
         AppVolumeService volume,
         Action onVolumeEditorOpened,
+        Action? onChipLayoutChanged,
         Func<string, Task> toggleAsync,
         Func<string, Task> previousAsync,
         Func<string, Task> nextAsync)
@@ -45,6 +47,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         SessionKey = sessionKey;
         _volume = volume;
         _onVolumeEditorOpened = onVolumeEditorOpened;
+        _onChipLayoutChanged = onChipLayoutChanged;
 
         ToggleCommand = new RelayCommand(
             async _ => await toggleAsync(SessionKey),
@@ -215,6 +218,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             {
                 _volumeHideTimer.Stop();
             }
+
+            _onChipLayoutChanged?.Invoke();
         }
     }
 
