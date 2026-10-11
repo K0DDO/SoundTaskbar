@@ -50,14 +50,29 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public string Title
     {
         get => _title;
-        private set => SetField(ref _title, value);
+        private set
+        {
+            if (SetField(ref _title, value))
+            {
+                OnPropertyChanged(nameof(Headline));
+            }
+        }
     }
 
     public string Artist
     {
         get => _artist;
-        private set => SetField(ref _artist, value);
+        private set
+        {
+            if (SetField(ref _artist, value))
+            {
+                OnPropertyChanged(nameof(Headline));
+            }
+        }
     }
+
+    public string Headline =>
+        string.IsNullOrWhiteSpace(Artist) ? Title : $"{Title}  ·  {Artist}";
 
     public string AppId
     {

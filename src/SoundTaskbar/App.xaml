@@ -4,26 +4,27 @@
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <Style x:Key="MediaButton" TargetType="Button">
-            <Setter Property="Width" Value="34" />
-            <Setter Property="Height" Value="34" />
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
             <Setter Property="Foreground" Value="#F2F4F7" />
-            <Setter Property="Background" Value="#22FFFFFF" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
-                                CornerRadius="8"
+                                CornerRadius="4"
                                 Padding="0">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#33FFFFFF" />
+                                <Setter TargetName="Bd" Property="Background" Value="#28FFFFFF" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.35" />

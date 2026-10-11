@@ -1,5 +1,5 @@
 ﻿using System.Windows;
-using System.Windows.Input;
+using SoundTaskbar.Services;
 using SoundTaskbar.ViewModels;
 
 namespace SoundTaskbar;
@@ -7,6 +7,7 @@ namespace SoundTaskbar;
 public partial class MainWindow : Window
 {
     private readonly MediaViewModel _viewModel = new();
+    private TaskbarHostService? _taskbarHost;
 
     public MainWindow()
     {
@@ -16,24 +17,17 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        PositionNearTaskbar();
+        _taskbarHost = new TaskbarHostService(this);
+        _taskbarHost.Start();
         await _viewModel.InitializeAsync();
     }
 
-    private void OnClosed(object? sender, EventArgs e) => _viewModel.Dispose();
-
-    private void OnDragMove(object sender, MouseButtonEventArgs e)
+    private void OnClosed(object? sender, EventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
-        {
-            DragMove();
-        }
+        _taskbarHost?.Dispose();
+        _viewModel.Dispose();
     }
 
-    private void PositionNearTaskbar()
-    {
-        var workArea = SystemParameters.WorkArea;
-        Left = workArea.Right - Width - 16;
-        Top = workArea.Bottom - Height - 12;
-    }
+    private void OnExitClick(object sender, RoutedEventArgs e) =>
+        Application.Current.Shutdown();
 }
