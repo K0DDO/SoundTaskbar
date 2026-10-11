@@ -22,108 +22,106 @@
     </Window.ContextMenu>
 
     <Window.Resources>
+        <!-- Parked (paused) source: ‹ art▶ › then | before primary -->
         <DataTemplate x:Key="SessionArtChip">
-            <Button Command="{Binding ToggleCommand}"
-                    Width="28"
-                    Height="28"
-                    Margin="0,0,4,0"
-                    Focusable="False"
-                    Cursor="Hand"
-                    ToolTip="{Binding SourceName}">
-                <Button.Template>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd"
-                                CornerRadius="4"
-                                ClipToBounds="True"
-                                Background="#44000000">
-                            <Grid>
-                                <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                <Border Background="#88000000" />
-                                <TextBlock Text="{Binding OverlayGlyph}"
-                                           Foreground="#F5F5F5"
-                                           FontSize="10"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Button.Template>
-            </Button>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,2,0">
+                <Button Content="‹"
+                        Command="{Binding PreviousCommand}"
+                        Style="{StaticResource CompactMediaButton}"
+                        FontSize="14"
+                        Width="14"
+                        Height="22"
+                        Padding="0"
+                        VerticalAlignment="Center" />
+                <Button Command="{Binding ToggleCommand}"
+                        Width="28"
+                        Height="28"
+                        Margin="1,0"
+                        Focusable="False"
+                        Cursor="Hand"
+                        ToolTip="{Binding SourceName}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd"
+                                    CornerRadius="4"
+                                    ClipToBounds="True"
+                                    Background="#44000000">
+                                <Grid>
+                                    <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                    <Border Background="#88000000" />
+                                    <TextBlock Text="{Binding OverlayGlyph}"
+                                               Foreground="#F5F5F5"
+                                               FontSize="10"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button Content="›"
+                        Command="{Binding NextCommand}"
+                        Style="{StaticResource CompactMediaButton}"
+                        FontSize="14"
+                        Width="14"
+                        Height="22"
+                        Padding="0"
+                        VerticalAlignment="Center" />
+                <TextBlock Text="|"
+                           Foreground="#66FFFFFF"
+                           FontSize="14"
+                           Margin="6,0,4,0"
+                           VerticalAlignment="Center" />
+            </StackPanel>
         </DataTemplate>
 
         <DataTemplate x:Key="DualSessionCard">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" MaxWidth="175">
-                    <Button Content="‹"
-                            Command="{Binding PreviousCommand}"
-                            Style="{StaticResource CompactMediaButton}"
-                            FontSize="14"
-                            Width="14"
-                            Height="22"
-                            Padding="0"
-                            VerticalAlignment="Center" />
-                    <Button Command="{Binding ToggleCommand}"
-                            Width="28"
-                            Height="28"
-                            Margin="1,0"
-                            Focusable="False"
-                            Cursor="Hand">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border CornerRadius="4" ClipToBounds="True" Background="#44000000">
-                                    <Grid>
-                                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                        <Border Background="#88000000" />
-                                        <TextBlock Text="{Binding OverlayGlyph}"
-                                                   Foreground="#F5F5F5"
-                                                   FontSize="10"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                    <StackPanel Margin="4,0,0,0" VerticalAlignment="Center" MaxWidth="100">
-                        <TextBlock Text="{Binding Title}"
-                                   Foreground="#F5F5F5"
-                                   FontSize="10"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding SourceName}"
-                                   Foreground="#B8C0CC"
-                                   FontSize="8"
-                                   TextTrimming="CharacterEllipsis"
-                                   Margin="0,1,0,0" />
-                    </StackPanel>
-                    <Button Content="›"
-                            Command="{Binding NextCommand}"
-                            Style="{StaticResource CompactMediaButton}"
-                            FontSize="14"
-                            Width="14"
-                            Height="22"
-                            Padding="0"
-                            Margin="2,0,0,0"
-                            VerticalAlignment="Center" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,10,0" MaxWidth="160">
+                <Button Command="{Binding ToggleCommand}"
+                        Width="28"
+                        Height="28"
+                        Focusable="False"
+                        Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border CornerRadius="4" ClipToBounds="True" Background="#44000000">
+                                <Grid>
+                                    <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                    <Border Background="#88000000" />
+                                    <TextBlock Text="{Binding OverlayGlyph}"
+                                               Foreground="#F5F5F5"
+                                               FontSize="10"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <StackPanel Margin="5,0,0,0" VerticalAlignment="Center" MaxWidth="120">
+                    <TextBlock Text="{Binding Title}"
+                               Foreground="#F5F5F5"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding SourceName}"
+                               Foreground="#B8C0CC"
+                               FontSize="8"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,1,0,0" />
                 </StackPanel>
-                <TextBlock Text="|"
-                           Visibility="{Binding DividerVisibility}"
-                           Foreground="#66FFFFFF"
-                           FontSize="14"
-                           Margin="8,0"
-                           VerticalAlignment="Center" />
             </StackPanel>
         </DataTemplate>
     </Window.Resources>
 
     <Canvas x:Name="RootCanvas" Background="Transparent">
         <Border x:Name="WidgetRoot"
-                Width="400"
+                Width="380"
                 Height="48"
                 Padding="6,2"
                 BorderThickness="0"
