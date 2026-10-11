@@ -9,7 +9,10 @@
 
 ## Запуск
 
+Из корня репозитория (`Documents\VScode\SoundTaskbar`):
+
 ```powershell
+cd C:\Users\dima4ka\Documents\VScode\SoundTaskbar
 dotnet run --project src/SoundTaskbar
 ```
 
