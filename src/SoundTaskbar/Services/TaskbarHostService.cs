@@ -141,6 +141,7 @@ public sealed class TaskbarHostService : IDisposable
             return IntPtr.Zero;
         }
 
+        // Soft refuse hide from Show Desktop — do not mark handled (breaks WPF child paint).
         if (msg == NativeMethods.WM_WINDOWPOSCHANGING && lParam != IntPtr.Zero)
         {
             var pos = Marshal.PtrToStructure<NativeMethods.WINDOWPOS>(lParam);
@@ -154,17 +155,13 @@ public sealed class TaskbarHostService : IDisposable
 
         if (msg == NativeMethods.WM_SHOWWINDOW && wParam == IntPtr.Zero)
         {
-            handled = true;
-            _window.Dispatcher.BeginInvoke(() =>
-            {
-                NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-                AttachAndPosition(forceBar: true);
-            });
+            _window.Dispatcher.BeginInvoke(
+                () => EnsureVisible(force: true),
+                DispatcherPriority.Normal);
         }
 
         if (msg == NativeMethods.WM_SIZE && wParam.ToInt32() == NativeMethods.SIZE_MINIMIZED)
         {
-            handled = true;
             _window.Dispatcher.BeginInvoke(() =>
             {
                 if (_window.WindowState != WindowState.Normal)
@@ -172,31 +169,30 @@ public sealed class TaskbarHostService : IDisposable
                     _window.WindowState = WindowState.Normal;
                 }
 
-                NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-                AttachAndPosition(forceBar: true);
+                EnsureVisible(force: true);
             });
         }
 
         return IntPtr.Zero;
     }
 
-    private void EnsureVisible()
+    private void EnsureVisible() => EnsureVisible(force: false);
+
+    private void EnsureVisible(bool force)
     {
         if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
         {
             return;
         }
 
-        var parent = NativeMethods.GetParent(_hwnd);
         var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
-        if (taskbar != IntPtr.Zero && parent != taskbar)
-        {
-            AttachAndPosition(forceBar: true);
-        }
+        var parent = NativeMethods.GetParent(_hwnd);
+        var reparentNeeded = taskbar != IntPtr.Zero && parent != taskbar;
 
         var cloaked = IsCloaked(_hwnd);
         var visible = NativeMethods.IsWindowVisible(_hwnd);
-        if (visible && !cloaked && _window.Visibility == Visibility.Visible &&
+        if (!force && visible && !cloaked && !reparentNeeded &&
+            _window.Visibility == Visibility.Visible &&
             _window.WindowState == WindowState.Normal)
         {
             return;
@@ -213,7 +209,7 @@ public sealed class TaskbarHostService : IDisposable
         }
 
         NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        AttachAndPosition(forceBar: true);
+        AttachAndPosition(forceBar: force || reparentNeeded);
     }
 
     private static bool IsCloaked(IntPtr hwnd)
