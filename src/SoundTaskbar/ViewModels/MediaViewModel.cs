@@ -613,7 +613,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             var existing = target.FirstOrDefault(s => s.SessionKey == snap.SessionKey);
             if (existing is null)
             {
-                existing = new SideSessionViewModel(snap.SessionKey, ToggleSideSessionAsync);
+                existing = new SideSessionViewModel(
+                    snap.SessionKey,
+                    ToggleSideSessionAsync,
+                    PreviousSideSessionAsync,
+                    NextSideSessionAsync);
                 target.Add(existing);
             }
 
@@ -622,6 +626,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
             existing.IsPlaying = snap.IsPlaying;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
+            existing.CanGoPrevious = snap.CanSkipPrevious || snap.CanSeek;
+            existing.CanGoNext = snap.CanSkipNext || snap.CanSeek;
         }
 
         // Keep visual order matching source.
@@ -643,6 +649,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 target.Move(currentIndex, i);
             }
         }
+
+        for (var i = 0; i < target.Count; i++)
+        {
+            target[i].ShowDivider = i < target.Count - 1;
+        }
     }
 
     private async Task ToggleSideSessionAsync(string sessionKey)
@@ -650,6 +661,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _media.Focus(sessionKey);
         await _media.TogglePlayPauseAsync(sessionKey);
         await RefreshAsync(full: true);
+    }
+
+    private async Task PreviousSideSessionAsync(string sessionKey)
+    {
+        _media.Focus(sessionKey);
+        await _media.PreviousOrSeekBackAsync(sessionKey);
+        await RefreshAsync(full: false);
+    }
+
+    private async Task NextSideSessionAsync(string sessionKey)
+    {
+        _media.Focus(sessionKey);
+        await _media.NextOrSeekForwardAsync(sessionKey);
+        await RefreshAsync(full: false);
     }
 
     private void ClearAllSessions()

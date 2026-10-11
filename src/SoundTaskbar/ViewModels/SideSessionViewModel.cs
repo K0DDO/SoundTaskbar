@@ -13,13 +13,26 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private string _sourceName = string.Empty;
     private bool _isPlaying;
     private bool _canToggle = true;
+    private bool _canGoPrevious;
+    private bool _canGoNext;
+    private bool _showDivider;
 
-    public SideSessionViewModel(string sessionKey, Func<string, Task> toggleAsync)
+    public SideSessionViewModel(
+        string sessionKey,
+        Func<string, Task> toggleAsync,
+        Func<string, Task> previousAsync,
+        Func<string, Task> nextAsync)
     {
         SessionKey = sessionKey;
         ToggleCommand = new RelayCommand(
             async _ => await toggleAsync(SessionKey),
             _ => _canToggle);
+        PreviousCommand = new RelayCommand(
+            async _ => await previousAsync(SessionKey),
+            _ => _canGoPrevious);
+        NextCommand = new RelayCommand(
+            async _ => await nextAsync(SessionKey),
+            _ => _canGoNext);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -27,6 +40,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     public string SessionKey { get; }
 
     public RelayCommand ToggleCommand { get; }
+    public RelayCommand PreviousCommand { get; }
+    public RelayCommand NextCommand { get; }
 
     public BitmapImage? Artwork
     {
@@ -69,6 +84,45 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    public bool CanGoPrevious
+    {
+        get => _canGoPrevious;
+        set
+        {
+            if (SetField(ref _canGoPrevious, value))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    public bool CanGoNext
+    {
+        get => _canGoNext;
+        set
+        {
+            if (SetField(ref _canGoNext, value))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    public bool ShowDivider
+    {
+        get => _showDivider;
+        set
+        {
+            if (SetField(ref _showDivider, value))
+            {
+                OnPropertyChanged(nameof(DividerVisibility));
+            }
+        }
+    }
+
+    public System.Windows.Visibility DividerVisibility =>
+        ShowDivider ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
     public string OverlayGlyph => IsPlaying ? "❚❚" : "▶";
 
