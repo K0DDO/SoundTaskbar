@@ -57,7 +57,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _isDualPlaying;
     private bool _showParkedRail;
     private bool _parkedDismissPending;
-    private const double SoloWidgetWidth = 300;
+    private const double SoloWidgetWidth = 310;
     private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
     private string? _pairSideKey;

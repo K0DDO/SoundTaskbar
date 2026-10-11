@@ -23,6 +23,7 @@ public partial class MarqueeText : UserControl
 
     private bool _restartQueued;
     private bool _isHovering;
+    private bool _overflows;
 
     public MarqueeText()
     {
@@ -91,7 +92,18 @@ public partial class MarqueeText : UserControl
     private void Stop()
     {
         Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, null);
+        EllipsisMark.BeginAnimation(OpacityProperty, null);
         Slide.X = 0;
+        UpdateOverflowFlag();
+        // At rest: keep "..." while the title still overflows.
+        EllipsisMark.Opacity = _overflows ? 1 : 0;
+    }
+
+    private void UpdateOverflowFlag()
+    {
+        var viewWidth = Host.ActualWidth;
+        var textWidth = RunText.ActualWidth;
+        _overflows = viewWidth > 1 && textWidth > viewWidth + 2;
     }
 
     private void Restart()
@@ -106,26 +118,42 @@ public partial class MarqueeText : UserControl
 
         var viewWidth = Host.ActualWidth;
         var textWidth = RunText.ActualWidth;
-        if (viewWidth <= 1 || textWidth <= viewWidth + 2)
+        if (!_overflows)
         {
             return;
         }
 
         var distance = textWidth - viewWidth + 12;
         var seconds = Math.Max(3.5, distance / 32);
+        var duration = TimeSpan.FromSeconds(seconds);
+        var begin = TimeSpan.FromMilliseconds(250);
+        var ease = new SineEase { EasingMode = EasingMode.EaseInOut };
 
-        var animation = new DoubleAnimation
+        var slide = new DoubleAnimation
         {
             From = 0,
             To = -distance,
-            Duration = TimeSpan.FromSeconds(seconds),
+            Duration = duration,
             AutoReverse = true,
             RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
-            BeginTime = TimeSpan.FromMilliseconds(250)
+            EasingFunction = ease,
+            BeginTime = begin
         };
 
-        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, animation);
+        // Keep "..." until the scroll reaches the end; AutoReverse brings them back.
+        var ellipsis = new DoubleAnimationUsingKeyFrames
+        {
+            Duration = duration,
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            BeginTime = begin
+        };
+        ellipsis.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0)));
+        ellipsis.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.92)));
+        ellipsis.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(1)));
+
+        Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, slide);
+        EllipsisMark.BeginAnimation(OpacityProperty, ellipsis);
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
