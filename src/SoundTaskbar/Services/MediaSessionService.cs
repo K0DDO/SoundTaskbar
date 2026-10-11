@@ -1,6 +1,8 @@
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Windows.Media.Imaging;
+using SoundTaskbar.Helpers;
+using Windows.Media;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
@@ -19,6 +21,7 @@ public sealed class MediaSessionSnapshot
     public bool CanSkipNext { get; init; }
     public bool CanSkipPrevious { get; init; }
     public bool CanSeek { get; init; }
+    public bool IsVideo { get; init; }
     public TimeSpan Position { get; init; }
     public TimeSpan Duration { get; init; }
     public BitmapImage? Artwork { get; init; }
@@ -98,6 +101,7 @@ public sealed class MediaSessionService : IDisposable
             BitmapImage? artwork = null;
             string title = string.Empty;
             string artist = string.Empty;
+            MediaPlaybackType? playbackType = null;
             try
             {
                 var props = await session.TryGetMediaPropertiesAsync();
@@ -105,6 +109,7 @@ public sealed class MediaSessionService : IDisposable
                 {
                     title = props.Title ?? string.Empty;
                     artist = props.Artist ?? string.Empty;
+                    playbackType = props.PlaybackType;
                     if (props.Thumbnail is not null)
                     {
                         artwork = await ToBitmapImageAsync(props.Thumbnail);
@@ -124,24 +129,7 @@ public sealed class MediaSessionService : IDisposable
                 }
 
                 var snap = CaptureSession(key, session, artwork, includeMediaProps: false);
-                results.Add(new MediaSessionSnapshot
-                {
-                    HasSession = true,
-                    SessionKey = key,
-                    Title = title,
-                    Artist = artist,
-                    AppId = snap.AppId,
-                    IsPlaying = snap.IsPlaying,
-                    IsParkable = snap.IsParkable,
-                    CanPlay = snap.CanPlay,
-                    CanPause = snap.CanPause,
-                    CanSkipNext = snap.CanSkipNext,
-                    CanSkipPrevious = snap.CanSkipPrevious,
-                    CanSeek = snap.CanSeek,
-                    Position = snap.Position,
-                    Duration = snap.Duration,
-                    Artwork = artwork
-                });
+                results.Add(CloneWithMedia(snap, title, artist, artwork, playbackType));
             }
         }
 
@@ -192,24 +180,12 @@ public sealed class MediaSessionService : IDisposable
                 artwork = await ToBitmapImageAsync(props.Thumbnail);
             }
 
-            return new MediaSessionSnapshot
-            {
-                HasSession = true,
-                SessionKey = key,
-                Title = props.Title ?? string.Empty,
-                Artist = props.Artist ?? string.Empty,
-                AppId = snapshot.AppId,
-                IsPlaying = snapshot.IsPlaying,
-                IsParkable = snapshot.IsParkable,
-                CanPlay = snapshot.CanPlay,
-                CanPause = snapshot.CanPause,
-                CanSkipNext = snapshot.CanSkipNext,
-                CanSkipPrevious = snapshot.CanSkipPrevious,
-                CanSeek = snapshot.CanSeek,
-                Position = snapshot.Position,
-                Duration = snapshot.Duration,
-                Artwork = artwork
-            };
+            return CloneWithMedia(
+                snapshot,
+                props.Title ?? string.Empty,
+                props.Artist ?? string.Empty,
+                artwork,
+                props.PlaybackType);
         }
         catch
         {
@@ -465,11 +441,12 @@ public sealed class MediaSessionService : IDisposable
             var isParkable = isPlaying ||
                              status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
 
+            var appId = session.SourceAppUserModelId ?? string.Empty;
             return new MediaSessionSnapshot
             {
                 HasSession = true,
                 SessionKey = key,
-                AppId = session.SourceAppUserModelId ?? string.Empty,
+                AppId = appId,
                 IsPlaying = isPlaying,
                 IsParkable = isParkable,
                 CanPlay = controls.IsPlayEnabled,
@@ -477,6 +454,12 @@ public sealed class MediaSessionService : IDisposable
                 CanSkipNext = controls.IsNextEnabled,
                 CanSkipPrevious = controls.IsPreviousEnabled,
                 CanSeek = controls.IsPlaybackPositionEnabled,
+                IsVideo = MediaKindHelper.IsVideo(
+                    playbackType: null,
+                    appId,
+                    controls.IsPreviousEnabled,
+                    controls.IsNextEnabled,
+                    controls.IsPlaybackPositionEnabled),
                 Position = timeline.Position,
                 Duration = timeline.EndTime > timeline.StartTime
                     ? timeline.EndTime - timeline.StartTime
@@ -508,6 +491,37 @@ public sealed class MediaSessionService : IDisposable
         TimelineChanged?.Invoke(this, EventArgs.Empty);
 
     private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
+
+    private static MediaSessionSnapshot CloneWithMedia(
+        MediaSessionSnapshot snap,
+        string title,
+        string artist,
+        BitmapImage? artwork,
+        MediaPlaybackType? playbackType) =>
+        new()
+        {
+            HasSession = snap.HasSession,
+            SessionKey = snap.SessionKey,
+            Title = title,
+            Artist = artist,
+            AppId = snap.AppId,
+            IsPlaying = snap.IsPlaying,
+            IsParkable = snap.IsParkable,
+            CanPlay = snap.CanPlay,
+            CanPause = snap.CanPause,
+            CanSkipNext = snap.CanSkipNext,
+            CanSkipPrevious = snap.CanSkipPrevious,
+            CanSeek = snap.CanSeek,
+            IsVideo = MediaKindHelper.IsVideo(
+                playbackType,
+                snap.AppId,
+                snap.CanSkipPrevious,
+                snap.CanSkipNext,
+                snap.CanSeek),
+            Position = snap.Position,
+            Duration = snap.Duration,
+            Artwork = artwork ?? snap.Artwork
+        };
 
     private static async Task<BitmapImage?> ToBitmapImageAsync(IRandomAccessStreamReference thumbnail)
     {

@@ -84,6 +84,7 @@ public partial class MainWindow : Window
         ApplyAppearance(_appearance.Current);
 
         await _viewModel.InitializeAsync();
+        _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
         ApplyModeVisual(_viewModel.IsDualPlaying, animate: false);
         AnimateParkedHost(_viewModel.ShowParkedRail, animate: false);
     }
@@ -124,6 +125,13 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MediaViewModel.ShowParkedRail))
         {
             AnimateParkedHost(_viewModel.ShowParkedRail, animate: _layoutReady && !_viewModel.IsDualPlaying);
+        }
+        else if (e.PropertyName == nameof(MediaViewModel.DesiredWidgetWidth))
+        {
+            if (_taskbarHost is not null)
+            {
+                _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
+            }
         }
     }
 

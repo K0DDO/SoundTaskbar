@@ -200,45 +200,198 @@
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
                 </Button>
-            </StackPanel>
-        </DataTemplate>
 
-        <DataTemplate x:Key="DualSessionCard">
-            <StackPanel Orientation="Horizontal" Margin="0,0,10,0" MaxWidth="160">
-                <Button Command="{Binding ToggleCommand}"
-                        Width="28"
-                        Height="28"
-                        Focusable="False"
-                        Cursor="Hand">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border CornerRadius="4" ClipToBounds="True" Background="#44000000">
-                                <Grid>
-                                    <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                    <Border Background="#88000000" />
-                                    <TextBlock Text="{Binding OverlayGlyph}"
-                                               Foreground="#F5F5F5"
-                                               FontSize="10"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center" />
-                                </Grid>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <StackPanel Margin="5,0,0,0" VerticalAlignment="Center" MaxWidth="120">
+                <!-- Expanded audio meta while video is the big primary -->
+                <StackPanel Margin="6,0,4,0"
+                            VerticalAlignment="Center"
+                            MaxWidth="110"
+                            Visibility="{Binding ExpandedMetaVisibility}">
                     <TextBlock Text="{Binding Title}"
                                Foreground="#F5F5F5"
                                FontSize="10"
                                FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{Binding SourceName}"
+                    <TextBlock Text="{Binding Artist}"
                                Foreground="#B8C0CC"
                                FontSize="8"
                                TextTrimming="CharacterEllipsis"
                                Margin="0,1,0,0" />
+                    <TextBlock Text="{Binding DurationText}"
+                               Foreground="#C8CDD6"
+                               FontSize="8"
+                               Margin="0,1,0,0" />
                 </StackPanel>
             </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="DualSessionCard">
+            <Grid Margin="0,0,8,0">
+                <!-- audio+audio: compact -->
+                <StackPanel Orientation="Horizontal"
+                            MaxWidth="160"
+                            Visibility="{Binding CompactVisibility}">
+                    <Button Command="{Binding ToggleCommand}"
+                            Width="28"
+                            Height="28"
+                            Focusable="False"
+                            Cursor="Hand">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border CornerRadius="4" ClipToBounds="True" Background="#44000000">
+                                    <Grid>
+                                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                        <Border Background="#88000000" />
+                                        <TextBlock Text="{Binding OverlayGlyph}"
+                                                   Foreground="#F5F5F5"
+                                                   FontSize="10"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <StackPanel Margin="5,0,0,0" VerticalAlignment="Center" MaxWidth="120">
+                        <TextBlock Text="{Binding Title}"
+                                   Foreground="#F5F5F5"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding SourceName}"
+                                   Foreground="#B8C0CC"
+                                   FontSize="8"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,1,0,0" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- video+video: full primary-like card (mirrored via column swap) -->
+                <Grid MinWidth="200"
+                      MaxWidth="248"
+                      Visibility="{Binding TwinVideoVisibility}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" MinWidth="90" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="{Binding ArtColumn}"
+                            Width="28"
+                            Height="28"
+                            CornerRadius="4"
+                            ClipToBounds="True"
+                            Background="#44000000"
+                            VerticalAlignment="Center">
+                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                    </Border>
+
+                    <Grid Grid.Column="{Binding MetaColumn}"
+                          Margin="6,0"
+                          VerticalAlignment="Center">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="{Binding Title}"
+                                   Foreground="#F5F5F5"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextAlignment" Value="Left" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsMirrored}" Value="True">
+                                            <Setter Property="TextAlignment" Value="Right" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Grid.Row="1"
+                                   Text="{Binding Artist}"
+                                   Foreground="#B8C0CC"
+                                   FontSize="9"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,1,0,1">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextAlignment" Value="Left" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsMirrored}" Value="True">
+                                            <Setter Property="TextAlignment" Value="Right" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ProgressBar Height="2"
+                                         Minimum="0"
+                                         Maximum="1"
+                                         Value="{Binding Progress, Mode=OneWay}"
+                                         Foreground="#9EC5FF"
+                                         Background="#55FFFFFF"
+                                         BorderThickness="0" />
+                            <TextBlock Grid.Column="1"
+                                       Margin="4,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="#C8CDD6"
+                                       FontSize="8"
+                                       Text="{Binding TimeText}" />
+                        </Grid>
+                    </Grid>
+
+                    <StackPanel Grid.Column="{Binding TransportColumn}"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Margin" Value="2,0,0,0" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMirrored}" Value="True">
+                                        <Setter Property="Margin" Value="0,0,2,0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <Button Style="{StaticResource CompactMediaButton}"
+                                Width="16"
+                                Height="16"
+                                Padding="0"
+                                Command="{Binding PreviousCommand}">
+                            <controls:TransportIcon Width="8"
+                                                    Height="8"
+                                                    Kind="{Binding PreviousIconKind}"
+                                                    Seconds="{Binding SeekSeconds}"
+                                                    Foreground="#F2F4F7" />
+                        </Button>
+                        <Button Content="{Binding PlayPauseLabel}"
+                                Style="{StaticResource PlayPauseButton}"
+                                Width="20"
+                                Height="20"
+                                FontSize="9"
+                                Margin="1,0"
+                                Command="{Binding ToggleCommand}" />
+                        <Button Style="{StaticResource CompactMediaButton}"
+                                Width="16"
+                                Height="16"
+                                Padding="0"
+                                Command="{Binding NextCommand}">
+                            <controls:TransportIcon Width="8"
+                                                    Height="8"
+                                                    Kind="{Binding NextIconKind}"
+                                                    Seconds="{Binding SeekSeconds}"
+                                                    Foreground="#F2F4F7" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Grid>
         </DataTemplate>
     </Window.Resources>
 

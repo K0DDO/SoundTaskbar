@@ -30,6 +30,7 @@ public sealed class TaskbarHostService : IDisposable
     private int _lastHeight = int.MinValue;
     private int _lastRegionLeft = int.MinValue;
     private int _lastRegionWidth = int.MinValue;
+    private double _desiredWidgetWidthDip = 380;
 
     public TaskbarHostService(Window window)
     {
@@ -40,6 +41,22 @@ public sealed class TaskbarHostService : IDisposable
     }
 
     public event EventHandler<TaskbarLayout>? LayoutChanged;
+
+    public double DesiredWidgetWidthDip
+    {
+        get => _desiredWidgetWidthDip;
+        set
+        {
+            var clamped = Math.Clamp(value, 220, 720);
+            if (Math.Abs(_desiredWidgetWidthDip - clamped) < 0.5)
+            {
+                return;
+            }
+
+            _desiredWidgetWidthDip = clamped;
+            AttachAndPosition();
+        }
+    }
 
     public void Start()
     {
@@ -124,7 +141,7 @@ public sealed class TaskbarHostService : IDisposable
         var dpi = NativeMethods.GetDpiForWindow(taskbar);
         var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
         var gap = (int)Math.Round(6 * scale);
-        var desiredWidgetWidth = (int)Math.Round(380 * scale);
+        var desiredWidgetWidth = (int)Math.Round(_desiredWidgetWidthDip * scale);
 
         var barWidth = taskbarRect.Width;
         var barHeight = taskbarRect.Height;

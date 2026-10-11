@@ -19,10 +19,19 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private readonly DispatcherTimer _volumeHideTimer;
     private BitmapImage? _artwork;
     private string _title = string.Empty;
+    private string _artist = string.Empty;
     private string _sourceName = string.Empty;
+    private string _durationText = string.Empty;
+    private string _timeText = "0:00 / 0:00";
+    private double _progress;
     private bool _isPlaying;
+    private bool _isVideo;
+    private bool _showExpandedMeta;
+    private DualCardStyle _dualCardStyle = DualCardStyle.Compact;
     private bool _canToggle = true;
     private bool _usesSkipIcons;
+    private bool _canSkipPrevious;
+    private bool _canSkipNext;
     private bool _canSeek;
     private bool _transportLocked;
     private bool _showDivider;
@@ -103,11 +112,96 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         set => SetField(ref _title, value);
     }
 
+    public string Artist
+    {
+        get => _artist;
+        set => SetField(ref _artist, value);
+    }
+
     public string SourceName
     {
         get => _sourceName;
         set => SetField(ref _sourceName, value);
     }
+
+    public string DurationText
+    {
+        get => _durationText;
+        set => SetField(ref _durationText, value);
+    }
+
+    public string TimeText
+    {
+        get => _timeText;
+        set => SetField(ref _timeText, value);
+    }
+
+    public double Progress
+    {
+        get => _progress;
+        set => SetField(ref _progress, value);
+    }
+
+    public bool IsVideo
+    {
+        get => _isVideo;
+        set => SetField(ref _isVideo, value);
+    }
+
+    public bool ShowExpandedMeta
+    {
+        get => _showExpandedMeta;
+        set
+        {
+            if (SetField(ref _showExpandedMeta, value))
+            {
+                OnPropertyChanged(nameof(ExpandedMetaVisibility));
+                _onChipLayoutChanged?.Invoke();
+            }
+        }
+    }
+
+    public System.Windows.Visibility ExpandedMetaVisibility =>
+        ShowExpandedMeta ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public DualCardStyle DualCardStyle
+    {
+        get => _dualCardStyle;
+        set
+        {
+            if (SetField(ref _dualCardStyle, value))
+            {
+                OnPropertyChanged(nameof(IsCompactCard));
+                OnPropertyChanged(nameof(IsTwinVideoCard));
+                OnPropertyChanged(nameof(IsMirrored));
+                OnPropertyChanged(nameof(CompactVisibility));
+                OnPropertyChanged(nameof(TwinVideoVisibility));
+                OnPropertyChanged(nameof(ArtColumn));
+                OnPropertyChanged(nameof(MetaColumn));
+                OnPropertyChanged(nameof(TransportColumn));
+            }
+        }
+    }
+
+    public bool IsCompactCard => DualCardStyle == DualCardStyle.Compact;
+
+    public bool IsTwinVideoCard =>
+        DualCardStyle is DualCardStyle.TwinVideo or DualCardStyle.TwinVideoMirrored;
+
+    public bool IsMirrored => DualCardStyle == DualCardStyle.TwinVideoMirrored;
+
+    public System.Windows.Visibility CompactVisibility =>
+        IsTwinVideoCard ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+
+    public System.Windows.Visibility TwinVideoVisibility =>
+        IsTwinVideoCard ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    // Normal: art | meta | transport — mirrored: transport | meta | art
+    public int ArtColumn => IsMirrored ? 2 : 0;
+
+    public int MetaColumn => 1;
+
+    public int TransportColumn => IsMirrored ? 0 : 2;
 
     public bool IsPlaying
     {
@@ -117,6 +211,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             if (SetField(ref _isPlaying, value))
             {
                 OnPropertyChanged(nameof(OverlayGlyph));
+                OnPropertyChanged(nameof(PlayPauseLabel));
                 if (IsVolumeEditorOpen)
                 {
                     IsVolumeEditorOpen = false;
@@ -124,6 +219,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    public string PlayPauseLabel => IsPlaying ? "❚❚" : "▶";
 
     public bool CanToggle
     {
@@ -246,15 +343,32 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
     public string MuteGlyph => IsEffectivelyMuted ? "\uE74F" : "\uE767";
 
-    public bool CanGoPrevious => _usesSkipIcons || _canSeek;
+    public bool CanGoPrevious => _canSkipPrevious || _canSeek;
 
-    public bool CanGoNext => _usesSkipIcons || _canSeek;
+    public bool CanGoNext => _canSkipNext || _canSeek;
 
+    // Both sides always share one mode — never SeekBack + SkipNext.
     public TransportIconKind PreviousIconKind =>
         _usesSkipIcons ? TransportIconKind.SkipPrevious : TransportIconKind.SeekBack;
 
     public TransportIconKind NextIconKind =>
         _usesSkipIcons ? TransportIconKind.SkipNext : TransportIconKind.SeekForward;
+
+    public void ApplyTimeline(TimeSpan position, TimeSpan duration)
+    {
+        var safeDuration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
+        var safePosition = position < TimeSpan.Zero ? TimeSpan.Zero : position;
+        if (safeDuration > TimeSpan.Zero && safePosition > safeDuration)
+        {
+            safePosition = safeDuration;
+        }
+
+        DurationText = FormatTime(safeDuration);
+        TimeText = $"{FormatTime(safePosition)} / {FormatTime(safeDuration)}";
+        Progress = safeDuration.TotalSeconds <= 0
+            ? 0
+            : Math.Clamp(safePosition.TotalSeconds / safeDuration.TotalSeconds, 0, 1);
+    }
 
     public bool ShowDivider
     {
@@ -280,8 +394,10 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             return;
         }
 
-        var useSkip = canSkipPrevious || canSkipNext;
-        _usesSkipIcons = useSkip;
+        // Same glyph family on both buttons whenever either skip exists.
+        _usesSkipIcons = canSkipPrevious || canSkipNext;
+        _canSkipPrevious = canSkipPrevious;
+        _canSkipNext = canSkipNext;
         _canSeek = canSeek;
         if (lockMode)
         {
@@ -293,6 +409,16 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PreviousIconKind));
         OnPropertyChanged(nameof(NextIconKind));
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    private static string FormatTime(TimeSpan value)
+    {
+        if (value.TotalHours >= 1)
+        {
+            return value.ToString(@"h\:mm\:ss");
+        }
+
+        return value.ToString(@"m\:ss");
     }
 
     public void RefreshVolume()

@@ -57,6 +57,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _isDualPlaying;
     private bool _showParkedRail;
     private bool _parkedDismissPending;
+    private double _desiredWidgetWidth = 380;
     private readonly Dictionary<string, BitmapImage?> _artworkCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Title, string Artist)> _metaCache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -152,6 +153,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public Visibility DualModeVisibility =>
         IsDualPlaying ? Visibility.Visible : Visibility.Collapsed;
 
+    public double DesiredWidgetWidth
+    {
+        get => _desiredWidgetWidth;
+        private set => SetField(ref _desiredWidgetWidth, value);
+    }
+
     /// <summary>
     /// Drives parked-rail slide. Stays true until UI finishes shrink animation, then clears chips.
     /// </summary>
@@ -245,7 +252,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (SetField(ref _canSkipNext, value))
             {
                 OnPropertyChanged(nameof(CanGoNext));
+                // Both icons share one family — refresh the pair together.
                 OnPropertyChanged(nameof(NextIconKind));
+                OnPropertyChanged(nameof(PreviousIconKind));
             }
         }
     }
@@ -258,6 +267,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (SetField(ref _canSkipPrevious, value))
             {
                 OnPropertyChanged(nameof(CanGoPrevious));
+                OnPropertyChanged(nameof(NextIconKind));
                 OnPropertyChanged(nameof(PreviousIconKind));
             }
         }
@@ -609,14 +619,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (playing.Count >= 2)
         {
-            IsDualPlaying = true;
-            SyncCollection(DualSessions, playing.Take(2).ToList(), freezeTransportIcons: false);
-            RequestParkedDismiss();
+            ApplyMultiPlaying(playing, ref primary);
         }
         else
         {
             IsDualPlaying = false;
             DualSessions.Clear();
+            DesiredWidgetWidth = 380;
 
             var parked = enriched
                 .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
@@ -627,7 +636,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (parked.Count > 0)
             {
                 _parkedDismissPending = false;
-                SyncCollection(SideSessions, parked, freezeTransportIcons: true);
+                SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedMeta: false);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
             }
@@ -640,6 +649,78 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _primarySessionKey = primary.SessionKey;
         _media.Focus(primary.SessionKey);
         ApplyPrimary(primary, keepArtwork);
+    }
+
+    /// <summary>
+    /// audio+video → primary video + expanded audio chip (title/artist/duration);
+    /// video+video → twin full cards (one mirrored);
+    /// audio+audio → compact dual cards.
+    /// </summary>
+    private void ApplyMultiPlaying(List<MediaSessionSnapshot> playing, ref MediaSessionSnapshot primary)
+    {
+        var videos = playing.Where(s => s.IsVideo).ToList();
+        var audios = playing.Where(s => !s.IsVideo).ToList();
+
+        if (videos.Count >= 2)
+        {
+            IsDualPlaying = true;
+            DesiredWidgetWidth = 520;
+            RequestParkedDismiss();
+
+            var stickyKey = _primarySessionKey;
+            var pickedKey = primary.SessionKey;
+            var right = playing.FirstOrDefault(s => s.SessionKey == stickyKey && s.IsVideo)
+                        ?? playing.FirstOrDefault(s => s.SessionKey == pickedKey && s.IsVideo)
+                        ?? videos[0];
+            var left = videos.FirstOrDefault(s => s.SessionKey != right.SessionKey) ?? videos[0];
+            primary = right;
+            SyncCollection(
+                DualSessions,
+                new List<MediaSessionSnapshot> { left, right },
+                freezeTransportIcons: false,
+                expandedMeta: false,
+                twinVideo: true);
+            return;
+        }
+
+        if (videos.Count == 1 && audios.Count >= 1)
+        {
+            // Keep big video primary; expand audio chip to the left.
+            IsDualPlaying = false;
+            DualSessions.Clear();
+            DesiredWidgetWidth = 440;
+            primary = videos[0];
+
+            var audioParked = audios
+                .Where(s => _volume.IsAppRunning(s.AppId))
+                .Take(1)
+                .ToList();
+
+            if (audioParked.Count > 0)
+            {
+                _parkedDismissPending = false;
+                SyncCollection(SideSessions, audioParked, freezeTransportIcons: true, expandedMeta: true);
+                ShowParkedRail = true;
+                UpdateParkedWatchdog();
+            }
+            else
+            {
+                RequestParkedDismiss();
+            }
+
+            return;
+        }
+
+        // audio + audio
+        IsDualPlaying = true;
+        DesiredWidgetWidth = 380;
+        RequestParkedDismiss();
+        SyncCollection(
+            DualSessions,
+            playing.Take(2).ToList(),
+            freezeTransportIcons: false,
+            expandedMeta: false,
+            twinVideo: false);
     }
 
     /// <summary>
@@ -701,6 +782,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             CanSkipNext = snap.CanSkipNext,
             CanSkipPrevious = snap.CanSkipPrevious,
             CanSeek = snap.CanSeek,
+            IsVideo = snap.IsVideo,
             Position = snap.Position,
             Duration = snap.Duration,
             Artwork = snap.Artwork ?? art
@@ -710,7 +792,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private void SyncCollection(
         ObservableCollection<SideSessionViewModel> target,
         List<MediaSessionSnapshot> source,
-        bool freezeTransportIcons)
+        bool freezeTransportIcons,
+        bool expandedMeta = false,
+        bool twinVideo = false)
     {
         for (var i = target.Count - 1; i >= 0; i--)
         {
@@ -720,8 +804,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
         }
 
-        foreach (var snap in source)
+        for (var index = 0; index < source.Count; index++)
         {
+            var snap = source[index];
             var existing = target.FirstOrDefault(s => s.SessionKey == snap.SessionKey);
             if (existing is null)
             {
@@ -763,9 +848,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 existing.Title = "Без названия";
             }
 
+            if (!string.IsNullOrWhiteSpace(snap.Artist) || !expandedMeta)
+            {
+                existing.Artist = snap.Artist?.Trim() ?? string.Empty;
+            }
+
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
             existing.IsPlaying = snap.IsPlaying;
+            existing.IsVideo = snap.IsVideo;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
+            existing.ShowExpandedMeta = expandedMeta;
+            existing.DualCardStyle = twinVideo
+                ? (index == 0 ? DualCardStyle.TwinVideoMirrored : DualCardStyle.TwinVideo)
+                : DualCardStyle.Compact;
+            existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
         }
 
@@ -792,6 +888,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         for (var i = 0; i < target.Count; i++)
         {
             target[i].ShowDivider = i < target.Count - 1;
+            if (twinVideo)
+            {
+                target[i].DualCardStyle = i == 0
+                    ? DualCardStyle.TwinVideoMirrored
+                    : DualCardStyle.TwinVideo;
+            }
         }
     }
 
@@ -874,6 +976,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private void ClearAllSessions()
     {
         IsDualPlaying = false;
+        DesiredWidgetWidth = 380;
         _parkedDismissPending = false;
         ShowParkedRail = false;
         SideSessions.Clear();
