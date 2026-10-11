@@ -570,12 +570,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         var playing = enriched.Where(s => s.IsPlaying).ToList();
         var focusedKey = _media.FocusedKey;
+        var primary = PickPrimary(enriched, playing, focusedKey);
 
-        MediaSessionSnapshot primary;
         if (playing.Count >= 2)
         {
             IsDualPlaying = true;
-            primary = playing.FirstOrDefault(s => s.SessionKey == focusedKey) ?? playing[0];
             SyncCollection(DualSessions, playing.Take(2).ToList(), freezeTransportIcons: false);
             RequestParkedDismiss();
         }
@@ -583,14 +582,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             IsDualPlaying = false;
             DualSessions.Clear();
-            primary = playing.FirstOrDefault()
-                      ?? enriched.FirstOrDefault(s => s.SessionKey == focusedKey)
-                      ?? enriched[0];
 
             var parked = enriched
                 .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
-                .OrderByDescending(s => s.IsPlaying)
-                .ThenByDescending(s => s.Artwork is not null)
+                .OrderByDescending(s => s.Artwork is not null)
                 .Take(2)
                 .ToList();
 
@@ -607,8 +602,42 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
         }
 
+        _primarySessionKey = primary.SessionKey;
         _media.Focus(primary.SessionKey);
         ApplyPrimary(primary, keepArtwork);
+    }
+
+    /// <summary>
+    /// Prefer a playing session; if nothing plays, keep the previous primary so
+    /// paused video/music do not swap places when the other also pauses.
+    /// </summary>
+    private MediaSessionSnapshot PickPrimary(
+        List<MediaSessionSnapshot> enriched,
+        List<MediaSessionSnapshot> playing,
+        string? focusedKey)
+    {
+        if (playing.Count > 0)
+        {
+            // Explicit focus (e.g. resume from parked chip) wins among playing.
+            return playing.FirstOrDefault(s => s.SessionKey == focusedKey)
+                   ?? playing.FirstOrDefault(s => s.SessionKey == _primarySessionKey)
+                   ?? playing[0];
+        }
+
+        if (!string.IsNullOrEmpty(_primarySessionKey))
+        {
+            var sticky = enriched.FirstOrDefault(s =>
+                s.SessionKey == _primarySessionKey &&
+                s.IsParkable &&
+                _volume.IsAppRunning(s.AppId));
+            if (sticky is not null)
+            {
+                return sticky;
+            }
+        }
+
+        return enriched.FirstOrDefault(s => s.SessionKey == focusedKey)
+               ?? enriched[0];
     }
 
     private MediaSessionSnapshot Enrich(MediaSessionSnapshot snap)
@@ -723,6 +752,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ToggleSideSessionAsync(string sessionKey)
     {
+        _primarySessionKey = sessionKey;
         _media.Focus(sessionKey);
         await _media.TogglePlayPauseAsync(sessionKey);
         await RefreshAsync(full: true);
