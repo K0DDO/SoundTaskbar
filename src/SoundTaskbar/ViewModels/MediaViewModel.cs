@@ -13,7 +13,9 @@ namespace SoundTaskbar.ViewModels;
 public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MediaSessionService _media;
+    private readonly AppVolumeService _volume;
     private readonly DispatcherTimer _uiTicker;
+    private readonly DispatcherTimer _volumeTicker;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _disposed;
@@ -29,6 +31,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _canSkipPrevious;
     private bool _canTogglePlayback;
     private BitmapImage? _artwork;
+    private float _volumeLevel = 1f;
+    private bool _isMuted;
+    private bool _canControlVolume;
 
     private TimeSpan _anchorPosition;
     private TimeSpan _duration;
@@ -38,6 +43,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public MediaViewModel()
     {
         _media = new MediaSessionService();
+        _volume = new AppVolumeService();
         _media.Changed += OnMediaChanged;
         _media.TimelineChanged += OnTimelineChanged;
 
@@ -48,6 +54,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
         _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _uiTicker.Tick += (_, _) => TickProgress();
+
+        _volumeTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _volumeTicker.Tick += (_, _) => RefreshVolume();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -145,11 +154,99 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         private set => SetField(ref _artwork, value);
     }
 
+    public float Volume
+    {
+        get => _volumeLevel;
+        private set
+        {
+            if (SetField(ref _volumeLevel, value))
+            {
+                OnPropertyChanged(nameof(VolumePercent));
+                OnPropertyChanged(nameof(VolumeGlyph));
+            }
+        }
+    }
+
+    public int VolumePercent => (int)Math.Round(Volume * 100);
+
+    public bool IsMuted
+    {
+        get => _isMuted;
+        private set
+        {
+            if (SetField(ref _isMuted, value))
+            {
+                OnPropertyChanged(nameof(VolumeGlyph));
+            }
+        }
+    }
+
+    public bool CanControlVolume
+    {
+        get => _canControlVolume;
+        private set => SetField(ref _canControlVolume, value);
+    }
+
+    public string VolumeGlyph =>
+        !CanControlVolume ? "🔈" :
+        IsMuted || Volume <= 0.001f ? "🔇" :
+        Volume < 0.35f ? "🔉" : "🔊";
+
     public async Task InitializeAsync()
     {
         await _media.StartAsync();
         await RefreshAsync(full: true);
         _uiTicker.Start();
+        _volumeTicker.Start();
+    }
+
+    public void RefreshVolume()
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(AppId))
+        {
+            CanControlVolume = false;
+            return;
+        }
+
+        var state = _volume.GetState(AppId);
+        CanControlVolume = state.Found;
+        if (!state.Found)
+        {
+            return;
+        }
+
+        Volume = state.Volume;
+        IsMuted = state.IsMuted;
+    }
+
+    public void SetVolume(float value)
+    {
+        if (!CanControlVolume || string.IsNullOrWhiteSpace(AppId))
+        {
+            return;
+        }
+
+        if (_volume.TrySetVolume(AppId, value))
+        {
+            Volume = Math.Clamp(value, 0f, 1f);
+            if (Volume > 0.001f)
+            {
+                IsMuted = false;
+            }
+        }
+    }
+
+    public void ToggleMute()
+    {
+        if (!CanControlVolume || string.IsNullOrWhiteSpace(AppId))
+        {
+            return;
+        }
+
+        if (_volume.TryToggleMute(AppId))
+        {
+            RefreshVolume();
+        }
     }
 
     public void Dispose()
@@ -161,9 +258,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _disposed = true;
         _uiTicker.Stop();
+        _volumeTicker.Stop();
         _media.Changed -= OnMediaChanged;
         _media.TimelineChanged -= OnTimelineChanged;
         _media.Dispose();
+        _volume.Dispose();
         _refreshLock.Dispose();
     }
 
@@ -228,6 +327,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             CanSkipNext = false;
             CanSkipPrevious = false;
             CanTogglePlayback = false;
+            CanControlVolume = false;
             Artwork = null;
             return;
         }
@@ -242,10 +342,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             Artist = string.IsNullOrWhiteSpace(snapshot.Artist) ? snapshot.AppId : snapshot.Artist;
         }
 
+        var appChanged = !string.Equals(AppId, snapshot.AppId, StringComparison.OrdinalIgnoreCase);
         AppId = snapshot.AppId;
         CanSkipNext = snapshot.CanSkipNext;
         CanSkipPrevious = snapshot.CanSkipPrevious;
         CanTogglePlayback = snapshot.IsPlaying ? snapshot.CanPause : snapshot.CanPlay;
+
+        if (appChanged || !CanControlVolume)
+        {
+            RefreshVolume();
+        }
 
         var duration = snapshot.Duration < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Duration;
         var position = snapshot.Position < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Position;

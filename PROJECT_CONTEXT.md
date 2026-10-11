@@ -37,6 +37,7 @@ Windows-приложение: медиа-контролы **на полосе т
 - UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
 - Медиа: `GlobalSystemMediaTransportControlsSessionManager`
 - Хостинг: full-taskbar child + `SetWindowRgn` (`TaskbarHostService`)
+- Громкость источника: NAudio Core Audio (`AppVolumeService`) + `VolumeFlyout`
 - Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
 
 ## Запуск
@@ -67,13 +68,12 @@ dotnet run --project src/SoundTaskbar
 
 - SMTC + prev/play/next + smooth progress (anti-rewind)
 - Host: child на весь таскбар + region под виджет; прозрачный фон (TranslucentTB)
-- Должен переживать Win+D без клика по таскбару
-- Per-app volume ещё нет
+- Per-app volume: кнопка 🔊 → вертикальный слайдер (не master volume)
+- Должен переживать Win+D
 
 ## Следующие шаги
 
-1. Per-app volume slider
-2. Более точный layout на Win11 (centered taskbar / widgets)
-3. Переключение между несколькими SMTC-сессиями
-4. Seek по клику на прогресс
-5. Автозапуск с Windows
+1. Более точный layout на Win11 (centered taskbar / widgets)
+2. Переключение между несколькими SMTC-сессиями
+3. Seek по клику на прогресс
+4. Автозапуск с Windows

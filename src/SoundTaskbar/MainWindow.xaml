@@ -100,6 +100,13 @@
                             Style="{StaticResource MediaButton}"
                             Command="{Binding NextCommand}"
                             ToolTip="Next" />
+                    <Button x:Name="VolumeButton"
+                            Content="{Binding VolumeGlyph}"
+                            Style="{StaticResource MediaButton}"
+                            Margin="4,0,0,0"
+                            IsEnabled="{Binding CanControlVolume}"
+                            Click="OnVolumeClick"
+                            ToolTip="Громкость источника" />
                 </StackPanel>
             </Grid>
         </Border>

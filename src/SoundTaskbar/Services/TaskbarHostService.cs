@@ -124,7 +124,7 @@ public sealed class TaskbarHostService : IDisposable
         var dpi = NativeMethods.GetDpiForWindow(taskbar);
         var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
         var gap = (int)Math.Round(6 * scale);
-        var desiredWidgetWidth = (int)Math.Round(380 * scale);
+        var desiredWidgetWidth = (int)Math.Round(420 * scale);
 
         var barWidth = taskbarRect.Width;
         var barHeight = taskbarRect.Height;

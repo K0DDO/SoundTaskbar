@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     private readonly SolidColorBrush _progressFillBrush = new(Color.FromRgb(0x9E, 0xC5, 0xFF));
     private TaskbarHostService? _taskbarHost;
     private TaskbarAppearanceService? _appearance;
+    private VolumeFlyout? _volumeFlyout;
 
     public MainWindow()
     {
@@ -48,6 +49,9 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _volumeFlyout?.Close();
+        _volumeFlyout = null;
+
         if (_taskbarHost is not null)
         {
             _taskbarHost.LayoutChanged -= _layoutHandler;
@@ -61,6 +65,31 @@ public partial class MainWindow : Window
         }
 
         _viewModel.Dispose();
+    }
+
+    private void OnVolumeClick(object sender, RoutedEventArgs e)
+    {
+        _viewModel.RefreshVolume();
+        if (!_viewModel.CanControlVolume)
+        {
+            return;
+        }
+
+        _volumeFlyout ??= new VolumeFlyout(_viewModel);
+        if (_volumeFlyout.IsVisible)
+        {
+            _volumeFlyout.Hide();
+            return;
+        }
+
+        _volumeFlyout.SyncFromViewModel();
+
+        // PointToScreen works for taskbar-hosted child windows.
+        var screen = VolumeButton.PointToScreen(new Point(VolumeButton.ActualWidth / 2, 0));
+        _volumeFlyout.Left = screen.X - (_volumeFlyout.Width / 2);
+        _volumeFlyout.Top = screen.Y - _volumeFlyout.Height - 10;
+        _volumeFlyout.Show();
+        _volumeFlyout.Activate();
     }
 
     private void ApplyLayout(TaskbarLayout layout)
