@@ -45,8 +45,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private TimeSpan _duration;
     private double _anchorSeconds;
     private double _playbackRate;
+    private bool _seekAnimating;
+    private TimeSpan _seekFrom;
+    private TimeSpan _seekTo;
+    private double _seekAnimStart;
+    private double _seekGuardUntil;
+    private long _volumeWriteTicks;
 
     public const double MeterHeight = 24;
+    private const double SeekAnimSeconds = 0.3;
+    private const int VolumeWriteGraceMs = 280;
 
     public MediaViewModel()
     {
@@ -56,22 +64,22 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _media.TimelineChanged += OnTimelineChanged;
 
         PreviousCommand = new RelayCommand(
-            async _ => await _media.PreviousOrSeekBackAsync(),
+            async _ => await GoPreviousAsync(),
             _ => CanGoPrevious);
         PlayPauseCommand = new RelayCommand(async _ => await _media.TogglePlayPauseAsync(), _ => CanTogglePlayback);
         NextCommand = new RelayCommand(
-            async _ => await _media.NextOrSeekForwardAsync(),
+            async _ => await GoNextAsync(),
             _ => CanGoNext);
         ToggleMuteCommand = new RelayCommand(
             _ => ToggleMute(),
             _ => CanControlVolume);
 
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
-        _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _uiTicker.Tick += (_, _) => TickProgress();
 
-        // Peak meter needs a fast poll; volume number can update with it.
-        _volumeTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        // Peak meter + live volume sync with the app mixer.
+        _volumeTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _volumeTicker.Tick += (_, _) => RefreshVolume();
 
         _volumeHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
@@ -217,7 +225,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
             if (!_suppressVolumeWrite && CanControlVolume && !string.IsNullOrWhiteSpace(AppId))
             {
-                _volume.TrySetVolume(AppId, clamped);
+                if (_volume.TrySetVolume(AppId, clamped))
+                {
+                    _volumeWriteTicks = Environment.TickCount64;
+                }
             }
 
             _volumeLevel = clamped;
@@ -321,6 +332,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (_volume.TryToggleMute(AppId))
         {
+            _volumeWriteTicks = Environment.TickCount64;
             RefreshVolume();
             if (IsVolumeEditorOpen)
             {
@@ -359,7 +371,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        if (!IsVolumeEditorOpen)
+        // Always mirror Core Audio except right after our own write (avoid fighting the thumb).
+        var recentlyWrote = Environment.TickCount64 - _volumeWriteTicks < VolumeWriteGraceMs;
+        if (!recentlyWrote && Math.Abs(state.Volume - _volumeLevel) > 0.004f)
         {
             _suppressVolumeWrite = true;
             try
@@ -373,8 +387,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         IsMuted = state.IsMuted;
-        // Visual loudness ≈ signal peak (and zero when muted).
-        PeakLevel = state.IsMuted ? 0 : state.Peak;
+        // Peak scaled by session volume so the meter tracks the real mixer level.
+        PeakLevel = state.IsMuted
+            ? 0
+            : Math.Clamp(state.Peak * (0.2f + 0.8f * state.Volume), 0f, 1f);
     }
 
     public void Dispose()
@@ -510,26 +526,90 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         CommandManager.InvalidateRequerySuggested();
     }
 
+    private async Task GoPreviousAsync()
+    {
+        if (!CanSkipPrevious && CanSeek)
+        {
+            BeginSeekAnimation(-SeekSeconds);
+        }
+
+        await _media.PreviousOrSeekBackAsync();
+    }
+
+    private async Task GoNextAsync()
+    {
+        if (!CanSkipNext && CanSeek)
+        {
+            BeginSeekAnimation(SeekSeconds);
+        }
+
+        await _media.NextOrSeekForwardAsync();
+    }
+
+    private void BeginSeekAnimation(double deltaSeconds)
+    {
+        var from = EstimatePosition();
+        var to = ClampPosition(from + TimeSpan.FromSeconds(deltaSeconds));
+        _seekFrom = from;
+        _seekTo = to;
+        _seekAnimStart = _clock.Elapsed.TotalSeconds;
+        _seekAnimating = true;
+        _seekGuardUntil = _seekAnimStart + 1.6;
+        PublishTimeline(from);
+    }
+
+    private TimeSpan ClampPosition(TimeSpan position)
+    {
+        if (position < TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        if (_duration > TimeSpan.Zero && position > _duration)
+        {
+            return _duration;
+        }
+
+        return position;
+    }
+
     /// <summary>
     /// SMTC often re-reports a stale Position. Never jump backwards while playing unless it looks like a seek.
     /// </summary>
     private void SyncTimeline(TimeSpan reported, TimeSpan duration, bool playing)
     {
         _duration = duration;
+        var now = _clock.Elapsed.TotalSeconds;
+
+        // Right after local ±N seek: ignore stale SMTC that would teleport the bar back.
+        if (now < _seekGuardUntil)
+        {
+            var estimated = EstimatePosition();
+            if (Math.Abs((reported - estimated).TotalSeconds) <= 2.0)
+            {
+                _seekAnimating = false;
+                SetTimelineAnchor(reported, playing);
+                PublishTimeline(reported);
+            }
+
+            return;
+        }
 
         if (!playing)
         {
+            _seekAnimating = false;
             SetTimelineAnchor(reported, playing: false);
             PublishTimeline(reported);
             return;
         }
 
-        var estimated = EstimatePosition();
-        var deltaSeconds = (reported - estimated).TotalSeconds;
+        var current = EstimatePosition();
+        var deltaSeconds = (reported - current).TotalSeconds;
 
-        // Large jump either way = seek / track change.
+        // Large jump either way = external seek / track change.
         if (Math.Abs(deltaSeconds) >= 1.5 || _playbackRate <= 0)
         {
+            _seekAnimating = false;
             SetTimelineAnchor(reported, playing: true);
             PublishTimeline(reported);
             return;
@@ -573,6 +653,21 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private TimeSpan EstimatePosition()
     {
+        if (_seekAnimating)
+        {
+            var t = (_clock.Elapsed.TotalSeconds - _seekAnimStart) / SeekAnimSeconds;
+            if (t >= 1)
+            {
+                _seekAnimating = false;
+                SetTimelineAnchor(_seekTo, IsPlaying);
+                return _seekTo;
+            }
+
+            var eased = 1 - Math.Pow(1 - Math.Clamp(t, 0, 1), 3);
+            var delta = (_seekTo - _seekFrom).TotalSeconds * eased;
+            return ClampPosition(_seekFrom + TimeSpan.FromSeconds(delta));
+        }
+
         if (_playbackRate <= 0)
         {
             return _anchorPosition;
@@ -580,17 +675,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         var elapsed = _clock.Elapsed.TotalSeconds - _anchorSeconds;
         var estimated = _anchorPosition + TimeSpan.FromSeconds(elapsed * _playbackRate);
-        if (_duration > TimeSpan.Zero && estimated > _duration)
-        {
-            estimated = _duration;
-        }
-
-        if (estimated < TimeSpan.Zero)
-        {
-            estimated = TimeSpan.Zero;
-        }
-
-        return estimated;
+        return ClampPosition(estimated);
     }
 
     private void PublishTimeline(TimeSpan position)
@@ -601,7 +686,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             : Math.Clamp(position.TotalSeconds / _duration.TotalSeconds, 0, 1);
 
         // Skip tiny progress repaints that force layered-window redraws.
-        if (nextText == TimeText && Math.Abs(nextProgress - Progress) < 0.0025)
+        var minDelta = _seekAnimating ? 0.0004 : 0.0025;
+        if (nextText == TimeText && Math.Abs(nextProgress - Progress) < minDelta)
         {
             return;
         }

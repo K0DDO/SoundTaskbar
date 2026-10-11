@@ -10,13 +10,14 @@ public readonly record struct AppVolumeState(bool Found, float Volume, bool IsMu
 
 /// <summary>
 /// Per-process volume via Windows Core Audio sessions (not master volume).
-/// Matches SMTC SourceAppUserModelId to an audio session.
+/// Matches SMTC SourceAppUserModelId to audio sessions; writes apply to all matches.
 /// </summary>
 public sealed class AppVolumeService : IDisposable
 {
     private readonly object _gate = new();
     private MMDeviceEnumerator? _enumerator;
     private MMDevice? _device;
+    private long _lastRefreshTicks;
     private bool _disposed;
 
     public AppVolumeState GetState(string? appId)
@@ -29,27 +30,42 @@ public sealed class AppVolumeService : IDisposable
         lock (_gate)
         {
             EnsureDevice();
-            using var session = FindBestSession(appId);
-            if (session is null)
+            using var matches = FindMatchingSessions(appId);
+            if (matches.Count == 0)
             {
                 return AppVolumeState.Missing;
             }
 
-            var peak = 0f;
-            try
+            AudioSessionControl? best = null;
+            var bestScore = float.MinValue;
+            var maxPeak = 0f;
+
+            foreach (var session in matches)
             {
-                peak = session.AudioMeterInformation.MasterPeakValue;
+                var peak = ReadPeak(session);
+                if (peak > maxPeak)
+                {
+                    maxPeak = peak;
+                }
+
+                var score = Score(session, peak);
+                if (score >= bestScore)
+                {
+                    bestScore = score;
+                    best = session;
+                }
             }
-            catch
+
+            if (best is null)
             {
-                // meter unavailable for some sessions
+                return AppVolumeState.Missing;
             }
 
             return new AppVolumeState(
                 Found: true,
-                Volume: session.SimpleAudioVolume.Volume,
-                IsMuted: session.SimpleAudioVolume.Mute,
-                Peak: Math.Clamp(peak, 0f, 1f));
+                Volume: best.SimpleAudioVolume.Volume,
+                IsMuted: best.SimpleAudioVolume.Mute,
+                Peak: Math.Clamp(maxPeak, 0f, 1f));
         }
     }
 
@@ -64,17 +80,20 @@ public sealed class AppVolumeService : IDisposable
 
         lock (_gate)
         {
-            EnsureDevice();
-            using var session = FindBestSession(appId);
-            if (session is null)
+            EnsureDevice(forceRefresh: true);
+            using var matches = FindMatchingSessions(appId);
+            if (matches.Count == 0)
             {
                 return false;
             }
 
-            session.SimpleAudioVolume.Volume = volume;
-            if (volume > 0.001f && session.SimpleAudioVolume.Mute)
+            foreach (var session in matches)
             {
-                session.SimpleAudioVolume.Mute = false;
+                session.SimpleAudioVolume.Volume = volume;
+                if (volume > 0.001f && session.SimpleAudioVolume.Mute)
+                {
+                    session.SimpleAudioVolume.Mute = false;
+                }
             }
 
             return true;
@@ -90,14 +109,20 @@ public sealed class AppVolumeService : IDisposable
 
         lock (_gate)
         {
-            EnsureDevice();
-            using var session = FindBestSession(appId);
-            if (session is null)
+            EnsureDevice(forceRefresh: true);
+            using var matches = FindMatchingSessions(appId);
+            if (matches.Count == 0)
             {
                 return false;
             }
 
-            session.SimpleAudioVolume.Mute = !session.SimpleAudioVolume.Mute;
+            // Toggle from the primary session, then mirror to every match.
+            var muted = !matches[0].SimpleAudioVolume.Mute;
+            foreach (var session in matches)
+            {
+                session.SimpleAudioVolume.Mute = muted;
+            }
+
             return true;
         }
     }
@@ -119,25 +144,29 @@ public sealed class AppVolumeService : IDisposable
         }
     }
 
-    private void EnsureDevice()
+    private void EnsureDevice(bool forceRefresh = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _enumerator ??= new MMDeviceEnumerator();
         _device ??= _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-        _device.AudioSessionManager.RefreshSessions();
+
+        var now = Environment.TickCount64;
+        if (forceRefresh || now - _lastRefreshTicks >= 400)
+        {
+            _device.AudioSessionManager.RefreshSessions();
+            _lastRefreshTicks = now;
+        }
     }
 
-    private AudioSessionControl? FindBestSession(string appId)
+    private SessionList FindMatchingSessions(string appId)
     {
+        var list = new SessionList();
         if (_device is null)
         {
-            return null;
+            return list;
         }
 
         var tokens = BuildTokens(appId);
-        AudioSessionControl? best = null;
-        var bestScore = -1f;
-
         var sessions = _device.AudioSessionManager.Sessions;
         for (var i = 0; i < sessions.Count; i++)
         {
@@ -159,44 +188,14 @@ public sealed class AppVolumeService : IDisposable
                     continue;
                 }
 
-                if (!TryDescribe(pid, session, out var processName, out var displayName))
+                if (!TryDescribe(pid, session, out var processName, out var displayName) ||
+                    !IsMatch(tokens, appId, processName, displayName))
                 {
                     session.Dispose();
                     continue;
                 }
 
-                if (!IsMatch(tokens, appId, processName, displayName))
-                {
-                    session.Dispose();
-                    continue;
-                }
-
-                // Prefer active / louder sessions when one app has several (browsers).
-                var score = 0f;
-                if (state == 1)
-                {
-                    score += 2f;
-                }
-
-                try
-                {
-                    score += session.AudioMeterInformation.MasterPeakValue;
-                }
-                catch
-                {
-                    // ignore meter failures
-                }
-
-                if (score >= bestScore)
-                {
-                    best?.Dispose();
-                    best = session;
-                    bestScore = score;
-                }
-                else
-                {
-                    session.Dispose();
-                }
+                list.Add(session);
             }
             catch
             {
@@ -204,7 +203,37 @@ public sealed class AppVolumeService : IDisposable
             }
         }
 
-        return best;
+        return list;
+    }
+
+    private static float Score(AudioSessionControl session, float peak)
+    {
+        var score = peak;
+        try
+        {
+            if ((int)session.State == 1)
+            {
+                score += 2f;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return score;
+    }
+
+    private static float ReadPeak(AudioSessionControl session)
+    {
+        try
+        {
+            return Math.Clamp(session.AudioMeterInformation.MasterPeakValue, 0f, 1f);
+        }
+        catch
+        {
+            return 0f;
+        }
     }
 
     private static bool TryDescribe(
@@ -287,4 +316,17 @@ public sealed class AppVolumeService : IDisposable
 
     private static string StripExe(string value) =>
         value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? value[..^4] : value;
+
+    private sealed class SessionList : List<AudioSessionControl>, IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var session in this)
+            {
+                try { session.Dispose(); } catch { /* ignore */ }
+            }
+
+            Clear();
+        }
+    }
 }

@@ -69,8 +69,8 @@ dotnet run --project src/SoundTaskbar
 - SMTC + prev/play/next + smooth progress (anti-rewind)
 - Host: child на весь таскбар + region под виджет; прозрачный фон (TranslucentTB)
 - UI компактный (~320px): title с marquee только по hover, artist снизу, VU
-- Volume: минималистичный hairline-слайдер, выкатывается влево; mute между слайдером и prev (toggle, состояние из Core Audio)
-- Prev/Next: skip трека или seek ±Nс; seek-иконка — круг со стрелкой и цифрой (`SeekStepSeconds`)
+- Volume: hairline-слайдер + mute (только пока открыт); sync с Core Audio в обе стороны; write на все matching sessions
+- Prev/Next: skip или seek ±Nс с плавной анимацией прогресса (без отката от stale SMTC)
 - Per-app volume через Core Audio (не master)
 
 ## Следующие шаги
