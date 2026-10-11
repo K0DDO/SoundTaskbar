@@ -66,16 +66,20 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- SMTC multi-session: primary full UI; paused others → art chip + ▶; 2+ playing → dual compact
+- SMTC multi-session: primary full UI; paused others → parked chip; 2+ playing → dual compact
+- Sticky primary: при паузе обоих primary не прыгает на второй источник
+- Parked chip: обложка + next; volume → mute + слайдер справа; закрытие volume по play/pause
+- Parked rail: snap ChipVolumeHost + remasure после settle (нет щели перед divider)
+- Side volume: `GetState(..., forceRefresh)` при RefreshVolume (Spotify после открытия)
 - Host: full-taskbar child + region; ~360px; прозрачный фон (TranslucentTB)
 - UI: marquee (hover обложка/title/artist), artist + SourceName, accent progress
 - Volume: hairline-слайдер + mute слева; sync с Core Audio
 - Prev/Next: skip или seek ±Nс с плавной анимацией прогресса
-- Per-app volume через Core Audio (не master)
 
 ## Следующие шаги
 
-1. Более точный layout на Win11 (centered taskbar / widgets)
-2. Seek по клику на прогресс
-3. Автозапуск с Windows
-4. Dual-mode: volume/seek per card
+1. Проверить баг: видео играет → Spotify → volume недоступен → play/pause → volume только slider+mute → щель
+2. Более точный layout на Win11 (centered taskbar / widgets)
+3. Seek по клику на прогресс
+4. Автозапуск с Windows
+5. Dual-mode: volume/seek per card
