@@ -25,6 +25,9 @@ public partial class MarqueeText : UserControl
     private bool _restartQueued;
     private bool _isHovering;
     private bool _overflows;
+    private bool _isRunning;
+    private double _lastViewWidth;
+    private double _lastTextWidth;
 
     public MarqueeText()
     {
@@ -44,18 +47,17 @@ public partial class MarqueeText : UserControl
         set => SetValue(ScrollWhenOverflowProperty, value);
     }
 
-    /// <summary>Match scrim to taskbar luminance so the edge fade reads as text disappearing.</summary>
     public void SetEdgeScrim(bool isLight)
     {
         if (isLight)
         {
-            ScrimMid.Color = Color.FromArgb(0x99, 0xE8, 0xE8, 0xE8);
-            ScrimEnd.Color = Color.FromArgb(0xF0, 0xE8, 0xE8, 0xE8);
+            ScrimMid.Color = Color.FromArgb(0x66, 0xE8, 0xE8, 0xE8);
+            ScrimEnd.Color = Color.FromArgb(0xCC, 0xE8, 0xE8, 0xE8);
         }
         else
         {
-            ScrimMid.Color = Color.FromArgb(0x99, 0x18, 0x18, 0x18);
-            ScrimEnd.Color = Color.FromArgb(0xF0, 0x12, 0x12, 0x12);
+            ScrimMid.Color = Color.FromArgb(0x66, 0x14, 0x14, 0x14);
+            ScrimEnd.Color = Color.FromArgb(0xCC, 0x10, 0x10, 0x10);
         }
     }
 
@@ -110,16 +112,25 @@ public partial class MarqueeText : UserControl
         EdgeScrim.BeginAnimation(OpacityProperty, null);
         Slide.X = 0;
         ShadowSlide.X = 0;
+        _isRunning = false;
         UpdateOverflowFlag();
-        // Scrim marks the block edge whenever title is clipped.
         EdgeScrim.Opacity = _overflows ? 1 : 0;
     }
 
     private void UpdateOverflowFlag()
     {
         var viewWidth = Root.ActualWidth;
-        var textWidth = RunText.ActualWidth;
+        // Prefer DesiredSize: Canvas children keep natural text width.
+        var textWidth = Math.Max(RunText.ActualWidth, RunText.DesiredSize.Width);
+        if (textWidth < 1)
+        {
+            RunText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            textWidth = RunText.DesiredSize.Width;
+        }
+
         _overflows = viewWidth > 1 && textWidth > viewWidth + 2;
+        _lastViewWidth = viewWidth;
+        _lastTextWidth = textWidth;
     }
 
     private void Restart()
@@ -130,16 +141,36 @@ public partial class MarqueeText : UserControl
             return;
         }
 
-        Stop();
+        var prevView = _lastViewWidth;
+        var prevText = _lastTextWidth;
+        UpdateOverflowFlag();
 
         if (!_overflows)
+        {
+            Stop();
+            return;
+        }
+
+        var viewWidth = _lastViewWidth;
+        var textWidth = _lastTextWidth;
+
+        // Skip full restart if already scrolling the same metrics (avoids killing the anim).
+        if (_isRunning &&
+            Math.Abs(prevView - viewWidth) < 0.5 &&
+            Math.Abs(prevText - textWidth) < 0.5)
         {
             return;
         }
 
-        var viewWidth = Root.ActualWidth;
-        var textWidth = RunText.ActualWidth;
-        var distance = textWidth - viewWidth + 8;
+        Slide.BeginAnimation(TranslateTransform.XProperty, null);
+        ShadowSlide.BeginAnimation(TranslateTransform.XProperty, null);
+        EdgeScrim.BeginAnimation(OpacityProperty, null);
+        Slide.X = 0;
+        ShadowSlide.X = 0;
+
+        // Scroll far enough that the last glyph clears the scrim and sits fully in view.
+        var scrimPad = EdgeScrim.Width;
+        var distance = textWidth - viewWidth + scrimPad;
         var seconds = Math.Max(3.5, distance / 32);
         var duration = TimeSpan.FromSeconds(seconds);
         var begin = TimeSpan.FromMilliseconds(250);
@@ -156,7 +187,6 @@ public partial class MarqueeText : UserControl
             BeginTime = begin
         };
 
-        // Hide edge scrim only when scroll reaches the real end of the title.
         var scrimAnim = new DoubleAnimationUsingKeyFrames
         {
             Duration = duration,
@@ -165,13 +195,14 @@ public partial class MarqueeText : UserControl
             BeginTime = begin
         };
         scrimAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0)));
-        scrimAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.9)));
+        scrimAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.88)));
         scrimAnim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(1)));
 
         EdgeScrim.Opacity = 1;
         Slide.BeginAnimation(TranslateTransform.XProperty, slide);
         ShadowSlide.BeginAnimation(TranslateTransform.XProperty, slide.Clone());
         EdgeScrim.BeginAnimation(OpacityProperty, scrimAnim);
+        _isRunning = true;
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
@@ -182,6 +213,7 @@ public partial class MarqueeText : UserControl
             e.Property == FontWeightProperty ||
             e.Property == ScrollWhenOverflowProperty)
         {
+            _isRunning = false;
             QueueRestart();
         }
     }

@@ -4,39 +4,43 @@
              ClipToBounds="True"
              Height="16">
     <Grid x:Name="Root" ClipToBounds="True" SizeChanged="OnHostSizeChanged">
-        <!-- Soft shadow without Effect (Effect breaks alpha fades on layered windows) -->
-        <TextBlock x:Name="ShadowText"
-                   Foreground="#A0000000"
-                   FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   Margin="0.6,0.8,0,0"
-                   IsHitTestVisible="False">
-            <TextBlock.RenderTransform>
-                <TranslateTransform x:Name="ShadowSlide" />
-            </TextBlock.RenderTransform>
-        </TextBlock>
-        <TextBlock x:Name="RunText"
-                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                   SizeChanged="OnTextSizeChanged">
-            <TextBlock.RenderTransform>
-                <TranslateTransform x:Name="Slide" />
-            </TextBlock.RenderTransform>
-        </TextBlock>
-        <!-- Viewport-edge fade: scrim always maps to the block's right edge -->
+        <!-- Canvas: text keeps its natural full width (Grid would clamp ActualWidth = viewport) -->
+        <Canvas x:Name="Host" ClipToBounds="False">
+            <TextBlock x:Name="ShadowText"
+                       Foreground="#A0000000"
+                       FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       Canvas.Left="0.6"
+                       Canvas.Top="0.8"
+                       IsHitTestVisible="False">
+                <TextBlock.RenderTransform>
+                    <TranslateTransform x:Name="ShadowSlide" />
+                </TextBlock.RenderTransform>
+            </TextBlock>
+            <TextBlock x:Name="RunText"
+                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       TextWrapping="NoWrap"
+                       SizeChanged="OnTextSizeChanged">
+                <TextBlock.RenderTransform>
+                    <TranslateTransform x:Name="Slide" />
+                </TextBlock.RenderTransform>
+            </TextBlock>
+        </Canvas>
+        <!-- Soft edge fade on the block; hides when marquee reaches the real text end -->
         <Rectangle x:Name="EdgeScrim"
-                   Width="18"
+                   Width="16"
                    HorizontalAlignment="Right"
                    IsHitTestVisible="False"
                    Opacity="0">
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
                     <GradientStop Color="#00000000" Offset="0" />
-                    <GradientStop x:Name="ScrimMid" Color="#99000000" Offset="0.55" />
-                    <GradientStop x:Name="ScrimEnd" Color="#E6000000" Offset="1" />
+                    <GradientStop x:Name="ScrimMid" Color="#66000000" Offset="0.45" />
+                    <GradientStop x:Name="ScrimEnd" Color="#CC000000" Offset="1" />
                 </LinearGradientBrush>
             </Rectangle.Fill>
         </Rectangle>
