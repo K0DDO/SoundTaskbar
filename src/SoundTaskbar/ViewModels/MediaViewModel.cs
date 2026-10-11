@@ -76,7 +76,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             async _ => await GoPreviousAsync(),
             _ => CanGoPrevious);
         PlayPauseCommand = new RelayCommand(
-            async _ => await _media.TogglePlayPauseAsync(_primarySessionKey),
+            async _ =>
+            {
+                if (IsVolumeEditorOpen)
+                {
+                    IsVolumeEditorOpen = false;
+                }
+
+                await _media.TogglePlayPauseAsync(_primarySessionKey);
+            },
             _ => CanTogglePlayback);
         NextCommand = new RelayCommand(
             async _ => await GoNextAsync(),
@@ -204,6 +212,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             if (SetField(ref _isPlaying, value))
             {
                 OnPropertyChanged(nameof(PlayPauseLabel));
+                if (IsVolumeEditorOpen)
+                {
+                    IsVolumeEditorOpen = false;
+                }
             }
         }
     }
@@ -752,6 +764,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ToggleSideSessionAsync(string sessionKey)
     {
+        if (IsVolumeEditorOpen)
+        {
+            IsVolumeEditorOpen = false;
+        }
+
         _primarySessionKey = sessionKey;
         _media.Focus(sessionKey);
         await _media.TogglePlayPauseAsync(sessionKey);
