@@ -22,9 +22,113 @@
     </Window.ContextMenu>
 
     <Window.Resources>
-        <!-- Parked source: skip/seek icons + art▶ + divider before primary -->
+        <!-- Parked: VU + volume | skip/seek + art▶ -->
         <DataTemplate x:Key="SessionArtChip">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,2,0">
+                <Grid Width="5"
+                      Height="18"
+                      Margin="0,0,3,0"
+                      VerticalAlignment="Center">
+                    <Border CornerRadius="1.5" Opacity="0.95">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                <GradientStop Color="#22C55E" Offset="0" />
+                                <GradientStop Color="#22C55E" Offset="0.55" />
+                                <GradientStop Color="#EAB308" Offset="0.78" />
+                                <GradientStop Color="#EF4444" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <Border VerticalAlignment="Top"
+                            Height="{Binding PeakCoverHeight}"
+                            Background="#D0121212"
+                            CornerRadius="1.5,1.5,0,0"
+                            IsHitTestVisible="False" />
+                </Grid>
+
+                <Grid x:Name="ChipVolumeHost"
+                      Width="14"
+                      Height="16"
+                      Margin="0,0,4,0"
+                      ClipToBounds="True"
+                      VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <Slider Width="48"
+                                Margin="0,0,2,0"
+                                IsEnabled="{Binding CanControlVolume}"
+                                Value="{Binding Volume, Mode=TwoWay}">
+                            <Slider.Style>
+                                <Style TargetType="Slider" BasedOn="{StaticResource VolumeSlider}">
+                                    <Setter Property="Opacity" Value="0" />
+                                    <Setter Property="IsHitTestVisible" Value="False" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                            <Setter Property="Opacity" Value="1" />
+                                            <Setter Property="IsHitTestVisible" Value="True" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Slider.Style>
+                        </Slider>
+                        <Button Content="{Binding VolumeGlyph}"
+                                Padding="0"
+                                IsEnabled="{Binding CanControlVolume}"
+                                Command="{Binding ToggleVolumeCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
+                                    <Setter Property="Width" Value="14" />
+                                    <Setter Property="Height" Value="14" />
+                                    <Setter Property="FontSize" Value="8" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                            <Setter Property="Width" Value="0" />
+                                            <Setter Property="Opacity" Value="0" />
+                                            <Setter Property="IsHitTestVisible" Value="False" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Width" Value="14" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                    <DataTrigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                 To="66"
+                                                                 Duration="0:0:0.26">
+                                                    <DoubleAnimation.EasingFunction>
+                                                        <CubicEase EasingMode="EaseOut" />
+                                                    </DoubleAnimation.EasingFunction>
+                                                </DoubleAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </DataTrigger.EnterActions>
+                                    <DataTrigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                 To="14"
+                                                                 Duration="0:0:0.26">
+                                                    <DoubleAnimation.EasingFunction>
+                                                        <CubicEase EasingMode="EaseIn" />
+                                                    </DoubleAnimation.EasingFunction>
+                                                </DoubleAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </DataTrigger.ExitActions>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                </Grid>
+
                 <Button Width="12"
                         Height="12"
                         Padding="0"

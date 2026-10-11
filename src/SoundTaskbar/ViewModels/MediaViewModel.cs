@@ -83,6 +83,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     IsVolumeEditorOpen = false;
                 }
 
+                CloseSideVolumeEditors();
                 await _media.TogglePlayPauseAsync(_primarySessionKey);
             },
             _ => CanTogglePlayback);
@@ -90,7 +91,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             async _ => await GoNextAsync(),
             _ => CanGoNext);
         ToggleMuteCommand = new RelayCommand(
-            _ => ToggleMute(),
+            _ =>
+            {
+                CloseSideVolumeEditors();
+                ToggleMute();
+            },
             _ => CanControlVolume);
 
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
@@ -216,6 +221,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 {
                     IsVolumeEditorOpen = false;
                 }
+
+                CloseSideVolumeEditors();
             }
         }
     }
@@ -373,6 +380,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
             if (value)
             {
+                CloseSideVolumeEditors();
                 BounceVolumeHideTimer();
             }
             else
@@ -474,6 +482,19 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         PeakLevel = state.IsMuted
             ? 0
             : Math.Clamp(state.Peak * (0.2f + 0.8f * state.Volume), 0f, 1f);
+
+        foreach (var side in SideSessions)
+        {
+            side.RefreshVolume();
+        }
+    }
+
+    private void CloseSideVolumeEditors()
+    {
+        foreach (var side in SideSessions)
+        {
+            side.CloseVolumeEditor();
+        }
     }
 
     public void Dispose()
@@ -704,6 +725,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 existing = new SideSessionViewModel(
                     snap.SessionKey,
+                    _volume,
+                    onVolumeEditorOpened: () =>
+                    {
+                        if (IsVolumeEditorOpen)
+                        {
+                            IsVolumeEditorOpen = false;
+                        }
+                    },
                     ToggleSideSessionAsync,
                     PreviousSideSessionAsync,
                     NextSideSessionAsync);
@@ -734,6 +763,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
             existing.IsPlaying = snap.IsPlaying;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
+            existing.RefreshVolume();
         }
 
         // Keep visual order matching source.
