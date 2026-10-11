@@ -20,7 +20,7 @@ Windows-приложение: медиа-контролы **внутри пол�
 ## Целевое поведение
 
 1. Подхватывать активный медиа-источник системы (SMTC / session API).
-2. Показывать UI **на полосе таскбара** (overlay поверх `Shell_TrayWnd`, слева от трея). На Win11 25H2 `SetParent` в explorer ломает отрисовку WPF — не использовать.
+2. Показывать UI **в полосе таскбара** как child `Shell_TrayWnd` (`SetParent`) — иначе Win+D прячет окно. `AllowsTransparency` нельзя (layered child не рисуется).
 3. Play / pause / next / previous через системные команды медиа-сессии.
 4. Per-app volume: менять громкость конкретного audio session, не master volume.
 5. Если источников несколько — выбрать активный или переключаться между ними (детали UX уточняются).
@@ -30,7 +30,7 @@ Windows-приложение: медиа-контролы **внутри пол�
 - Платформа: Windows 10/11
 - UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
 - Медиа: `GlobalSystemMediaTransportControlsSessionManager`
-- Хостинг в таскбаре: top-level overlay по координатам `Shell_TrayWnd` / `TrayNotifyWnd` (`TaskbarHostService`), без `SetParent`
+- Хостинг в таскбаре: `SetParent` → `Shell_TrayWnd` + opaque WPF (`TaskbarHostService`)
 - Громкость по приложению: Windows Core Audio — ещё не сделано
 - Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
 
@@ -60,10 +60,9 @@ dotnet run --project src/SoundTaskbar
 ## Текущее состояние
 
 - SMTC: title, artist, artwork, status, timeline + prev/play/next
-- UI pinned на полосу таскбара слева от трея (overlay, topmost tool window)
-- Прогресс: локальная экстраполяция; SMTC stale position не откатывает таймер назад (anti-rewind)
-- Фон: sample таскбара + TranslucentTB; acrylic toggle только on/off, tint через WPF brush
-- Overlay: без периодического TOPMOST; owner = Shell_TrayWnd + watchdog против Win+D/show desktop
+- UI — child `Shell_TrayWnd` (переживает Win+D), opaque WPF без AllowsTransparency
+- Прогресс: локальная экстраполяция + anti-rewind
+- Цвет: sample `TrayNotifyWnd` (TranslucentTB), без acrylic
 - Per-app volume ещё нет
 
 ## Следующие шаги

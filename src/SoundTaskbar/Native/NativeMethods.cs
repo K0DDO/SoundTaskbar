@@ -4,16 +4,24 @@ namespace SoundTaskbar.Native;
 
 internal static class NativeMethods
 {
+    public const int GWL_STYLE = -16;
     public const int GWL_EXSTYLE = -20;
     public const int GWLP_HWNDPARENT = -8;
+
+    public const int WS_CHILD = 0x40000000;
+    public const int WS_POPUP = unchecked((int)0x80000000);
+    public const int WS_CAPTION = 0x00C00000;
+    public const int WS_THICKFRAME = 0x00040000;
+    public const int WS_SYSMENU = 0x00080000;
+    public const int WS_VISIBLE = 0x10000000;
 
     public const int WS_EX_NOACTIVATE = 0x08000000;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int WS_EX_TOPMOST = 0x00000008;
+    public const int WS_EX_LAYERED = 0x00080000;
 
     public static readonly IntPtr HWND_TOPMOST = new(-1);
-
-    public const int DWMWA_CLOAKED = 14;
+    public static readonly IntPtr HWND_TOP = IntPtr.Zero;
 
     public const uint SWP_NOSIZE = 0x0001;
     public const uint SWP_NOMOVE = 0x0002;
@@ -21,6 +29,11 @@ internal static class NativeMethods
     public const uint SWP_NOACTIVATE = 0x0010;
     public const uint SWP_SHOWWINDOW = 0x0040;
     public const uint SWP_ASYNCWINDOWPOS = 0x4000;
+    public const uint SWP_FRAMECHANGED = 0x0020;
+
+    public const int WM_GETOBJECT = 0x003D;
+    public const int SW_SHOWNOACTIVATE = 4;
+    public const int DWMWA_CLOAKED = 14;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -34,6 +47,13 @@ internal static class NativeMethods
         public int Height => Bottom - Top;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
 
@@ -41,7 +61,16 @@ internal static class NativeMethods
     public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string? lpszClass, string? lpszWindow);
 
     [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr GetParent(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -60,17 +89,6 @@ internal static class NativeMethods
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
-
-    public static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex) =>
-        IntPtr.Size == 8
-            ? GetWindowLongPtr64(hWnd, nIndex)
-            : new IntPtr(GetWindowLong(hWnd, nIndex));
-
-    [DllImport("dwmapi.dll")]
-    public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
-
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hWnd);
 
@@ -83,8 +101,6 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-    public const int SW_SHOWNOACTIVATE = 4;
-
     [DllImport("user32.dll")]
     public static extern IntPtr GetDC(IntPtr hWnd);
 
@@ -94,14 +110,6 @@ internal static class NativeMethods
     [DllImport("gdi32.dll")]
     public static extern int GetPixel(IntPtr hdc, int nXPos, int nYPos);
 
-    [DllImport("user32.dll")]
-    public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-        public IntPtr Data;
-        public int SizeOfData;
-    }
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 }

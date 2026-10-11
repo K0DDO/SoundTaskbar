@@ -9,7 +9,7 @@ public partial class MainWindow : Window
 {
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;
-    private readonly SolidColorBrush _panelBrush = new(Color.FromArgb(0x55, 0x20, 0x20, 0x20));
+    private readonly SolidColorBrush _panelBrush = new(Color.FromRgb(0x2C, 0x2C, 0x2C));
     private readonly SolidColorBrush _headlineBrush = new(Colors.White);
     private readonly SolidColorBrush _mutedBrush = new(Color.FromRgb(0xC0, 0xC6, 0xD0));
     private readonly SolidColorBrush _progressTrackBrush = new(Color.FromArgb(0x44, 0xFF, 0xFF, 0xFF));
@@ -23,7 +23,7 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
         _appearanceHandler = (_, appearance) => ApplyAppearance(appearance);
 
-        RootBorder.Background = _panelBrush;
+        Background = _panelBrush;
         HeadlineText.Foreground = _headlineBrush;
         TimeText.Foreground = _mutedBrush;
         ArtworkPlaceholder.Foreground = _mutedBrush;
@@ -33,13 +33,15 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Host first so the HWND is a taskbar child before we paint theme colors.
+        _taskbarHost = new TaskbarHostService(this);
+        _taskbarHost.Start();
+
         _appearance = new TaskbarAppearanceService(this);
         _appearance.Changed += _appearanceHandler;
         _appearance.Start();
         ApplyAppearance(_appearance.Current);
 
-        _taskbarHost = new TaskbarHostService(this);
-        _taskbarHost.Start();
         await _viewModel.InitializeAsync();
     }
 
@@ -57,7 +59,6 @@ public partial class MainWindow : Window
 
     private void ApplyAppearance(TaskbarAppearance appearance)
     {
-        // Mutate brushes in place — replacing brushes / re-applying acrylic was flashing the overlay.
         _panelBrush.Color = appearance.PanelColor;
         _headlineBrush.Color = appearance.Foreground;
         _mutedBrush.Color = appearance.MutedForeground;

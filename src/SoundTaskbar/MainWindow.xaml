@@ -5,11 +5,11 @@
         Height="48"
         Width="380"
         WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
+        AllowsTransparency="False"
+        Background="#2C2C2C"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Topmost="True"
+        Topmost="False"
         Focusable="False"
         ShowActivated="False"
         Loaded="OnLoaded"
@@ -23,7 +23,7 @@
     <Border x:Name="RootBorder"
             Padding="8,4"
             BorderThickness="0"
-            Background="Transparent"
+            Background="{Binding Background, RelativeSource={RelativeSource AncestorType=Window}}"
             VerticalAlignment="Stretch">
         <Grid VerticalAlignment="Center">
             <Grid.ColumnDefinitions>

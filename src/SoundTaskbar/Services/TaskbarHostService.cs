@@ -7,15 +7,15 @@ using SoundTaskbar.Native;
 namespace SoundTaskbar.Services;
 
 /// <summary>
-/// Pins a top-level tool window onto the taskbar strip (left of the tray).
-/// Survives Win+D / "Show desktop" by owning to the taskbar and restoring if Windows hides us.
+/// Hosts the widget as a real child of Shell_TrayWnd so Win+D / Show Desktop cannot hide it.
+/// Requires AllowsTransparency=false (layered WPF children do not paint).
 /// </summary>
 public sealed class TaskbarHostService : IDisposable
 {
     private readonly Window _window;
-    private readonly DispatcherTimer _geometryTimer;
-    private readonly DispatcherTimer _visibilityTimer;
+    private readonly DispatcherTimer _timer;
     private IntPtr _hwnd;
+    private bool _hooked;
     private bool _disposed;
     private int _lastX = int.MinValue;
     private int _lastY = int.MinValue;
@@ -25,25 +25,24 @@ public sealed class TaskbarHostService : IDisposable
     public TaskbarHostService(Window window)
     {
         _window = window;
-        _geometryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _geometryTimer.Tick += (_, _) => PositionOnTaskbar(forceZOrder: false);
-
-        // Show-desktop hides top-level windows; bring ours back quickly.
-        _visibilityTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _visibilityTimer.Tick += (_, _) => EnsureVisible();
-
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
+        _timer.Tick += (_, _) => AttachAndPosition();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
     }
 
     public void Start()
     {
         _hwnd = new WindowInteropHelper(_window).EnsureHandle();
-        ApplyWindowStyles(_hwnd);
-        AttachOwnerToTaskbar();
-        PositionOnTaskbar(forceZOrder: true);
+
+        if (!_hooked && PresentationSource.FromVisual(_window) is HwndSource source)
+        {
+            source.AddHook(WndProc);
+            _hooked = true;
+        }
+
+        AttachAndPosition();
         NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        _geometryTimer.Start();
-        _visibilityTimer.Start();
+        _timer.Start();
     }
 
     public void Dispose()
@@ -54,78 +53,22 @@ public sealed class TaskbarHostService : IDisposable
         }
 
         _disposed = true;
-        _geometryTimer.Stop();
-        _visibilityTimer.Stop();
+        _timer.Stop();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+
+        if (_hwnd != IntPtr.Zero && NativeMethods.IsWindow(_hwnd))
+        {
+            NativeMethods.SetParent(_hwnd, IntPtr.Zero);
+            var style = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_STYLE);
+            style = (style & ~NativeMethods.WS_CHILD) | NativeMethods.WS_POPUP;
+            NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_STYLE, style);
+        }
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
-        _window.Dispatcher.BeginInvoke(() =>
-        {
-            AttachOwnerToTaskbar();
-            PositionOnTaskbar(forceZOrder: true);
-            NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        });
+        _window.Dispatcher.BeginInvoke(AttachAndPosition);
 
-    private void EnsureVisible()
-    {
-        if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
-        {
-            return;
-        }
-
-        AttachOwnerToTaskbar();
-
-        var hidden = !NativeMethods.IsWindowVisible(_hwnd) || IsCloaked(_hwnd);
-        if (!hidden)
-        {
-            // Also recover if show-desktop moved us off the strip.
-            if (NativeMethods.GetWindowRect(_hwnd, out var current) &&
-                (_lastX != int.MinValue) &&
-                (Math.Abs(current.Left - _lastX) > 2 || Math.Abs(current.Top - _lastY) > 2))
-            {
-                PositionOnTaskbar(forceZOrder: true);
-            }
-
-            return;
-        }
-
-        NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        PositionOnTaskbar(forceZOrder: true);
-        if (_window.Visibility != Visibility.Visible)
-        {
-            _window.Show();
-        }
-    }
-
-    private void AttachOwnerToTaskbar()
-    {
-        var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
-        if (taskbar == IntPtr.Zero || _hwnd == IntPtr.Zero)
-        {
-            return;
-        }
-
-        // Owner (not WS_CHILD parent): keeps us tied to the shell so Show Desktop is less likely
-        // to leave the widget permanently hidden, without the Win11 SetParent render bug.
-        var currentOwner = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWLP_HWNDPARENT);
-        if (currentOwner != taskbar)
-        {
-            NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GWLP_HWNDPARENT, taskbar);
-        }
-    }
-
-    private static bool IsCloaked(IntPtr hwnd)
-    {
-        var hr = NativeMethods.DwmGetWindowAttribute(
-            hwnd,
-            NativeMethods.DWMWA_CLOAKED,
-            out var cloaked,
-            sizeof(int));
-        return hr == 0 && cloaked != 0;
-    }
-
-    private void PositionOnTaskbar(bool forceZOrder)
+    private void AttachAndPosition()
     {
         if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
         {
@@ -133,11 +76,34 @@ public sealed class TaskbarHostService : IDisposable
         }
 
         var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
-        if (taskbar == IntPtr.Zero || !NativeMethods.IsWindow(taskbar) || !NativeMethods.IsWindowVisible(taskbar))
+        if (taskbar == IntPtr.Zero || !NativeMethods.IsWindow(taskbar))
         {
             return;
         }
 
+        // Child of the taskbar = survives Show Desktop. Clear layered/popup styles that break painting.
+        var style = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_STYLE);
+        style = (style & ~NativeMethods.WS_POPUP & ~NativeMethods.WS_CAPTION & ~NativeMethods.WS_THICKFRAME & ~NativeMethods.WS_SYSMENU)
+                | NativeMethods.WS_CHILD
+                | NativeMethods.WS_VISIBLE;
+        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_STYLE, style);
+
+        var ex = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE);
+        ex |= NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW;
+        ex &= ~NativeMethods.WS_EX_LAYERED;
+        ex &= ~NativeMethods.WS_EX_TOPMOST;
+        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE, ex);
+
+        if (NativeMethods.GetParent(_hwnd) != taskbar)
+        {
+            NativeMethods.SetParent(_hwnd, taskbar);
+        }
+
+        PositionInTaskbar(taskbar);
+    }
+
+    private void PositionInTaskbar(IntPtr taskbar)
+    {
         if (!NativeMethods.GetWindowRect(taskbar, out var taskbarRect))
         {
             return;
@@ -157,8 +123,8 @@ public sealed class TaskbarHostService : IDisposable
         var desiredWidth = (int)Math.Round(380 * scale);
 
         var isHorizontal = taskbarRect.Width >= taskbarRect.Height;
-        int x;
-        int y;
+        int screenX;
+        int screenY;
         int width;
         int height;
 
@@ -167,78 +133,61 @@ public sealed class TaskbarHostService : IDisposable
             height = taskbarRect.Height;
             var available = trayRect.Left - taskbarRect.Left - gap * 2;
             width = Math.Clamp(desiredWidth, Scale(taskbar, 220), Math.Max(Scale(taskbar, 220), available));
-
-            x = trayRect.Left - gap - width;
-            if (x < taskbarRect.Left + gap)
+            screenX = trayRect.Left - gap - width;
+            if (screenX < taskbarRect.Left + gap)
             {
-                x = taskbarRect.Left + gap;
+                screenX = taskbarRect.Left + gap;
             }
 
-            y = taskbarRect.Top;
+            screenY = taskbarRect.Top;
         }
         else
         {
             width = taskbarRect.Width;
             height = (int)Math.Round(72 * scale);
-            x = taskbarRect.Left;
-            y = trayRect.Top - gap - height;
-            if (y < taskbarRect.Top + gap)
+            screenX = taskbarRect.Left;
+            screenY = trayRect.Top - gap - height;
+            if (screenY < taskbarRect.Top + gap)
             {
-                y = taskbarRect.Top + gap;
+                screenY = taskbarRect.Top + gap;
             }
         }
 
-        var geometryChanged =
-            x != _lastX ||
-            y != _lastY ||
-            width != _lastWidth ||
-            height != _lastHeight;
+        var point = new NativeMethods.POINT { X = screenX, Y = screenY };
+        NativeMethods.ScreenToClient(taskbar, ref point);
 
-        if (!geometryChanged && !forceZOrder)
+        if (point.X == _lastX && point.Y == _lastY && width == _lastWidth && height == _lastHeight)
         {
             return;
         }
 
-        if (geometryChanged)
+        _lastX = point.X;
+        _lastY = point.Y;
+        _lastWidth = width;
+        _lastHeight = height;
+
+        var logicalWidth = width / scale;
+        var logicalHeight = height / scale;
+        if (Math.Abs(_window.Width - logicalWidth) > 0.5)
         {
-            _lastX = x;
-            _lastY = y;
-            _lastWidth = width;
-            _lastHeight = height;
-
-            var logicalWidth = width / scale;
-            var logicalHeight = height / scale;
-            if (Math.Abs(_window.Width - logicalWidth) > 0.5)
-            {
-                _window.Width = logicalWidth;
-            }
-
-            if (Math.Abs(_window.Height - logicalHeight) > 0.5)
-            {
-                _window.Height = logicalHeight;
-            }
+            _window.Width = logicalWidth;
         }
 
-        var flags = NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_ASYNCWINDOWPOS;
-        var insertAfter = forceZOrder ? NativeMethods.HWND_TOPMOST : IntPtr.Zero;
-        if (!forceZOrder)
+        if (Math.Abs(_window.Height - logicalHeight) > 0.5)
         {
-            flags |= NativeMethods.SWP_NOZORDER;
+            _window.Height = logicalHeight;
         }
 
-        if (!geometryChanged)
-        {
-            flags |= NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE;
-        }
-
-        NativeMethods.SetWindowPos(_hwnd, insertAfter, x, y, width, height, flags);
-    }
-
-    private static void ApplyWindowStyles(IntPtr hwnd)
-    {
-        var ex = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
-        ex |= NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_TOPMOST;
-        NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, ex);
+        NativeMethods.SetWindowPos(
+            _hwnd,
+            NativeMethods.HWND_TOP,
+            point.X,
+            point.Y,
+            width,
+            height,
+            NativeMethods.SWP_NOACTIVATE |
+            NativeMethods.SWP_SHOWWINDOW |
+            NativeMethods.SWP_FRAMECHANGED);
     }
 
     private static int Scale(IntPtr hwnd, int value)
@@ -246,5 +195,16 @@ public sealed class TaskbarHostService : IDisposable
         var dpi = NativeMethods.GetDpiForWindow(hwnd);
         var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
         return (int)Math.Round(value * scale);
+    }
+
+    private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == NativeMethods.WM_GETOBJECT)
+        {
+            handled = true;
+            return IntPtr.Zero;
+        }
+
+        return IntPtr.Zero;
     }
 }
