@@ -1143,15 +1143,9 @@ public partial class MainWindow : Window
         ArtistText.Foreground = _mutedBrush;
         SourceText.Foreground = _mutedBrush;
 
-        if (Resources["ProgressAccentBrush"] is SolidColorBrush accentBrush)
-        {
-            accentBrush.Color = appearance.ProgressFill;
-        }
-
-        if (Resources["ProgressTrackBrush"] is SolidColorBrush trackBrush)
-        {
-            trackBrush.Color = appearance.ProgressTrack;
-        }
+        // Resource brushes get frozen once shared by templates — replace, never mutate.
+        Resources["ProgressAccentBrush"] = new SolidColorBrush(appearance.ProgressFill);
+        Resources["ProgressTrackBrush"] = new SolidColorBrush(appearance.ProgressTrack);
 
         ProgressBar.Background = _progressTrackBrush;
         ProgressBar.Foreground = _progressFillBrush;
