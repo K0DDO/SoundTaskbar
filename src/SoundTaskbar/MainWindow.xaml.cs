@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using SoundTaskbar.Services;
 using SoundTaskbar.ViewModels;
@@ -9,6 +10,7 @@ public partial class MainWindow : Window
 {
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;
+    private readonly EventHandler<TaskbarLayout> _layoutHandler;
     private readonly SolidColorBrush _headlineBrush = new(Color.FromRgb(0xF5, 0xF5, 0xF5));
     private readonly SolidColorBrush _mutedBrush = new(Color.FromRgb(0xC8, 0xCD, 0xD6));
     private readonly SolidColorBrush _progressTrackBrush = new(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
@@ -21,6 +23,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
         _appearanceHandler = (_, appearance) => ApplyAppearance(appearance);
+        _layoutHandler = (_, layout) => ApplyLayout(layout);
 
         HeadlineText.Foreground = _headlineBrush;
         TimeText.Foreground = _mutedBrush;
@@ -32,6 +35,7 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         _taskbarHost = new TaskbarHostService(this);
+        _taskbarHost.LayoutChanged += _layoutHandler;
         _taskbarHost.Start();
 
         _appearance = new TaskbarAppearanceService(this);
@@ -44,14 +48,27 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        if (_taskbarHost is not null)
+        {
+            _taskbarHost.LayoutChanged -= _layoutHandler;
+            _taskbarHost.Dispose();
+        }
+
         if (_appearance is not null)
         {
             _appearance.Changed -= _appearanceHandler;
             _appearance.Dispose();
         }
 
-        _taskbarHost?.Dispose();
         _viewModel.Dispose();
+    }
+
+    private void ApplyLayout(TaskbarLayout layout)
+    {
+        WidgetRoot.Width = layout.WidgetWidth;
+        WidgetRoot.Height = layout.WindowHeight;
+        Canvas.SetLeft(WidgetRoot, layout.WidgetLeft);
+        Canvas.SetTop(WidgetRoot, 0);
     }
 
     private void ApplyAppearance(TaskbarAppearance appearance)

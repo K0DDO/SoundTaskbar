@@ -27,16 +27,16 @@ Windows-приложение: медиа-контролы **на полосе т
 
 ## Важные ограничения Win11 25H2
 
-- `SetParent(Shell_TrayWnd)` + child: переживает Win+D, но **невидим** — XAML taskbar рисуется сверху.
-- `AllowsTransparency` + `SetParent`: layered child не рисуется.
-- Рабочий путь: **top-level overlay** + отказ от `SWP_HIDEWINDOW` в `WM_WINDOWPOSCHANGING` + прозрачный фон (цвет таскбара/TranslucentTB просвечивает).
+- Маленький child `Shell_TrayWnd` оказывается под XAML-слоем таскбара → не видно.
+- Top-level overlay видно, но Win+D / «показать рабочий стол» его прячет (WorkerW/cloak).
+- Рабочий путь (FluentFlyout-style): child на **весь** таскбар + `SetWindowRgn` только на полосу виджета + прозрачный фон.
 
 ## Стек
 
 - Платформа: Windows 10/11
 - UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
 - Медиа: `GlobalSystemMediaTransportControlsSessionManager`
-- Хостинг: overlay `TaskbarHostService`
+- Хостинг: full-taskbar child + `SetWindowRgn` (`TaskbarHostService`)
 - Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
 
 ## Запуск
@@ -66,8 +66,8 @@ dotnet run --project src/SoundTaskbar
 ## Текущее состояние
 
 - SMTC + prev/play/next + smooth progress (anti-rewind)
-- Overlay на таскбаре, прозрачный фон (TranslucentTB виден как есть)
-- Win+D: блокируем hide через WM_WINDOWPOSCHANGING + visibility watchdog
+- Host: child на весь таскбар + region под виджет; прозрачный фон (TranslucentTB)
+- Должен переживать Win+D без клика по таскбару
 - Per-app volume ещё нет
 
 ## Следующие шаги
