@@ -2,7 +2,9 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using SoundTaskbar.Controls;
 using SoundTaskbar.Helpers;
+using SoundTaskbar.Services;
 
 namespace SoundTaskbar.ViewModels;
 
@@ -13,8 +15,9 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private string _sourceName = string.Empty;
     private bool _isPlaying;
     private bool _canToggle = true;
-    private bool _canGoPrevious;
-    private bool _canGoNext;
+    private bool _canSkipPrevious;
+    private bool _canSkipNext;
+    private bool _canSeek;
     private bool _showDivider;
 
     public SideSessionViewModel(
@@ -29,15 +32,17 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             _ => _canToggle);
         PreviousCommand = new RelayCommand(
             async _ => await previousAsync(SessionKey),
-            _ => _canGoPrevious);
+            _ => CanGoPrevious);
         NextCommand = new RelayCommand(
             async _ => await nextAsync(SessionKey),
-            _ => _canGoNext);
+            _ => CanGoNext);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string SessionKey { get; }
+
+    public int SeekSeconds => MediaSessionService.SeekStepSeconds;
 
     public RelayCommand ToggleCommand { get; }
     public RelayCommand PreviousCommand { get; }
@@ -85,29 +90,59 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanGoPrevious
+    public bool CanSkipPrevious
     {
-        get => _canGoPrevious;
+        get => _canSkipPrevious;
         set
         {
-            if (SetField(ref _canGoPrevious, value))
+            if (SetField(ref _canSkipPrevious, value))
             {
+                OnPropertyChanged(nameof(CanGoPrevious));
+                OnPropertyChanged(nameof(PreviousIconKind));
                 CommandManager.InvalidateRequerySuggested();
             }
         }
     }
 
-    public bool CanGoNext
+    public bool CanSkipNext
     {
-        get => _canGoNext;
+        get => _canSkipNext;
         set
         {
-            if (SetField(ref _canGoNext, value))
+            if (SetField(ref _canSkipNext, value))
             {
+                OnPropertyChanged(nameof(CanGoNext));
+                OnPropertyChanged(nameof(NextIconKind));
                 CommandManager.InvalidateRequerySuggested();
             }
         }
     }
+
+    public bool CanSeek
+    {
+        get => _canSeek;
+        set
+        {
+            if (SetField(ref _canSeek, value))
+            {
+                OnPropertyChanged(nameof(CanGoPrevious));
+                OnPropertyChanged(nameof(CanGoNext));
+                OnPropertyChanged(nameof(PreviousIconKind));
+                OnPropertyChanged(nameof(NextIconKind));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    public bool CanGoPrevious => CanSkipPrevious || CanSeek;
+
+    public bool CanGoNext => CanSkipNext || CanSeek;
+
+    public TransportIconKind PreviousIconKind =>
+        CanSkipPrevious ? TransportIconKind.SkipPrevious : TransportIconKind.SeekBack;
+
+    public TransportIconKind NextIconKind =>
+        CanSkipNext ? TransportIconKind.SkipNext : TransportIconKind.SeekForward;
 
     public bool ShowDivider
     {

@@ -626,8 +626,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
             existing.IsPlaying = snap.IsPlaying;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
-            existing.CanGoPrevious = snap.CanSkipPrevious || snap.CanSeek;
-            existing.CanGoNext = snap.CanSkipNext || snap.CanSeek;
+            existing.CanSkipPrevious = snap.CanSkipPrevious;
+            existing.CanSkipNext = snap.CanSkipNext;
+            existing.CanSeek = snap.CanSeek;
         }
 
         // Keep visual order matching source.
