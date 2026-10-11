@@ -22,3 +22,5 @@ Desktop.ini
 *.log
 .env
 .env.*
+
+dist/

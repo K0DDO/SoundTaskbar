@@ -16,7 +16,12 @@
         Loaded="OnLoaded"
         Closed="OnClosed">
     <Window.ContextMenu>
-        <ContextMenu>
+        <ContextMenu Opened="OnContextMenuOpened">
+            <MenuItem x:Name="AutostartMenuItem"
+                      Header="Запускать с Windows"
+                      IsCheckable="True"
+                      Click="OnAutostartClick" />
+            <Separator />
             <MenuItem Header="Выход" Click="OnExitClick" />
         </ContextMenu>
     </Window.ContextMenu>

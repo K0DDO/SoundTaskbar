@@ -1370,6 +1370,22 @@ public partial class MainWindow : Window
         NextIcon.Foreground = iconBrush;
     }
 
+    private void OnContextMenuOpened(object sender, RoutedEventArgs e) =>
+        AutostartMenuItem.IsChecked = StartupService.IsEnabled;
+
+    private void OnAutostartClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            StartupService.SetEnabled(AutostartMenuItem.IsChecked);
+        }
+        catch
+        {
+        }
+
+        AutostartMenuItem.IsChecked = StartupService.IsEnabled;
+    }
+
     private void OnExitClick(object sender, RoutedEventArgs e) =>
         Application.Current.Shutdown();
 }
