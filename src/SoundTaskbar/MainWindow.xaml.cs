@@ -33,6 +33,7 @@ public partial class MainWindow : Window
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
+    private const double ChipMetaOpenWidth = 102;
 
     public MainWindow()
     {
@@ -414,15 +415,25 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            var host = FindDescendantByName(container, "ChipVolumeHost") as FrameworkElement;
-            if (host is null)
+            if (ParkedList.Items[i] is not SideSessionViewModel side)
             {
                 continue;
             }
 
-            var open = ParkedList.Items[i] is SideSessionViewModel side && side.IsVolumeEditorOpen;
-            host.BeginAnimation(WidthProperty, null);
-            host.Width = open ? ChipVolumeOpenWidth : ChipVolumeClosedWidth;
+            if (FindDescendantByName(container, "ChipVolumeHost") is FrameworkElement volumeHost)
+            {
+                volumeHost.BeginAnimation(WidthProperty, null);
+                volumeHost.Width = side.IsVolumeEditorOpen
+                    ? ChipVolumeOpenWidth
+                    : ChipVolumeClosedWidth;
+            }
+
+            if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
+            {
+                var metaOpen = side.ShowExpandedMeta && !side.IsVolumeEditorOpen;
+                metaHost.BeginAnimation(WidthProperty, null);
+                metaHost.Width = metaOpen ? ChipMetaOpenWidth : 0;
+            }
         }
     }
 

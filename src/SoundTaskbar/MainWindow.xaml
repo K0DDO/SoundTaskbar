@@ -125,7 +125,7 @@
                 <Button Width="12"
                         Height="12"
                         Padding="0"
-                        Margin="0,0,7,0"
+                        Margin="0,0,4,0"
                         Style="{StaticResource CompactMediaButton}"
                         Command="{Binding PreviousCommand}"
                         VerticalAlignment="Center">
@@ -135,6 +135,75 @@
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
                 </Button>
+
+                <!-- Audio+video: vol/prev slide left as this opens; text flush to art's left edge -->
+                <Grid x:Name="ChipMetaHost"
+                      Width="0"
+                      Height="28"
+                      ClipToBounds="True"
+                      VerticalAlignment="Center">
+                    <StackPanel VerticalAlignment="Center"
+                                HorizontalAlignment="Left"
+                                Margin="0,0,6,0"
+                                Width="96">
+                        <TextBlock Text="{Binding Title}"
+                                   Foreground="#F5F5F5"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   TextAlignment="Left"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Artist}"
+                                   Foreground="#B8C0CC"
+                                   FontSize="8"
+                                   TextAlignment="Left"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,1,0,0" />
+                        <TextBlock Text="{Binding DurationText}"
+                                   Foreground="#C8CDD6"
+                                   FontSize="8"
+                                   TextAlignment="Left"
+                                   Margin="0,1,0,0" />
+                    </StackPanel>
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Width" Value="0" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding ShowExpandedMeta}" Value="True" />
+                                        <Condition Binding="{Binding IsVolumeEditorOpen}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <MultiDataTrigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                 To="102"
+                                                                 Duration="0:0:0.26">
+                                                    <DoubleAnimation.EasingFunction>
+                                                        <CubicEase EasingMode="EaseOut" />
+                                                    </DoubleAnimation.EasingFunction>
+                                                </DoubleAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </MultiDataTrigger.EnterActions>
+                                    <MultiDataTrigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                                 To="0"
+                                                                 Duration="0:0:0.22">
+                                                    <DoubleAnimation.EasingFunction>
+                                                        <CubicEase EasingMode="EaseIn" />
+                                                    </DoubleAnimation.EasingFunction>
+                                                </DoubleAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </MultiDataTrigger.ExitActions>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                </Grid>
 
                 <!-- Art + next: hidden while this chip's volume slider is open -->
                 <Button Command="{Binding ToggleCommand}"
@@ -200,27 +269,6 @@
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
                 </Button>
-
-                <!-- Expanded audio meta while video is the big primary -->
-                <StackPanel Margin="6,0,4,0"
-                            VerticalAlignment="Center"
-                            MaxWidth="110"
-                            Visibility="{Binding ExpandedMetaVisibility}">
-                    <TextBlock Text="{Binding Title}"
-                               Foreground="#F5F5F5"
-                               FontSize="10"
-                               FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{Binding Artist}"
-                               Foreground="#B8C0CC"
-                               FontSize="8"
-                               TextTrimming="CharacterEllipsis"
-                               Margin="0,1,0,0" />
-                    <TextBlock Text="{Binding DurationText}"
-                               Foreground="#C8CDD6"
-                               FontSize="8"
-                               Margin="0,1,0,0" />
-                </StackPanel>
             </StackPanel>
         </DataTemplate>
 
