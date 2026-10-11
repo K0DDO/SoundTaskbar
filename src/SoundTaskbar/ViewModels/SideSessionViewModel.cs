@@ -28,9 +28,9 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private bool _isPlaying;
     private bool _isVideo;
     private bool _showExpandedMeta;
+    private double _expandProgress;
     private double _metaRailWidth;
     private double _targetMetaRailWidth;
-    private DualCardStyle _dualCardStyle = DualCardStyle.Compact;
     private bool _canToggle = true;
     private bool _usesSkipIcons;
     private bool _canSkipPrevious;
@@ -174,21 +174,42 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _showExpandedMeta, value))
             {
-                OnPropertyChanged(nameof(ExpandedChromeVisibility));
-                OnPropertyChanged(nameof(CompactOverlayVisibility));
                 RecalculateMetaWidth();
                 _onChipLayoutChanged?.Invoke();
             }
         }
     }
 
-    /// <summary>Play/pause button + meta to the right of art (pair playing).</summary>
-    public System.Windows.Visibility ExpandedChromeVisibility =>
-        ShowExpandedMeta ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+    /// <summary>
+    /// 0 = pause chip, 1 = play+play expanded. Animated by MainWindow for crossfade morph.
+    /// </summary>
+    public double ExpandProgress
+    {
+        get => _expandProgress;
+        set
+        {
+            var clamped = Math.Clamp(value, 0, 1);
+            if (SetField(ref _expandProgress, clamped))
+            {
+                OnPropertyChanged(nameof(ExpandedChromeVisibility));
+                OnPropertyChanged(nameof(CompactOverlayVisibility));
+                OnPropertyChanged(nameof(CompactLayerOpacity));
+                OnPropertyChanged(nameof(ExpandedLayerOpacity));
+            }
+        }
+    }
 
-    /// <summary>▶/❚❚ overlay on artwork (paused chip only).</summary>
+    /// <summary>Expanded mirrored chrome visible while morphing or fully open.</summary>
+    public System.Windows.Visibility ExpandedChromeVisibility =>
+        ExpandProgress > 0.001 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    /// <summary>Pause chip visible while morphing or fully compact.</summary>
     public System.Windows.Visibility CompactOverlayVisibility =>
-        ShowExpandedMeta ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+        ExpandProgress < 0.999 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public double CompactLayerOpacity => Math.Clamp(1.0 - ExpandProgress, 0, 1);
+
+    public double ExpandedLayerOpacity => Math.Clamp(ExpandProgress, 0, 1);
 
     /// <summary>
     /// Animated width of title/artist/duration rail. Driven by MainWindow so the
@@ -204,46 +225,11 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     public double TargetMetaRailWidth =>
         ShowExpandedMeta && !IsVolumeEditorOpen ? _targetMetaRailWidth : 0;
 
+    /// <summary>Raw meta width for morph measure (ignores ShowExpandedMeta so collapse can reverse).</summary>
+    public double MeasuredMetaRailWidth =>
+        IsVolumeEditorOpen ? 0 : _targetMetaRailWidth;
+
     public double MetaContentWidth => Math.Max(0, _targetMetaRailWidth - 5);
-
-    public DualCardStyle DualCardStyle
-    {
-        get => _dualCardStyle;
-        set
-        {
-            if (SetField(ref _dualCardStyle, value))
-            {
-                OnPropertyChanged(nameof(IsCompactCard));
-                OnPropertyChanged(nameof(IsTwinVideoCard));
-                OnPropertyChanged(nameof(IsMirrored));
-                OnPropertyChanged(nameof(CompactVisibility));
-                OnPropertyChanged(nameof(TwinVideoVisibility));
-                OnPropertyChanged(nameof(ArtColumn));
-                OnPropertyChanged(nameof(MetaColumn));
-                OnPropertyChanged(nameof(TransportColumn));
-            }
-        }
-    }
-
-    public bool IsCompactCard => DualCardStyle == DualCardStyle.Compact;
-
-    public bool IsTwinVideoCard =>
-        DualCardStyle is DualCardStyle.TwinVideo or DualCardStyle.TwinVideoMirrored;
-
-    public bool IsMirrored => DualCardStyle == DualCardStyle.TwinVideoMirrored;
-
-    public System.Windows.Visibility CompactVisibility =>
-        IsTwinVideoCard ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
-
-    public System.Windows.Visibility TwinVideoVisibility =>
-        IsTwinVideoCard ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
-
-    // Normal: art | meta | transport — mirrored: transport | meta | art
-    public int ArtColumn => IsMirrored ? 2 : 0;
-
-    public int MetaColumn => 1;
-
-    public int TransportColumn => IsMirrored ? 0 : 2;
 
     public bool IsPlaying
     {

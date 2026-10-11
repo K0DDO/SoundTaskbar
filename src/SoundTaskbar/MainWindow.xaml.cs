@@ -35,14 +35,16 @@ public partial class MainWindow : Window
     private readonly SolidColorBrush _progressFillBrush = new(Color.FromRgb(0x9E, 0xC5, 0xFF));
     private TaskbarHostService? _taskbarHost;
     private TaskbarAppearanceService? _appearance;
-    private bool _dualVisual;
     private bool _parkedOpen;
+    private bool _playPlayOpen;
     private bool _layoutReady;
     private double _parkedChipTarget;
     private CancellationTokenSource? _parkedRemeasureCts;
+    private AnimationClockHolder? _playPlayClock;
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
+    private const int PlayPlayMorphMs = 340;
 
     private double ParkedReveal
     {
@@ -76,12 +78,8 @@ public partial class MainWindow : Window
         MuteButton.Opacity = 0;
         MuteButton.IsHitTestVisible = false;
 
-        DualHost.Opacity = 0;
-        DualHost.IsHitTestVisible = false;
-        DualSlide.X = 28;
         SingleHost.Opacity = 1;
         SingleHost.IsHitTestVisible = true;
-        SingleSlide.X = 0;
         ParkedHost.Width = 0;
         ParkedHost.Opacity = 0;
         ParkedDivider.Width = 0;
@@ -89,6 +87,7 @@ public partial class MainWindow : Window
         ParkedDivider.Margin = new Thickness(0);
         _parkedChipTarget = 0;
         ParkedReveal = 0;
+        _playPlayOpen = false;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -105,8 +104,9 @@ public partial class MainWindow : Window
 
         await _viewModel.InitializeAsync();
         _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
-        ApplyModeVisual(_viewModel.IsDualPlaying, animate: false);
         AnimateParkedHost(_viewModel.ShowParkedRail, animate: false);
+        MorphPlayPlay(_viewModel.IsPlayPlay, animate: false);
+        AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: false);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -138,17 +138,17 @@ public partial class MainWindow : Window
         {
             AnimateVolumeEditor(_viewModel.IsVolumeEditorOpen);
         }
-        else if (e.PropertyName == nameof(MediaViewModel.IsDualPlaying))
-        {
-            ApplyModeVisual(_viewModel.IsDualPlaying, animate: _layoutReady);
-        }
         else if (e.PropertyName == nameof(MediaViewModel.ShowParkedRail))
         {
-            AnimateParkedHost(_viewModel.ShowParkedRail, animate: _layoutReady && !_viewModel.IsDualPlaying);
+            AnimateParkedHost(_viewModel.ShowParkedRail, animate: _layoutReady);
+        }
+        else if (e.PropertyName == nameof(MediaViewModel.ShowPairAppIcon))
+        {
+            AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: _layoutReady);
         }
         else if (e.PropertyName == nameof(MediaViewModel.DesiredWidgetWidth))
         {
-            if (_taskbarHost is not null)
+            if (_taskbarHost is not null && _playPlayClock is null)
             {
                 _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
             }
@@ -157,14 +157,14 @@ public partial class MainWindow : Window
 
     private void OnSideSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (!_viewModel.ShowParkedRail || !_layoutReady || _viewModel.IsDualPlaying)
+        if (!_viewModel.ShowParkedRail || !_layoutReady)
         {
             return;
         }
 
         if (_parkedOpen && ParkedHost.ActualWidth > 1)
         {
-            ExpandChipMetaInPlace();
+            MorphPlayPlay(_viewModel.IsPlayPlay, animate: true);
         }
         else
         {
@@ -174,16 +174,15 @@ public partial class MainWindow : Window
 
     private void OnParkedLayoutChanged(object? sender, EventArgs e)
     {
-        if (!_viewModel.ShowParkedRail || !_layoutReady || _viewModel.IsDualPlaying)
+        if (!_viewModel.ShowParkedRail || !_layoutReady)
         {
             return;
         }
 
-        // Chip already on screen: grow meta in place (only vol/prev slide).
-        // Never restart ParkedHost from width 0 — that looks like dismiss + slide-in.
+        // Chip on screen: morph pause↔play+play in place (never restart from width 0).
         if (_parkedOpen && ParkedHost.ActualWidth > 1)
         {
-            ExpandChipMetaInPlace();
+            MorphPlayPlay(_viewModel.IsPlayPlay, animate: true);
             return;
         }
 
@@ -217,7 +216,7 @@ public partial class MainWindow : Window
                 {
                     if (_parkedOpen && ParkedHost.ActualWidth > 1)
                     {
-                        ExpandChipMetaInPlace();
+                        MorphPlayPlay(_viewModel.IsPlayPlay, animate: true);
                     }
                     else
                     {
@@ -235,21 +234,159 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Animate meta rail and resize ParkedHost to the full measured chip width.
-    /// Must remasure (not just +delta): right-aligned clip otherwise eats volume + VU.
+    /// Morph pause chip ↔ play+play: ExpandProgress crossfade + meta + host + shell one clock.
+    /// Does not touch frozen pause+play appear/dismiss (ParkedReveal).
     /// </summary>
-    private void ExpandChipMetaInPlace()
+    private void MorphPlayPlay(bool expand, bool animate)
     {
-        var parkedFrom = ParkedHost.ActualWidth;
-        if (parkedFrom < 1)
+        if (!_viewModel.ShowParkedRail || ParkedList.Items.Count == 0)
         {
-            SyncChipMetaWidths(animate: false);
-            AnimateParkedHost(open: true, animate: true);
+            _playPlayOpen = false;
             return;
         }
 
-        // Remember per-chip meta from/to, then snap meta to target for an accurate measure.
-        var metaAnims = new List<(FrameworkElement Host, double From, double To, SideSessionViewModel Side)>();
+        var parkedFrom = ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
+        if (parkedFrom < 1)
+        {
+            SnapChipVolumeHosts();
+            SyncChipMetaWidths(animate: false);
+            AnimateParkedHost(open: true, animate: animate);
+            return;
+        }
+
+        var progressFrom = 0.0;
+        foreach (var item in ParkedList.Items)
+        {
+            if (item is SideSessionViewModel s)
+            {
+                progressFrom = s.ExpandProgress;
+                break;
+            }
+        }
+
+        var progressTo = expand ? 1.0 : 0.0;
+        var shellFrom = _taskbarHost?.DesiredWidgetWidthDip
+                        ?? _viewModel.ComputeParkedCompositeWidth(parkedFrom);
+
+        // Measure compact width (progress 0, meta 0).
+        foreach (var item in ParkedList.Items)
+        {
+            if (item is SideSessionViewModel side)
+            {
+                side.ExpandProgress = 0;
+                side.MetaRailWidth = 0;
+            }
+        }
+
+        PushChipMetaHostWidths();
+        ParkedHost.BeginAnimation(WidthProperty, null);
+        ParkedHost.Width = double.NaN;
+        ParkedHost.UpdateLayout();
+        ParkedList.UpdateLayout();
+        var compactWidth = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
+
+        // Measure expanded width (progress 1, meta target). Use MeasuredMetaRailWidth so
+        // collapse still knows the expanded size after ShowExpandedMeta flips false.
+        foreach (var item in ParkedList.Items)
+        {
+            if (item is SideSessionViewModel side)
+            {
+                side.ExpandProgress = 1;
+                side.MetaRailWidth = side.MeasuredMetaRailWidth;
+            }
+        }
+
+        PushChipMetaHostWidths();
+        ParkedHost.Width = double.NaN;
+        ParkedHost.UpdateLayout();
+        ParkedList.UpdateLayout();
+        var expandedWidth = Math.Max(compactWidth, Math.Ceiling(MeasureParkedListWidth()));
+
+        var chipTo = expand ? expandedWidth : compactWidth;
+        var shellTo = expand
+            ? _viewModel.ComputePlayPlayCompositeWidth(expandedWidth)
+            : _viewModel.ComputeParkedCompositeWidth(compactWidth);
+
+        // Restore start frame before tween.
+        foreach (var item in ParkedList.Items)
+        {
+            if (item is SideSessionViewModel side)
+            {
+                side.ExpandProgress = progressFrom;
+                side.MetaRailWidth = progressFrom * side.MeasuredMetaRailWidth;
+            }
+        }
+
+        PushChipMetaHostWidths();
+        ParkedHost.Width = parkedFrom;
+        ParkedHost.Opacity = 1;
+        _parkedChipTarget = chipTo;
+        _playPlayOpen = expand;
+
+        if (!animate || (Math.Abs(progressTo - progressFrom) < 0.01 && Math.Abs(chipTo - parkedFrom) < 0.5))
+        {
+            ApplyPlayPlayFrame(progressTo, chipTo, shellTo);
+            if (expand)
+            {
+                _viewModel.ApplyPlayPlayCompositeWidth(expandedWidth);
+            }
+            else
+            {
+                _viewModel.ApplyParkedCompositeWidth(compactWidth);
+            }
+
+            _playPlayClock = null;
+            return;
+        }
+
+        var ease = new CubicEase { EasingMode = expand ? EasingMode.EaseOut : EasingMode.EaseIn };
+        var duration = TimeSpan.FromMilliseconds(PlayPlayMorphMs);
+        var chipFrom = parkedFrom;
+        var p0 = progressFrom;
+        var p1 = progressTo;
+        var metaTargets = new List<double>();
+        foreach (var item in ParkedList.Items)
+        {
+            metaTargets.Add(item is SideSessionViewModel side ? side.MeasuredMetaRailWidth : 0);
+        }
+
+        _playPlayClock = new AnimationClockHolder();
+        _playPlayClock.ProgressChanged += t =>
+        {
+            var p = p0 + (p1 - p0) * t;
+            var chip = chipFrom + (chipTo - chipFrom) * t;
+            var shell = shellFrom + (shellTo - shellFrom) * t;
+            ApplyPlayPlayFrame(p, chip, shell, metaTargets);
+        };
+        _playPlayClock.Start(
+            0,
+            1,
+            duration,
+            ease,
+            () =>
+            {
+                ApplyPlayPlayFrame(progressTo, chipTo, shellTo);
+                if (expand)
+                {
+                    _viewModel.ApplyPlayPlayCompositeWidth(expandedWidth);
+                }
+                else
+                {
+                    _viewModel.ApplyParkedCompositeWidth(compactWidth);
+                }
+
+                _playPlayClock = null;
+            });
+
+        AnimateSourceNameForPair(expand, animate: true);
+    }
+
+    private void ApplyPlayPlayFrame(
+        double progress,
+        double chipWidth,
+        double shellWidth,
+        IReadOnlyList<double>? metaTargets = null)
+    {
         for (var i = 0; i < ParkedList.Items.Count; i++)
         {
             if (ParkedList.Items[i] is not SideSessionViewModel side)
@@ -257,77 +394,30 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            var target = side.TargetMetaRailWidth;
-            var from = side.MetaRailWidth;
+            side.ExpandProgress = progress;
+            var metaTo = metaTargets is not null && i < metaTargets.Count
+                ? metaTargets[i]
+                : side.MeasuredMetaRailWidth;
+            side.MetaRailWidth = metaTo * progress;
             if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is DependencyObject container &&
                 FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
-                metaAnims.Add((metaHost, from, target, side));
+                metaHost.BeginAnimation(WidthProperty, null);
+                metaHost.Width = side.MetaRailWidth;
             }
-
-            side.MetaRailWidth = target;
-        }
-
-        SyncChipMetaWidths(animate: false);
-
-        // Unconstrain host so DesiredSize includes volume + VU + meta + art.
-        ParkedHost.BeginAnimation(WidthProperty, null);
-        ParkedHost.Width = double.NaN;
-        ParkedHost.UpdateLayout();
-        ParkedList.UpdateLayout();
-        var parkedTo = Math.Ceiling(MeasureParkedListWidth());
-        ParkedHost.Width = parkedFrom;
-        if (parkedTo < 1)
-        {
-            parkedTo = parkedFrom;
-        }
-
-        // Animate meta  from→to (volume/VU stay visible; host grows to full measure).
-        foreach (var (metaHost, from, to, side) in metaAnims)
-        {
-            if (Math.Abs(to - from) < 0.5)
-            {
-                continue;
-            }
-
-            metaHost.BeginAnimation(WidthProperty, null);
-            metaHost.Width = from;
-            var anim = new DoubleAnimation
-            {
-                From = from,
-                To = to,
-                Duration = TimeSpan.FromMilliseconds(260),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            var capturedHost = metaHost;
-            var capturedTo = to;
-            var capturedSide = side;
-            anim.Completed += (_, _) =>
-            {
-                capturedSide.MetaRailWidth = capturedTo;
-                capturedHost.BeginAnimation(WidthProperty, null);
-                capturedHost.Width = capturedTo;
-            };
-            metaHost.BeginAnimation(WidthProperty, anim);
-        }
-
-        if (Math.Abs(parkedTo - parkedFrom) < 0.5)
-        {
-            return;
         }
 
         ParkedHost.BeginAnimation(WidthProperty, null);
-        ParkedHost.Width = parkedFrom;
+        ParkedHost.Width = chipWidth;
         ParkedHost.Opacity = 1;
-        ParkedHost.BeginAnimation(
-            WidthProperty,
-            new DoubleAnimation
-            {
-                From = parkedFrom,
-                To = parkedTo,
-                Duration = TimeSpan.FromMilliseconds(260),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            });
+        ParkedDivider.Width = ParkedDividerWidth;
+        ParkedDivider.Margin = new Thickness(8, 0, 6, 0);
+        ParkedDivider.Opacity = 1;
+
+        if (_taskbarHost is not null)
+        {
+            _taskbarHost.DesiredWidgetWidthDip = shellWidth;
+        }
     }
 
     private void SyncChipMetaWidths(bool animate)
@@ -349,6 +439,25 @@ public partial class MainWindow : Window
                     metaHost.BeginAnimation(WidthProperty, null);
                     metaHost.Width = target;
                 }
+            }
+        }
+    }
+
+    /// <summary>Push current MetaRailWidth to ChipMetaHost without reading TargetMetaRailWidth.</summary>
+    private void PushChipMetaHostWidths()
+    {
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (ParkedList.Items[i] is not SideSessionViewModel side)
+            {
+                continue;
+            }
+
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is DependencyObject container &&
+                FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
+            {
+                metaHost.BeginAnimation(WidthProperty, null);
+                metaHost.Width = side.MetaRailWidth;
             }
         }
     }
@@ -378,86 +487,6 @@ public partial class MainWindow : Window
         }
 
         _viewModel.IsVolumeEditorOpen = !_viewModel.IsVolumeEditorOpen;
-    }
-
-    private void ApplyModeVisual(bool dual, bool animate)
-    {
-        if (_dualVisual == dual && animate)
-        {
-            return;
-        }
-
-        _dualVisual = dual;
-
-        if (!animate)
-        {
-            DualHost.BeginAnimation(OpacityProperty, null);
-            SingleHost.BeginAnimation(OpacityProperty, null);
-            DualSlide.BeginAnimation(TranslateTransform.XProperty, null);
-            SingleSlide.BeginAnimation(TranslateTransform.XProperty, null);
-            VuHost.BeginAnimation(OpacityProperty, null);
-            TransportHost.BeginAnimation(OpacityProperty, null);
-
-            DualHost.Opacity = dual ? 1 : 0;
-            DualHost.IsHitTestVisible = dual;
-            DualSlide.X = dual ? 0 : 28;
-
-            SingleHost.Opacity = dual ? 0 : 1;
-            SingleHost.IsHitTestVisible = !dual;
-            SingleSlide.X = dual ? -28 : 0;
-
-            VuHost.Opacity = dual ? 0 : 1;
-            VuHost.IsHitTestVisible = !dual;
-            TransportHost.Opacity = dual ? 0 : 1;
-            TransportHost.IsHitTestVisible = !dual;
-
-            if (dual)
-            {
-                AnimateParkedHost(open: false, animate: false);
-            }
-
-            return;
-        }
-
-        var duration = TimeSpan.FromMilliseconds(260);
-        var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
-
-        if (dual)
-        {
-            // Single rolls left out, dual rolls in from the right.
-            AnimateOpacity(SingleHost, 0, 160, easeIn);
-            AnimateTranslate(SingleSlide, -28, duration, easeIn);
-            SingleHost.IsHitTestVisible = false;
-
-            DualHost.IsHitTestVisible = true;
-            DualSlide.X = 28;
-            AnimateOpacity(DualHost, 1, 220, easeOut, beginMs: 40);
-            AnimateTranslate(DualSlide, 0, duration, easeOut, beginMs: 40);
-
-            AnimateOpacity(VuHost, 0, 140, easeIn);
-            AnimateOpacity(TransportHost, 0, 140, easeIn);
-            VuHost.IsHitTestVisible = false;
-            TransportHost.IsHitTestVisible = false;
-            AnimateParkedHost(open: false, animate: true);
-        }
-        else
-        {
-            AnimateOpacity(DualHost, 0, 160, easeIn);
-            AnimateTranslate(DualSlide, 28, duration, easeIn);
-            DualHost.IsHitTestVisible = false;
-
-            SingleHost.IsHitTestVisible = true;
-            SingleSlide.X = -28;
-            AnimateOpacity(SingleHost, 1, 220, easeOut, beginMs: 40);
-            AnimateTranslate(SingleSlide, 0, duration, easeOut, beginMs: 40);
-
-            VuHost.IsHitTestVisible = true;
-            TransportHost.IsHitTestVisible = true;
-            AnimateOpacity(VuHost, 1, 200, easeOut, beginMs: 40);
-            AnimateOpacity(TransportHost, 1, 200, easeOut, beginMs: 40);
-            AnimateParkedHost(_viewModel.SideSessions.Count > 0, animate: true);
-        }
     }
 
     private void AnimateParkedHost(bool open, bool animate)
@@ -505,9 +534,9 @@ public partial class MainWindow : Window
                     ParkedDivider.Opacity = 1;
                     if (_taskbarHost is not null)
                     {
-                        _taskbarHost.DesiredWidgetWidthDip =
-                            MediaViewModel.SoloWidgetWidth - MediaViewModel.PausePlayTrim + chip +
-                            MediaViewModel.PausePlayDividerChrome;
+                        _taskbarHost.DesiredWidgetWidthDip = _playPlayOpen
+                            ? _viewModel.ComputePlayPlayCompositeWidth(chip)
+                            : _viewModel.ComputeParkedCompositeWidth(chip);
                     }
                 };
                 holder.Start(
@@ -519,7 +548,14 @@ public partial class MainWindow : Window
                     {
                         _parkedChipTarget = chipTo;
                         ApplyParkedReveal(1);
-                        _viewModel.ApplyParkedCompositeWidth(chipTo);
+                        if (_playPlayOpen)
+                        {
+                            _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
+                        }
+                        else
+                        {
+                            _viewModel.ApplyParkedCompositeWidth(chipTo);
+                        }
                     });
                 return;
             }
@@ -732,42 +768,6 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private static void AnimateOpacity(
-        UIElement element,
-        double to,
-        int ms,
-        IEasingFunction ease,
-        int beginMs = 0)
-    {
-        element.BeginAnimation(
-            OpacityProperty,
-            new DoubleAnimation
-            {
-                To = to,
-                Duration = TimeSpan.FromMilliseconds(ms),
-                BeginTime = TimeSpan.FromMilliseconds(beginMs),
-                EasingFunction = ease
-            });
-    }
-
-    private static void AnimateTranslate(
-        TranslateTransform transform,
-        double to,
-        TimeSpan duration,
-        IEasingFunction ease,
-        int beginMs = 0)
-    {
-        transform.BeginAnimation(
-            TranslateTransform.XProperty,
-            new DoubleAnimation
-            {
-                To = to,
-                Duration = duration,
-                BeginTime = TimeSpan.FromMilliseconds(beginMs),
-                EasingFunction = ease
-            });
-    }
-
     private void AnimateVolumeEditor(bool open)
     {
         // One shared clock so volume grow and source-name collapse stay in lockstep.
@@ -829,20 +829,49 @@ public partial class MainWindow : Window
     /// <summary>Solo: collapse app name into the mono icon in sync with the volume host width.</summary>
     private void AnimateSourceNameForVolume(bool volumeOpen, Duration duration, IEasingFunction ease)
     {
-        if (_viewModel.ShowPairAppIcon || SourceText.Visibility != Visibility.Visible)
+        // play+play already keeps the name collapsed into the icon.
+        if (_viewModel.ShowPairAppIcon)
         {
-            SourceNameHost.BeginAnimation(WidthProperty, null);
-            SourceNameHost.Width = double.NaN;
-            SourceText.Opacity = 1;
             return;
         }
 
+        AnimateSourceNameWidth(collapse: volumeOpen, animate: true, duration, ease);
+    }
+
+    /// <summary>play+play: collapse app name into icon; reverse when leaving pair.</summary>
+    private void AnimateSourceNameForPair(bool pair, bool animate)
+    {
+        if (_viewModel.IsVolumeEditorOpen && !pair)
+        {
+            // Volume editor owns the collapsed name while open.
+            return;
+        }
+
+        var duration = TimeSpan.FromMilliseconds(PlayPlayMorphMs);
+        var ease = new CubicEase { EasingMode = pair ? EasingMode.EaseOut : EasingMode.EaseIn };
+        AnimateSourceNameWidth(collapse: pair, animate, duration, ease);
+    }
+
+    private void AnimateSourceNameWidth(
+        bool collapse,
+        bool animate,
+        Duration duration,
+        IEasingFunction ease)
+    {
         SourceText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var full = Math.Max(1, Math.Ceiling(SourceText.DesiredSize.Width));
+        var full = Math.Max(1, Math.Ceiling(SourceText.DesiredSize.Width + SourceText.Margin.Left));
         var from = SourceNameHost.ActualWidth > 0.5
             ? SourceNameHost.ActualWidth
-            : (volumeOpen ? full : 0);
-        var to = volumeOpen ? 0 : full;
+            : (collapse ? full : 0);
+        var to = collapse ? 0 : full;
+
+        if (!animate || Math.Abs(to - from) < 0.5)
+        {
+            SourceNameHost.BeginAnimation(WidthProperty, null);
+            SourceNameHost.Width = collapse ? 0 : double.NaN;
+            SourceText.Opacity = 1;
+            return;
+        }
 
         SourceNameHost.BeginAnimation(WidthProperty, null);
         SourceNameHost.Width = from;
@@ -858,7 +887,7 @@ public partial class MainWindow : Window
         widthAnim.Completed += (_, _) =>
         {
             SourceNameHost.BeginAnimation(WidthProperty, null);
-            SourceNameHost.Width = volumeOpen ? 0 : double.NaN;
+            SourceNameHost.Width = collapse ? 0 : double.NaN;
         };
 
         SourceNameHost.BeginAnimation(WidthProperty, widthAnim);

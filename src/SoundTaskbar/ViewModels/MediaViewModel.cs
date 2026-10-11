@@ -54,7 +54,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private double _seekGuardUntil;
     private long _volumeWriteTicks;
     private string _primarySessionKey = string.Empty;
-    private bool _isDualPlaying;
     private bool _showParkedRail;
     private bool _parkedDismissPending;
     /// <summary>Frozen solo baseline width — do not change for pause+play composition.</summary>
@@ -62,6 +61,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Play zone is slightly narrower than solo when a pause chip sits beside it.</summary>
     public const double PausePlayTrim = 28;
+
+    /// <summary>Extra primary trim in play+play (name→icon + tighter meta). Frozen pause+play keeps PausePlayTrim only.</summary>
+    public const double PlayPlayExtraTrim = 32;
 
     /// <summary>ParkedDivider width 2.5 + margins 8+6.</summary>
     public const double PausePlayDividerChrome = 16.5;
@@ -148,41 +150,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public ObservableCollection<SideSessionViewModel> SideSessions { get; } = new();
 
-    public ObservableCollection<SideSessionViewModel> DualSessions { get; } = new();
-
     public int SeekSeconds => MediaSessionService.SeekStepSeconds;
 
-    public bool IsDualPlaying
-    {
-        get => _isDualPlaying;
-        private set
-        {
-            if (SetField(ref _isDualPlaying, value))
-            {
-                OnPropertyChanged(nameof(SingleModeVisibility));
-                OnPropertyChanged(nameof(DualModeVisibility));
-                NotifySourceSlotChanged();
-            }
-        }
-    }
+    /// <summary>Two playing sources: side chip expanded (play+play).</summary>
+    public bool IsPlayPlay =>
+        ShowParkedRail && SideSessions.Any(s => s.ShowExpandedMeta);
 
-    public Visibility SingleModeVisibility =>
-        IsDualPlaying ? Visibility.Collapsed : Visibility.Visible;
-
-    public Visibility DualModeVisibility =>
-        IsDualPlaying ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>Two sources active (twin dual or A/V expanded pair) → icon only; solo → icon + name.</summary>
-    public bool ShowPairAppIcon =>
-        IsDualPlaying ||
-        (ShowParkedRail && SideSessions.Any(s => s.ShowExpandedMeta));
+    /// <summary>play+play → icon only (name width animated in UI); solo/pause+play → icon + name.</summary>
+    public bool ShowPairAppIcon => IsPlayPlay;
 
     public Visibility AppIconVisibility =>
         AppIcon is not null ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>Solo: source name beside icon (collapses in UI when volume opens); pair: icon only.</summary>
-    public Visibility SourceLabelVisibility =>
-        ShowPairAppIcon ? Visibility.Collapsed : Visibility.Visible;
+    /// <summary>Name stays in tree; MainWindow collapses width for play+play / volume.</summary>
+    public Visibility SourceLabelVisibility => Visibility.Visible;
 
     public double DesiredWidgetWidth
     {
@@ -201,12 +182,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         return SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
     }
 
+    /// <summary>play+play: tighter primary + measured expanded chip + divider.</summary>
+    public double ComputePlayPlayCompositeWidth(double parkedMeasuredWidth) =>
+        SoloWidgetWidth - PausePlayTrim - PlayPlayExtraTrim + parkedMeasuredWidth + PausePlayDividerChrome;
+
     /// <summary>
-    /// pause+play: (solo - trim) + parked chip + divider. Solo-only / dual / expanded pair: leave alone or reset.
+    /// pause+play only. play+play width is driven by MainWindow morph (measured).
     /// </summary>
     public void ApplyParkedCompositeWidth(double? parkedMeasuredWidth)
     {
-        if (IsDualPlaying || SideSessions.Any(s => s.ShowExpandedMeta))
+        if (IsPlayPlay)
         {
             return;
         }
@@ -218,6 +203,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         DesiredWidgetWidth = ComputeParkedCompositeWidth(parkedMeasuredWidth);
+    }
+
+    public void ApplyPlayPlayCompositeWidth(double parkedMeasuredWidth)
+    {
+        if (parkedMeasuredWidth < 1)
+        {
+            return;
+        }
+
+        DesiredWidgetWidth = ComputePlayPlayCompositeWidth(parkedMeasuredWidth);
     }
 
     /// <summary>
@@ -706,9 +701,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (playing.Count >= 2)
         {
             _pairExitAfter = null;
-            // If pause+play chip is already on screen, pass its key so we morph in place
-            // and never flash the old DualHost compact UI.
-            var parkedSideKey = !IsDualPlaying && ShowParkedRail && SideSessions.Count > 0
+            // Keep parked side key so pause+play → play+play morphs in place.
+            var parkedSideKey = ShowParkedRail && SideSessions.Count > 0
                 ? SideSessions[0].SessionKey
                 : null;
             primary = ApplyPairPlan(
@@ -721,8 +715,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         else
         {
             ClearPairHold();
-            IsDualPlaying = false;
-            DualSessions.Clear();
 
             var parked = enriched
                 .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
@@ -782,9 +774,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return false;
         }
 
-        IsDualPlaying = false;
-        DualSessions.Clear();
-        DesiredWidgetWidth = 520;
         _parkedDismissPending = false;
         SyncCollection(
             SideSessions,
@@ -793,6 +782,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             expandedMeta: true);
         ShowParkedRail = true;
         UpdateParkedWatchdog();
+        // Width measured by MainWindow MorphPlayPlay.
         primary = video;
         return true;
     }
@@ -806,14 +796,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private MediaSessionSnapshot ApplyPairPlan(PairPlan plan)
     {
-        DesiredWidgetWidth = plan.WidgetWidth;
-
         switch (plan.Kind)
         {
-            case PairKind.PrimaryWithExpandedSide:
-                // Stay on SingleHost — only expand the side chip (no DualHost).
-                IsDualPlaying = false;
-                DualSessions.Clear();
+            case PairKind.PlayPlay:
+                // SingleHost + expanded side chip; shell width from MainWindow measure.
                 _parkedDismissPending = false;
                 _pairPrimaryKey = plan.Primary.SessionKey;
                 _pairSideKey = plan.SideSessions.Count > 0 ? plan.SideSessions[0].SessionKey : null;
@@ -827,22 +813,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 UpdateParkedWatchdog();
                 return plan.Primary;
 
-            case PairKind.TwinVideo:
-                ClearPairHold();
-                IsDualPlaying = true;
-                RequestParkedDismiss();
-                SyncCollection(
-                    DualSessions,
-                    plan.DualSessions.ToList(),
-                    freezeTransportIcons: false,
-                    expandedMeta: false,
-                    twinVideo: true);
-                return plan.Primary;
-
             default:
                 ClearPairHold();
-                IsDualPlaying = false;
-                DualSessions.Clear();
                 DesiredWidgetWidth = SoloWidgetWidth;
                 RequestParkedDismiss();
                 return plan.Primary;
@@ -940,8 +912,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         ObservableCollection<SideSessionViewModel> target,
         List<MediaSessionSnapshot> source,
         bool freezeTransportIcons,
-        bool expandedMeta = false,
-        bool twinVideo = false)
+        bool expandedMeta = false)
     {
         for (var i = target.Count - 1; i >= 0; i--)
         {
@@ -1005,9 +976,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.IsVideo = snap.IsVideo;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
             existing.ShowExpandedMeta = expandedMeta;
-            existing.DualCardStyle = twinVideo
-                ? (index == 0 ? DualCardStyle.TwinVideoMirrored : DualCardStyle.TwinVideo)
-                : DualCardStyle.Compact;
             existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
         }
@@ -1037,12 +1005,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         for (var i = 0; i < target.Count; i++)
         {
             target[i].ShowDivider = i < target.Count - 1;
-            if (twinVideo)
-            {
-                target[i].DualCardStyle = i == 0
-                    ? DualCardStyle.TwinVideoMirrored
-                    : DualCardStyle.TwinVideo;
-            }
         }
     }
 
@@ -1124,12 +1086,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void ClearAllSessions()
     {
-        IsDualPlaying = false;
         DesiredWidgetWidth = SoloWidgetWidth;
         _parkedDismissPending = false;
         ShowParkedRail = false;
         SideSessions.Clear();
-        DualSessions.Clear();
         _kindCache.Clear();
         ClearPairHold();
         UpdateParkedWatchdog();
@@ -1359,11 +1319,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         foreach (var side in SideSessions)
-        {
-            side.TickTimelineClock();
-        }
-
-        foreach (var side in DualSessions)
         {
             side.TickTimelineClock();
         }

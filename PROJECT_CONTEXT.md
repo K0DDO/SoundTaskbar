@@ -67,15 +67,13 @@ dotnet run --project src/SoundTaskbar
 ## Текущее состояние
 
 - **Solo заморожен** (310, marquee/fade/icon/VU gaps) — не менять без явного запроса
-- pause+play: chip + divider + play; ширина = `(310 - 28) + parked + 16.5`
-- pause chip anim: right-align wipe from divider; shell width in lockstep; dismiss = reverse appear (`SealParkedReveal` + 1→0 EaseIn 340ms)
-- Парный layout: movable divider `parked | div | art | meta*`; expanded pair / twin = 520
+- **pause+play заморожен** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms) — не трогать
+- **play+play**: morph от pause chip (`MorphPlayPlay` 340ms, ExpandProgress crossfade); shell + chip + meta один clock; primary `PausePlayTrim + PlayPlayExtraTrim(32)` + name→icon; left = mirrored transport | vol | VU | art | title/timeline; DualHost/TwinVideo удалены
 - Title fade: edge-scrim; Solo: mono icon + name; volume collapse sync
 - Стоп песни → 1s hold, потом collapse
 
 ## Следующие шаги
 
-1. play+play (PrimaryWithExpandedSide) от соло
-2. TwinVideo mirrored UX
-3. Seek по клику на прогресс
-4. Автозапуск с Windows
+1. Seek по клику на прогресс
+2. Автозапуск с Windows
+3. Полировка play+play по фидбеку

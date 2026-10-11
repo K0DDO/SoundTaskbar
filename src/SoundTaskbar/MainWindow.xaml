@@ -28,9 +28,11 @@
         <!-- Compact paused chip OR expanded = mirrored primary chrome + same art|text block -->
         <DataTemplate x:Key="SessionArtChip">
             <Grid Margin="0,0,2,0" VerticalAlignment="Center">
-                <!-- Compact: paused side chip -->
+                <!-- Compact: paused side chip (frozen pause+play) -->
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            Opacity="{Binding CompactLayerOpacity}"
                             Visibility="{Binding CompactOverlayVisibility}">
                     <Grid x:Name="ChipVolumeHost"
                           Width="14"
@@ -188,9 +190,11 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Expanded: mirror of primary chrome (transport|vol|VU) + same art|text block -->
+                <!-- Expanded play+play: mirrored transport | vol | VU | art | title/timeline -->
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            Opacity="{Binding ExpandedLayerOpacity}"
                             Visibility="{Binding ExpandedChromeVisibility}">
                     <Button Style="{StaticResource CompactMediaButton}"
                             Width="16"
@@ -396,176 +400,6 @@
                 </StackPanel>
             </Grid>
         </DataTemplate>
-
-        <DataTemplate x:Key="DualSessionCard">
-            <Grid Margin="0,0,8,0">
-                <!-- audio+audio: compact -->
-                <StackPanel Orientation="Horizontal"
-                            MaxWidth="160"
-                            Visibility="{Binding CompactVisibility}">
-                    <Button Command="{Binding ToggleCommand}"
-                            Width="28"
-                            Height="28"
-                            Focusable="False"
-                            Cursor="Hand">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border CornerRadius="4" ClipToBounds="True" Background="#44000000">
-                                    <Grid>
-                                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                        <Border Background="#88000000" />
-                                        <TextBlock Text="{Binding OverlayGlyph}"
-                                                   Foreground="#F5F5F5"
-                                                   FontSize="10"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                    <StackPanel Margin="5,0,0,0" VerticalAlignment="Center" MaxWidth="120">
-                        <TextBlock Text="{Binding Title}"
-                                   Foreground="#F5F5F5"
-                                   FontSize="10"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding SourceName}"
-                                   Foreground="#B8C0CC"
-                                   FontSize="8"
-                                   TextTrimming="CharacterEllipsis"
-                                   Margin="0,1,0,0" />
-                    </StackPanel>
-                </StackPanel>
-
-                <!-- video+video: full primary-like card (mirrored via column swap) -->
-                <Grid MinWidth="200"
-                      MaxWidth="248"
-                      Visibility="{Binding TwinVideoVisibility}">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" MinWidth="90" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-
-                    <Border Grid.Column="{Binding ArtColumn}"
-                            Width="28"
-                            Height="28"
-                            CornerRadius="4"
-                            ClipToBounds="True"
-                            Background="#44000000"
-                            VerticalAlignment="Center">
-                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                    </Border>
-
-                    <Grid Grid.Column="{Binding MetaColumn}"
-                          Margin="6,0"
-                          VerticalAlignment="Center">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Text="{Binding Title}"
-                                   Foreground="#F5F5F5"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="TextAlignment" Value="Left" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsMirrored}" Value="True">
-                                            <Setter Property="TextAlignment" Value="Right" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                        <TextBlock Grid.Row="1"
-                                   Text="{Binding Artist}"
-                                   Foreground="#B8C0CC"
-                                   FontSize="9"
-                                   TextTrimming="CharacterEllipsis"
-                                   Margin="0,1,0,1">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="TextAlignment" Value="Left" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsMirrored}" Value="True">
-                                            <Setter Property="TextAlignment" Value="Right" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                        <Grid Grid.Row="2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ProgressBar Height="2"
-                                         Minimum="0"
-                                         Maximum="1"
-                                         Value="{Binding Progress, Mode=OneWay}"
-                                         Foreground="{DynamicResource ProgressAccentBrush}"
-                                         Background="{DynamicResource ProgressTrackBrush}"
-                                         BorderThickness="0" />
-                            <TextBlock Grid.Column="1"
-                                       Margin="4,0,0,0"
-                                       VerticalAlignment="Center"
-                                       Foreground="#C8CDD6"
-                                       FontSize="8"
-                                       Text="{Binding TimeText}" />
-                        </Grid>
-                    </Grid>
-
-                    <StackPanel Grid.Column="{Binding TransportColumn}"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center">
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Setter Property="Margin" Value="2,0,0,0" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsMirrored}" Value="True">
-                                        <Setter Property="Margin" Value="0,0,2,0" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                        <Button Style="{StaticResource CompactMediaButton}"
-                                Width="16"
-                                Height="16"
-                                Padding="0"
-                                Command="{Binding PreviousCommand}">
-                            <controls:TransportIcon Width="8"
-                                                    Height="8"
-                                                    Kind="{Binding PreviousIconKind}"
-                                                    Seconds="{Binding SeekSeconds}"
-                                                    Foreground="#F2F4F7" />
-                        </Button>
-                        <Button Content="{Binding PlayPauseLabel}"
-                                Style="{StaticResource PlayPauseButton}"
-                                Width="20"
-                                Height="20"
-                                FontSize="9"
-                                Margin="1,0"
-                                Command="{Binding ToggleCommand}" />
-                        <Button Style="{StaticResource CompactMediaButton}"
-                                Width="16"
-                                Height="16"
-                                Padding="0"
-                                Command="{Binding NextCommand}">
-                            <controls:TransportIcon Width="8"
-                                                    Height="8"
-                                                    Kind="{Binding NextIconKind}"
-                                                    Seconds="{Binding SeekSeconds}"
-                                                    Foreground="#F2F4F7" />
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Grid>
-        </DataTemplate>
     </Window.Resources>
 
     <Canvas x:Name="RootCanvas" Background="Transparent">
@@ -583,33 +417,13 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- No clip: expanded audio chrome must not lose left transport buttons -->
+                <!-- No clip: play+play left transport must not be clipped -->
                 <Grid Grid.Column="0" ClipToBounds="False">
-                <!-- Dual: two compact players when both sources play -->
-                <ItemsControl x:Name="DualHost"
-                              ItemsSource="{Binding DualSessions}"
-                              ItemTemplate="{StaticResource DualSessionCard}"
-                              Opacity="0"
-                              IsHitTestVisible="False"
-                              VerticalAlignment="Center">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.RenderTransform>
-                        <TranslateTransform x:Name="DualSlide" X="28" />
-                    </ItemsControl.RenderTransform>
-                </ItemsControl>
-
-                <!-- Movable divider: parked | divider | art | meta* (meta grows when parked shrinks) -->
+                <!-- Movable divider: parked | divider | art | meta* -->
                 <Border x:Name="SingleHost"
                         Background="#01000000"
                         MouseEnter="OnMarqueeZoneEnter"
                         MouseLeave="OnMarqueeZoneLeave">
-                    <Border.RenderTransform>
-                        <TranslateTransform x:Name="SingleSlide" X="0" />
-                    </Border.RenderTransform>
                     <Grid VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
