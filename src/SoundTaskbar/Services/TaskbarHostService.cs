@@ -8,12 +8,13 @@ namespace SoundTaskbar.Services;
 
 /// <summary>
 /// Pins a top-level tool window onto the taskbar strip (left of the tray).
-/// Avoids periodic z-order bumps — those cause visible flicker on focus changes.
+/// Survives Win+D / "Show desktop" by owning to the taskbar and restoring if Windows hides us.
 /// </summary>
 public sealed class TaskbarHostService : IDisposable
 {
     private readonly Window _window;
-    private readonly DispatcherTimer _timer;
+    private readonly DispatcherTimer _geometryTimer;
+    private readonly DispatcherTimer _visibilityTimer;
     private IntPtr _hwnd;
     private bool _disposed;
     private int _lastX = int.MinValue;
@@ -24,9 +25,13 @@ public sealed class TaskbarHostService : IDisposable
     public TaskbarHostService(Window window)
     {
         _window = window;
-        // Geometry only; do not touch z-order on a timer.
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _timer.Tick += (_, _) => PositionOnTaskbar(forceZOrder: false);
+        _geometryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _geometryTimer.Tick += (_, _) => PositionOnTaskbar(forceZOrder: false);
+
+        // Show-desktop hides top-level windows; bring ours back quickly.
+        _visibilityTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _visibilityTimer.Tick += (_, _) => EnsureVisible();
+
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
     }
 
@@ -34,9 +39,11 @@ public sealed class TaskbarHostService : IDisposable
     {
         _hwnd = new WindowInteropHelper(_window).EnsureHandle();
         ApplyWindowStyles(_hwnd);
+        AttachOwnerToTaskbar();
         PositionOnTaskbar(forceZOrder: true);
         NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
-        _timer.Start();
+        _geometryTimer.Start();
+        _visibilityTimer.Start();
     }
 
     public void Dispose()
@@ -47,12 +54,76 @@ public sealed class TaskbarHostService : IDisposable
         }
 
         _disposed = true;
-        _timer.Stop();
+        _geometryTimer.Stop();
+        _visibilityTimer.Stop();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
-        _window.Dispatcher.BeginInvoke(() => PositionOnTaskbar(forceZOrder: true));
+        _window.Dispatcher.BeginInvoke(() =>
+        {
+            AttachOwnerToTaskbar();
+            PositionOnTaskbar(forceZOrder: true);
+            NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
+        });
+
+    private void EnsureVisible()
+    {
+        if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
+        {
+            return;
+        }
+
+        AttachOwnerToTaskbar();
+
+        var hidden = !NativeMethods.IsWindowVisible(_hwnd) || IsCloaked(_hwnd);
+        if (!hidden)
+        {
+            // Also recover if show-desktop moved us off the strip.
+            if (NativeMethods.GetWindowRect(_hwnd, out var current) &&
+                (_lastX != int.MinValue) &&
+                (Math.Abs(current.Left - _lastX) > 2 || Math.Abs(current.Top - _lastY) > 2))
+            {
+                PositionOnTaskbar(forceZOrder: true);
+            }
+
+            return;
+        }
+
+        NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
+        PositionOnTaskbar(forceZOrder: true);
+        if (_window.Visibility != Visibility.Visible)
+        {
+            _window.Show();
+        }
+    }
+
+    private void AttachOwnerToTaskbar()
+    {
+        var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
+        if (taskbar == IntPtr.Zero || _hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Owner (not WS_CHILD parent): keeps us tied to the shell so Show Desktop is less likely
+        // to leave the widget permanently hidden, without the Win11 SetParent render bug.
+        var currentOwner = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWLP_HWNDPARENT);
+        if (currentOwner != taskbar)
+        {
+            NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GWLP_HWNDPARENT, taskbar);
+        }
+    }
+
+    private static bool IsCloaked(IntPtr hwnd)
+    {
+        var hr = NativeMethods.DwmGetWindowAttribute(
+            hwnd,
+            NativeMethods.DWMWA_CLOAKED,
+            out var cloaked,
+            sizeof(int));
+        return hr == 0 && cloaked != 0;
+    }
 
     private void PositionOnTaskbar(bool forceZOrder)
     {

@@ -63,7 +63,7 @@ dotnet run --project src/SoundTaskbar
 - UI pinned на полосу таскбара слева от трея (overlay, topmost tool window)
 - Прогресс: локальная экстраполяция; SMTC stale position не откатывает таймер назад (anti-rewind)
 - Фон: sample таскбара + TranslucentTB; acrylic toggle только on/off, tint через WPF brush
-- Overlay: без периодического TOPMOST (из‑за него моргало при Alt-Tab); геометрия редко
+- Overlay: без периодического TOPMOST; owner = Shell_TrayWnd + watchdog против Win+D/show desktop
 - Per-app volume ещё нет
 
 ## Следующие шаги
