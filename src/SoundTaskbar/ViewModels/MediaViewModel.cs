@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -51,6 +52,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private double _seekAnimStart;
     private double _seekGuardUntil;
     private long _volumeWriteTicks;
+    private string _primarySessionKey = string.Empty;
+    private bool _isDualPlaying;
+    private readonly Dictionary<string, BitmapImage?> _artworkCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Title, string Artist)> _metaCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public const double MeterHeight = 24;
     private const double SeekAnimSeconds = 0.3;
@@ -66,7 +72,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         PreviousCommand = new RelayCommand(
             async _ => await GoPreviousAsync(),
             _ => CanGoPrevious);
-        PlayPauseCommand = new RelayCommand(async _ => await _media.TogglePlayPauseAsync(), _ => CanTogglePlayback);
+        PlayPauseCommand = new RelayCommand(
+            async _ => await _media.TogglePlayPauseAsync(_primarySessionKey),
+            _ => CanTogglePlayback);
         NextCommand = new RelayCommand(
             async _ => await GoNextAsync(),
             _ => CanGoNext);
@@ -97,7 +105,30 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand NextCommand { get; }
     public RelayCommand ToggleMuteCommand { get; }
 
+    public ObservableCollection<SideSessionViewModel> SideSessions { get; } = new();
+
+    public ObservableCollection<SideSessionViewModel> DualSessions { get; } = new();
+
     public int SeekSeconds => MediaSessionService.SeekStepSeconds;
+
+    public bool IsDualPlaying
+    {
+        get => _isDualPlaying;
+        private set
+        {
+            if (SetField(ref _isDualPlaying, value))
+            {
+                OnPropertyChanged(nameof(SingleModeVisibility));
+                OnPropertyChanged(nameof(DualModeVisibility));
+            }
+        }
+    }
+
+    public Visibility SingleModeVisibility =>
+        IsDualPlaying ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility DualModeVisibility =>
+        IsDualPlaying ? Visibility.Visible : Visibility.Collapsed;
 
     public string Title
     {
@@ -461,8 +492,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            var snapshot = full ? await _media.CaptureFullAsync() : _media.Capture();
-            Apply(snapshot, keepArtwork: !full);
+            var snapshots = full
+                ? await _media.CaptureAllFullAsync()
+                : _media.CaptureAll();
+            ApplyAll(snapshots, keepArtwork: !full);
         }
         finally
         {
@@ -470,30 +503,185 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void Apply(MediaSessionSnapshot snapshot, bool keepArtwork)
+    private void ApplyAll(IReadOnlyList<MediaSessionSnapshot> snapshots, bool keepArtwork)
     {
-        HasSession = snapshot.HasSession;
-        if (!snapshot.HasSession)
+        if (snapshots.Count == 0)
         {
-            Title = "Нет активного медиа";
-            Artist = "Запусти музыку или видео";
-            AppId = string.Empty;
-            OnPropertyChanged(nameof(SourceName));
-            _duration = TimeSpan.Zero;
-            SetTimelineAnchor(TimeSpan.Zero, playing: false);
-            TimeText = "0:00 / 0:00";
-            Progress = 0;
-            IsPlaying = false;
-            CanSkipNext = false;
-            CanSkipPrevious = false;
-            CanSeek = false;
-            CanTogglePlayback = false;
-            CanControlVolume = false;
-            IsVolumeEditorOpen = false;
-            PeakLevel = 0;
-            Artwork = null;
+            ClearAllSessions();
             return;
         }
+
+        foreach (var snap in snapshots)
+        {
+            if (snap.Artwork is not null)
+            {
+                _artworkCache[snap.SessionKey] = snap.Artwork;
+            }
+
+            if (!string.IsNullOrWhiteSpace(snap.Title) || !string.IsNullOrWhiteSpace(snap.Artist))
+            {
+                _metaCache[snap.SessionKey] = (snap.Title, snap.Artist);
+            }
+        }
+
+        var enriched = snapshots
+            .Select(Enrich)
+            .Where(s => s.HasSession)
+            .ToList();
+
+        if (enriched.Count == 0)
+        {
+            ClearAllSessions();
+            return;
+        }
+
+        var playing = enriched.Where(s => s.IsPlaying).ToList();
+        var focusedKey = _media.FocusedKey;
+
+        MediaSessionSnapshot primary;
+        if (playing.Count >= 2)
+        {
+            IsDualPlaying = true;
+            primary = playing.FirstOrDefault(s => s.SessionKey == focusedKey) ?? playing[0];
+            SyncCollection(DualSessions, playing.Take(2).ToList());
+            SideSessions.Clear();
+        }
+        else
+        {
+            IsDualPlaying = false;
+            DualSessions.Clear();
+            primary = playing.FirstOrDefault()
+                      ?? enriched.FirstOrDefault(s => s.SessionKey == focusedKey)
+                      ?? enriched[0];
+
+            var parked = enriched
+                .Where(s => s.SessionKey != primary.SessionKey)
+                .OrderByDescending(s => s.IsPlaying)
+                .ThenByDescending(s => s.Artwork is not null)
+                .Take(2)
+                .ToList();
+            SyncCollection(SideSessions, parked);
+        }
+
+        _media.Focus(primary.SessionKey);
+        ApplyPrimary(primary, keepArtwork);
+    }
+
+    private MediaSessionSnapshot Enrich(MediaSessionSnapshot snap)
+    {
+        _artworkCache.TryGetValue(snap.SessionKey, out var art);
+            _metaCache.TryGetValue(snap.SessionKey, out var meta);
+
+        var title = !string.IsNullOrWhiteSpace(snap.Title)
+            ? snap.Title
+            : meta.Title ?? string.Empty;
+        var artist = !string.IsNullOrWhiteSpace(snap.Artist)
+            ? snap.Artist
+            : meta.Artist ?? string.Empty;
+
+        return new MediaSessionSnapshot
+        {
+            HasSession = snap.HasSession,
+            SessionKey = snap.SessionKey,
+            Title = title ?? string.Empty,
+            Artist = artist ?? string.Empty,
+            AppId = snap.AppId,
+            IsPlaying = snap.IsPlaying,
+            CanPlay = snap.CanPlay,
+            CanPause = snap.CanPause,
+            CanSkipNext = snap.CanSkipNext,
+            CanSkipPrevious = snap.CanSkipPrevious,
+            CanSeek = snap.CanSeek,
+            Position = snap.Position,
+            Duration = snap.Duration,
+            Artwork = snap.Artwork ?? art
+        };
+    }
+
+    private void SyncCollection(ObservableCollection<SideSessionViewModel> target, List<MediaSessionSnapshot> source)
+    {
+        for (var i = target.Count - 1; i >= 0; i--)
+        {
+            if (source.All(s => s.SessionKey != target[i].SessionKey))
+            {
+                target.RemoveAt(i);
+            }
+        }
+
+        foreach (var snap in source)
+        {
+            var existing = target.FirstOrDefault(s => s.SessionKey == snap.SessionKey);
+            if (existing is null)
+            {
+                existing = new SideSessionViewModel(snap.SessionKey, ToggleSideSessionAsync);
+                target.Add(existing);
+            }
+
+            existing.Artwork = snap.Artwork;
+            existing.Title = string.IsNullOrWhiteSpace(snap.Title) ? "Без названия" : snap.Title;
+            existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
+            existing.IsPlaying = snap.IsPlaying;
+            existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
+        }
+
+        // Keep visual order matching source.
+        for (var i = 0; i < source.Count; i++)
+        {
+            var key = source[i].SessionKey;
+            var currentIndex = -1;
+            for (var j = 0; j < target.Count; j++)
+            {
+                if (target[j].SessionKey == key)
+                {
+                    currentIndex = j;
+                    break;
+                }
+            }
+
+            if (currentIndex >= 0 && currentIndex != i && i < target.Count)
+            {
+                target.Move(currentIndex, i);
+            }
+        }
+    }
+
+    private async Task ToggleSideSessionAsync(string sessionKey)
+    {
+        _media.Focus(sessionKey);
+        await _media.TogglePlayPauseAsync(sessionKey);
+        await RefreshAsync(full: true);
+    }
+
+    private void ClearAllSessions()
+    {
+        IsDualPlaying = false;
+        SideSessions.Clear();
+        DualSessions.Clear();
+        _primarySessionKey = string.Empty;
+        Title = "Нет активного медиа";
+        Artist = "Запусти музыку или видео";
+        AppId = string.Empty;
+        OnPropertyChanged(nameof(SourceName));
+        _duration = TimeSpan.Zero;
+        SetTimelineAnchor(TimeSpan.Zero, playing: false);
+        TimeText = "0:00 / 0:00";
+        Progress = 0;
+        IsPlaying = false;
+        CanSkipNext = false;
+        CanSkipPrevious = false;
+        CanSeek = false;
+        CanTogglePlayback = false;
+        CanControlVolume = false;
+        IsVolumeEditorOpen = false;
+        PeakLevel = 0;
+        Artwork = null;
+        HasSession = false;
+    }
+
+    private void ApplyPrimary(MediaSessionSnapshot snapshot, bool keepArtwork)
+    {
+        HasSession = true;
+        _primarySessionKey = snapshot.SessionKey;
 
         if (!keepArtwork || !string.IsNullOrWhiteSpace(snapshot.Title))
         {
@@ -527,9 +715,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         SyncTimeline(position, duration, snapshot.IsPlaying);
         IsPlaying = snapshot.IsPlaying;
 
-        if (!keepArtwork)
+        if (!keepArtwork || snapshot.Artwork is not null)
         {
-            Artwork = snapshot.Artwork;
+            Artwork = snapshot.Artwork ?? Artwork;
         }
 
         CommandManager.InvalidateRequerySuggested();
@@ -542,7 +730,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             BeginSeekAnimation(-SeekSeconds);
         }
 
-        await _media.PreviousOrSeekBackAsync();
+        await _media.PreviousOrSeekBackAsync(_primarySessionKey);
     }
 
     private async Task GoNextAsync()
@@ -552,7 +740,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             BeginSeekAnimation(SeekSeconds);
         }
 
-        await _media.NextOrSeekForwardAsync();
+        await _media.NextOrSeekForwardAsync(_primarySessionKey);
     }
 
     private void BeginSeekAnimation(double deltaSeconds)

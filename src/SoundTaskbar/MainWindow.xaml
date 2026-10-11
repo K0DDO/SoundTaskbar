@@ -21,9 +21,83 @@
         </ContextMenu>
     </Window.ContextMenu>
 
+    <Window.Resources>
+        <DataTemplate x:Key="SessionArtChip">
+            <Button Command="{Binding ToggleCommand}"
+                    Width="28"
+                    Height="28"
+                    Margin="0,0,4,0"
+                    Focusable="False"
+                    Cursor="Hand"
+                    ToolTip="{Binding SourceName}">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                CornerRadius="4"
+                                ClipToBounds="True"
+                                Background="#44000000">
+                            <Grid>
+                                <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                <Border Background="#88000000" />
+                                <TextBlock Text="{Binding OverlayGlyph}"
+                                           Foreground="#F5F5F5"
+                                           FontSize="10"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+        </DataTemplate>
+
+        <DataTemplate x:Key="DualSessionCard">
+            <StackPanel Orientation="Horizontal" Margin="0,0,10,0" MaxWidth="160">
+                <Button Command="{Binding ToggleCommand}"
+                        Width="28"
+                        Height="28"
+                        Focusable="False"
+                        Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border CornerRadius="4" ClipToBounds="True" Background="#44000000">
+                                <Grid>
+                                    <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                    <Border Background="#88000000" />
+                                    <TextBlock Text="{Binding OverlayGlyph}"
+                                               Foreground="#F5F5F5"
+                                               FontSize="10"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <StackPanel Margin="5,0,0,0" VerticalAlignment="Center" MaxWidth="120">
+                    <TextBlock Text="{Binding Title}"
+                               Foreground="#F5F5F5"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding SourceName}"
+                               Foreground="#B8C0CC"
+                               FontSize="8"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,1,0,0" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
     <Canvas x:Name="RootCanvas" Background="Transparent">
         <Border x:Name="WidgetRoot"
-                Width="320"
+                Width="360"
                 Height="48"
                 Padding="6,2"
                 BorderThickness="0"
@@ -36,18 +110,48 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- Artwork + title/artist: one hover zone for marquee -->
+                <!-- Dual: two compact players when both sources play -->
+                <ItemsControl ItemsSource="{Binding DualSessions}"
+                              ItemTemplate="{StaticResource DualSessionCard}"
+                              Visibility="{Binding DualModeVisibility}"
+                              VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+
+                <!-- Single: parked chips + full primary player -->
                 <Border x:Name="MarqueeHoverZone"
                         Background="Transparent"
+                        Visibility="{Binding SingleModeVisibility}"
                         MouseEnter="OnMarqueeZoneEnter"
                         MouseLeave="OnMarqueeZoneLeave">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <Border Width="28" Height="28" CornerRadius="4" ClipToBounds="True" Background="#44000000"
+                        <!-- Paused / other sources: artwork + resume -->
+                        <ItemsControl ItemsSource="{Binding SideSessions}"
+                                      ItemTemplate="{StaticResource SessionArtChip}"
+                                      VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+
+                        <Border Grid.Column="1"
+                                Width="28"
+                                Height="28"
+                                CornerRadius="4"
+                                ClipToBounds="True"
+                                Background="#44000000"
                                 VerticalAlignment="Center">
                             <Grid>
                                 <TextBlock x:Name="ArtworkPlaceholder"
@@ -60,7 +164,7 @@
                             </Grid>
                         </Border>
 
-                        <Grid Grid.Column="1" Margin="6,0,6,0" VerticalAlignment="Center" MinWidth="70">
+                        <Grid Grid.Column="2" Margin="6,0,6,0" VerticalAlignment="Center" MinWidth="70">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -128,12 +232,13 @@
                     </Grid>
                 </Border>
 
-                <!-- VU meter -->
+                <!-- VU meter (single mode) -->
                 <Grid Grid.Column="1"
                       Width="8"
                       Height="24"
                       Margin="0,0,4,0"
-                      VerticalAlignment="Center">
+                      VerticalAlignment="Center"
+                      Visibility="{Binding SingleModeVisibility}">
                     <Border CornerRadius="2" Opacity="0.95">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
@@ -151,7 +256,7 @@
                             IsHitTestVisible="False" />
                 </Grid>
 
-                <!-- Volume: rolls out [mute][slider]; mute left of slider, only while open -->
+                <!-- Volume for focused/primary source -->
                 <Grid x:Name="VolumeHost"
                       Grid.Column="2"
                       Width="16"
@@ -196,8 +301,11 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Transport: small skip/seek, larger play/pause -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- Transport (single mode) -->
+                <StackPanel Grid.Column="3"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding SingleModeVisibility}">
                     <Button Style="{StaticResource CompactMediaButton}"
                             Command="{Binding PreviousCommand}">
                         <controls:TransportIcon x:Name="PreviousIcon"

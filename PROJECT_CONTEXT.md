@@ -23,7 +23,7 @@ Windows-приложение: медиа-контролы **на полосе т
 2. Показывать UI на полосе таскбара слева от трея.
 3. Play / pause / next / previous через системные команды медиа-сессии.
 4. Per-app volume: менять громкость конкретного audio session, не master volume.
-5. Если источников несколько — выбрать активный или переключаться между ними (детали UX уточняются).
+5. Несколько SMTC-источников: пауза оставляет чип с ▶ на обложке; два playing — упрощённый dual-вид.
 
 ## Важные ограничения Win11 25H2
 
@@ -66,17 +66,16 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- SMTC + prev/play/next + smooth progress (anti-rewind)
-- Host: child на весь таскбар + region под виджет; прозрачный фон (TranslucentTB)
-- UI компактный (~320px): title с marquee только по hover, artist снизу, VU
-- UI: title marquee (hover по обложке/title/artist), artist слева + SourceName справа (YouTube/Spotify/…)
-- Volume: hairline-слайдер (толстая hit-зона) + mute слева от слайдера; sync с Core Audio
+- SMTC multi-session: primary full UI; paused others → art chip + ▶; 2+ playing → dual compact
+- Host: full-taskbar child + region; ~360px; прозрачный фон (TranslucentTB)
+- UI: marquee (hover обложка/title/artist), artist + SourceName, accent progress
+- Volume: hairline-слайдер + mute слева; sync с Core Audio
 - Prev/Next: skip или seek ±Nс с плавной анимацией прогресса
 - Per-app volume через Core Audio (не master)
 
 ## Следующие шаги
 
 1. Более точный layout на Win11 (centered taskbar / widgets)
-2. Переключение между несколькими SMTC-сессиями
-3. Seek по клику на прогресс
-4. Автозапуск с Windows
+2. Seek по клику на прогресс
+3. Автозапуск с Windows
+4. Dual-mode: volume/seek per card

@@ -8,6 +8,7 @@ namespace SoundTaskbar.Services;
 
 public sealed class MediaSessionSnapshot
 {
+    public string SessionKey { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public string Artist { get; init; } = string.Empty;
     public string AppId { get; init; } = string.Empty;
@@ -25,109 +26,221 @@ public sealed class MediaSessionSnapshot
 
 public sealed class MediaSessionService : IDisposable
 {
+    public const int SeekStepSeconds = 10;
+
+    private readonly object _gate = new();
+    private readonly Dictionary<string, GlobalSystemMediaTransportControlsSession> _sessions =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
-    private GlobalSystemMediaTransportControlsSession? _session;
+    private string? _focusedKey;
     private bool _disposed;
 
     public event EventHandler? Changed;
     public event EventHandler? TimelineChanged;
+
+    public string? FocusedKey
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _focusedKey;
+            }
+        }
+    }
 
     public async Task StartAsync()
     {
         _manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
         _manager.CurrentSessionChanged += OnCurrentSessionChanged;
         _manager.SessionsChanged += OnSessionsChanged;
-        AttachSession(_manager.GetCurrentSession());
+        RebuildSessions();
         RaiseChanged();
     }
 
-    public MediaSessionSnapshot Capture()
+    public IReadOnlyList<MediaSessionSnapshot> CaptureAll()
     {
-        if (_session is null)
+        lock (_gate)
+        {
+            if (_sessions.Count == 0)
+            {
+                return Array.Empty<MediaSessionSnapshot>();
+            }
+
+            var list = new List<MediaSessionSnapshot>(_sessions.Count);
+            foreach (var (key, session) in _sessions)
+            {
+                list.Add(CaptureSession(key, session, artwork: null, includeMediaProps: false));
+            }
+
+            return list;
+        }
+    }
+
+    public async Task<IReadOnlyList<MediaSessionSnapshot>> CaptureAllFullAsync()
+    {
+        List<(string Key, GlobalSystemMediaTransportControlsSession Session)> pairs;
+        lock (_gate)
+        {
+            pairs = _sessions.Select(kv => (kv.Key, kv.Value)).ToList();
+        }
+
+        if (pairs.Count == 0)
+        {
+            return Array.Empty<MediaSessionSnapshot>();
+        }
+
+        var results = new List<MediaSessionSnapshot>(pairs.Count);
+        foreach (var (key, session) in pairs)
+        {
+            BitmapImage? artwork = null;
+            string title = string.Empty;
+            string artist = string.Empty;
+            try
+            {
+                var props = await session.TryGetMediaPropertiesAsync();
+                if (props is not null)
+                {
+                    title = props.Title ?? string.Empty;
+                    artist = props.Artist ?? string.Empty;
+                    if (props.Thumbnail is not null)
+                    {
+                        artwork = await ToBitmapImageAsync(props.Thumbnail);
+                    }
+                }
+            }
+            catch
+            {
+                // keep empty media props
+            }
+
+            lock (_gate)
+            {
+                if (!_sessions.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                var snap = CaptureSession(key, session, artwork, includeMediaProps: false);
+                results.Add(new MediaSessionSnapshot
+                {
+                    HasSession = true,
+                    SessionKey = key,
+                    Title = title,
+                    Artist = artist,
+                    AppId = snap.AppId,
+                    IsPlaying = snap.IsPlaying,
+                    CanPlay = snap.CanPlay,
+                    CanPause = snap.CanPause,
+                    CanSkipNext = snap.CanSkipNext,
+                    CanSkipPrevious = snap.CanSkipPrevious,
+                    CanSeek = snap.CanSeek,
+                    Position = snap.Position,
+                    Duration = snap.Duration,
+                    Artwork = artwork
+                });
+            }
+        }
+
+        return results;
+    }
+
+    public MediaSessionSnapshot Capture(string? sessionKey = null)
+    {
+        lock (_gate)
+        {
+            var key = ResolveKey(sessionKey);
+            if (key is null || !_sessions.TryGetValue(key, out var session))
+            {
+                return new MediaSessionSnapshot();
+            }
+
+            return CaptureSession(key, session, artwork: null, includeMediaProps: false);
+        }
+    }
+
+    public async Task<MediaSessionSnapshot> CaptureFullAsync(string? sessionKey = null)
+    {
+        GlobalSystemMediaTransportControlsSession? session;
+        string? key;
+        lock (_gate)
+        {
+            key = ResolveKey(sessionKey);
+            session = key is not null && _sessions.TryGetValue(key, out var s) ? s : null;
+        }
+
+        if (key is null || session is null)
         {
             return new MediaSessionSnapshot();
         }
 
-        var playback = _session.GetPlaybackInfo();
-        var timeline = _session.GetTimelineProperties();
-        var controls = playback.Controls;
-
-        return new MediaSessionSnapshot
+        var snapshot = Capture(key);
+        try
         {
-            HasSession = true,
-            AppId = _session.SourceAppUserModelId ?? string.Empty,
-            IsPlaying = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
-            CanPlay = controls.IsPlayEnabled,
-            CanPause = controls.IsPauseEnabled,
-            CanSkipNext = controls.IsNextEnabled,
-            CanSkipPrevious = controls.IsPreviousEnabled,
-            CanSeek = controls.IsPlaybackPositionEnabled,
-            Position = timeline.Position,
-            Duration = timeline.EndTime > timeline.StartTime
-                ? timeline.EndTime - timeline.StartTime
-                : TimeSpan.Zero
-        };
-    }
+            var props = await session.TryGetMediaPropertiesAsync();
+            if (props is null)
+            {
+                return snapshot;
+            }
 
-    public async Task<MediaSessionSnapshot> CaptureFullAsync()
-    {
-        var snapshot = Capture();
-        if (_session is null)
+            BitmapImage? artwork = null;
+            if (props.Thumbnail is not null)
+            {
+                artwork = await ToBitmapImageAsync(props.Thumbnail);
+            }
+
+            return new MediaSessionSnapshot
+            {
+                HasSession = true,
+                SessionKey = key,
+                Title = props.Title ?? string.Empty,
+                Artist = props.Artist ?? string.Empty,
+                AppId = snapshot.AppId,
+                IsPlaying = snapshot.IsPlaying,
+                CanPlay = snapshot.CanPlay,
+                CanPause = snapshot.CanPause,
+                CanSkipNext = snapshot.CanSkipNext,
+                CanSkipPrevious = snapshot.CanSkipPrevious,
+                CanSeek = snapshot.CanSeek,
+                Position = snapshot.Position,
+                Duration = snapshot.Duration,
+                Artwork = artwork
+            };
+        }
+        catch
         {
             return snapshot;
         }
-
-        var props = await _session.TryGetMediaPropertiesAsync();
-        if (props is null)
-        {
-            return snapshot;
-        }
-
-        BitmapImage? artwork = null;
-        if (props.Thumbnail is not null)
-        {
-            artwork = await ToBitmapImageAsync(props.Thumbnail);
-        }
-
-        return new MediaSessionSnapshot
-        {
-            HasSession = true,
-            Title = props.Title ?? string.Empty,
-            Artist = props.Artist ?? string.Empty,
-            AppId = snapshot.AppId,
-            IsPlaying = snapshot.IsPlaying,
-            CanPlay = snapshot.CanPlay,
-            CanPause = snapshot.CanPause,
-            CanSkipNext = snapshot.CanSkipNext,
-            CanSkipPrevious = snapshot.CanSkipPrevious,
-            CanSeek = snapshot.CanSeek,
-            Position = snapshot.Position,
-            Duration = snapshot.Duration,
-            Artwork = artwork
-        };
     }
 
-    public Task<bool> PlayAsync() =>
-        _session is null ? Task.FromResult(false) : _session.TryPlayAsync().AsTask();
-
-    public Task<bool> PauseAsync() =>
-        _session is null ? Task.FromResult(false) : _session.TryPauseAsync().AsTask();
-
-    public Task<bool> SkipNextAsync() =>
-        _session is null ? Task.FromResult(false) : _session.TrySkipNextAsync().AsTask();
-
-    public Task<bool> SkipPreviousAsync() =>
-        _session is null ? Task.FromResult(false) : _session.TrySkipPreviousAsync().AsTask();
-
-    public async Task<bool> SeekByAsync(TimeSpan delta)
+    public void Focus(string sessionKey)
     {
-        if (_session is null)
+        lock (_gate)
         {
-            return false;
+            if (_sessions.ContainsKey(sessionKey))
+            {
+                _focusedKey = sessionKey;
+            }
         }
+    }
 
-        var snapshot = Capture();
-        if (!snapshot.CanSeek)
+    public Task<bool> PlayAsync(string? sessionKey = null) =>
+        InvokeAsync(sessionKey, s => s.TryPlayAsync().AsTask());
+
+    public Task<bool> PauseAsync(string? sessionKey = null) =>
+        InvokeAsync(sessionKey, s => s.TryPauseAsync().AsTask());
+
+    public Task<bool> SkipNextAsync(string? sessionKey = null) =>
+        InvokeAsync(sessionKey, s => s.TrySkipNextAsync().AsTask());
+
+    public Task<bool> SkipPreviousAsync(string? sessionKey = null) =>
+        InvokeAsync(sessionKey, s => s.TrySkipPreviousAsync().AsTask());
+
+    public async Task<bool> SeekByAsync(TimeSpan delta, string? sessionKey = null)
+    {
+        var snapshot = Capture(sessionKey);
+        if (!snapshot.HasSession || !snapshot.CanSeek)
         {
             return false;
         }
@@ -143,40 +256,40 @@ public sealed class MediaSessionService : IDisposable
             target = snapshot.Duration;
         }
 
-        return await _session.TryChangePlaybackPositionAsync(target.Ticks).AsTask();
+        return await InvokeAsync(
+            snapshot.SessionKey,
+            s => s.TryChangePlaybackPositionAsync(target.Ticks).AsTask());
     }
 
-    public Task<bool> TogglePlayPauseAsync()
+    public Task<bool> TogglePlayPauseAsync(string? sessionKey = null)
     {
-        var snapshot = Capture();
-        return snapshot.IsPlaying ? PauseAsync() : PlayAsync();
+        var snapshot = Capture(sessionKey);
+        return snapshot.IsPlaying ? PauseAsync(snapshot.SessionKey) : PlayAsync(snapshot.SessionKey);
     }
 
-    public const int SeekStepSeconds = 10;
-
-    public Task<bool> PreviousOrSeekBackAsync()
+    public Task<bool> PreviousOrSeekBackAsync(string? sessionKey = null)
     {
-        var snapshot = Capture();
+        var snapshot = Capture(sessionKey);
         if (snapshot.CanSkipPrevious)
         {
-            return SkipPreviousAsync();
+            return SkipPreviousAsync(snapshot.SessionKey);
         }
 
         return snapshot.CanSeek
-            ? SeekByAsync(TimeSpan.FromSeconds(-SeekStepSeconds))
+            ? SeekByAsync(TimeSpan.FromSeconds(-SeekStepSeconds), snapshot.SessionKey)
             : Task.FromResult(false);
     }
 
-    public Task<bool> NextOrSeekForwardAsync()
+    public Task<bool> NextOrSeekForwardAsync(string? sessionKey = null)
     {
-        var snapshot = Capture();
+        var snapshot = Capture(sessionKey);
         if (snapshot.CanSkipNext)
         {
-            return SkipNextAsync();
+            return SkipNextAsync(snapshot.SessionKey);
         }
 
         return snapshot.CanSeek
-            ? SeekByAsync(TimeSpan.FromSeconds(SeekStepSeconds))
+            ? SeekByAsync(TimeSpan.FromSeconds(SeekStepSeconds), snapshot.SessionKey)
             : Task.FromResult(false);
     }
 
@@ -188,7 +301,7 @@ public sealed class MediaSessionService : IDisposable
         }
 
         _disposed = true;
-        DetachSession();
+        ClearSessions();
 
         if (_manager is not null)
         {
@@ -198,52 +311,161 @@ public sealed class MediaSessionService : IDisposable
         }
     }
 
-    private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
+    private Task<bool> InvokeAsync(
+        string? sessionKey,
+        Func<GlobalSystemMediaTransportControlsSession, Task<bool>> action)
     {
-        AttachSession(sender.GetCurrentSession());
+        GlobalSystemMediaTransportControlsSession? session;
+        lock (_gate)
+        {
+            var key = ResolveKey(sessionKey);
+            session = key is not null && _sessions.TryGetValue(key, out var s) ? s : null;
+        }
+
+        return session is null ? Task.FromResult(false) : action(session);
+    }
+
+    private string? ResolveKey(string? sessionKey)
+    {
+        if (!string.IsNullOrWhiteSpace(sessionKey) && _sessions.ContainsKey(sessionKey))
+        {
+            return sessionKey;
+        }
+
+        if (_focusedKey is not null && _sessions.ContainsKey(_focusedKey))
+        {
+            return _focusedKey;
+        }
+
+        return _sessions.Keys.FirstOrDefault();
+    }
+
+    private void OnCurrentSessionChanged(
+        GlobalSystemMediaTransportControlsSessionManager sender,
+        CurrentSessionChangedEventArgs args)
+    {
+        RebuildSessions();
         RaiseChanged();
     }
 
-    private void OnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
+    private void OnSessionsChanged(
+        GlobalSystemMediaTransportControlsSessionManager sender,
+        SessionsChangedEventArgs args)
     {
-        AttachSession(sender.GetCurrentSession());
+        RebuildSessions();
         RaiseChanged();
     }
 
-    private void AttachSession(GlobalSystemMediaTransportControlsSession? session)
+    private void RebuildSessions()
     {
-        DetachSession();
-        _session = session;
-        if (_session is null)
+        if (_manager is null)
         {
             return;
         }
 
-        _session.MediaPropertiesChanged += OnMediaPropertiesChanged;
-        _session.PlaybackInfoChanged += OnPlaybackInfoChanged;
-        _session.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
+        lock (_gate)
+        {
+            ClearSessionsUnlocked();
+
+            var sessions = _manager.GetSessions();
+            var appCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            string? currentKey = null;
+            var current = _manager.GetCurrentSession();
+
+            foreach (var session in sessions)
+            {
+                var appId = session.SourceAppUserModelId ?? "unknown";
+                appCounts.TryGetValue(appId, out var index);
+                appCounts[appId] = index + 1;
+                var key = index == 0 ? appId : $"{appId}#{index}";
+
+                _sessions[key] = session;
+                session.MediaPropertiesChanged += OnMediaPropertiesChanged;
+                session.PlaybackInfoChanged += OnPlaybackInfoChanged;
+                session.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
+
+                if (current is not null && ReferenceEquals(session, current))
+                {
+                    currentKey = key;
+                }
+            }
+
+            _focusedKey = currentKey ?? _sessions.Keys.FirstOrDefault();
+        }
     }
 
-    private void DetachSession()
+    private void ClearSessions()
     {
-        if (_session is null)
+        lock (_gate)
         {
-            return;
+            ClearSessionsUnlocked();
+        }
+    }
+
+    private void ClearSessionsUnlocked()
+    {
+        foreach (var session in _sessions.Values)
+        {
+            session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
+            session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
+            session.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
         }
 
-        _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
-        _session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
-        _session.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
-        _session = null;
+        _sessions.Clear();
+        _focusedKey = null;
     }
 
-    private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args) =>
+    private static MediaSessionSnapshot CaptureSession(
+        string key,
+        GlobalSystemMediaTransportControlsSession session,
+        BitmapImage? artwork,
+        bool includeMediaProps)
+    {
+        try
+        {
+            var playback = session.GetPlaybackInfo();
+            var timeline = session.GetTimelineProperties();
+            var controls = playback.Controls;
+
+            return new MediaSessionSnapshot
+            {
+                HasSession = true,
+                SessionKey = key,
+                AppId = session.SourceAppUserModelId ?? string.Empty,
+                IsPlaying = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
+                CanPlay = controls.IsPlayEnabled,
+                CanPause = controls.IsPauseEnabled,
+                CanSkipNext = controls.IsNextEnabled,
+                CanSkipPrevious = controls.IsPreviousEnabled,
+                CanSeek = controls.IsPlaybackPositionEnabled,
+                Position = timeline.Position,
+                Duration = timeline.EndTime > timeline.StartTime
+                    ? timeline.EndTime - timeline.StartTime
+                    : TimeSpan.Zero,
+                Artwork = artwork,
+                Title = includeMediaProps ? string.Empty : string.Empty,
+                Artist = includeMediaProps ? string.Empty : string.Empty
+            };
+        }
+        catch
+        {
+            return new MediaSessionSnapshot { SessionKey = key, HasSession = false };
+        }
+    }
+
+    private void OnMediaPropertiesChanged(
+        GlobalSystemMediaTransportControlsSession sender,
+        MediaPropertiesChangedEventArgs args) =>
         RaiseChanged();
 
-    private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args) =>
+    private void OnPlaybackInfoChanged(
+        GlobalSystemMediaTransportControlsSession sender,
+        PlaybackInfoChangedEventArgs args) =>
         RaiseChanged();
 
-    private void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args) =>
+    private void OnTimelinePropertiesChanged(
+        GlobalSystemMediaTransportControlsSession sender,
+        TimelinePropertiesChangedEventArgs args) =>
         TimelineChanged?.Invoke(this, EventArgs.Empty);
 
     private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
