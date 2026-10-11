@@ -61,7 +61,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
     private DateTimeOffset? _pairExitAfter;
-    private const int PairExitGraceMs = 5000;
+    private const int PairExitGraceMs = 1000;
+    private BitmapImage? _appIcon;
+    private readonly Dictionary<string, BitmapImage?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
+    private string? _iconLoadAppId;
     private readonly Dictionary<string, BitmapImage?> _artworkCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Title, string Artist)> _metaCache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -317,6 +320,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _artwork;
         private set => SetField(ref _artwork, value);
+    }
+
+    public BitmapImage? AppIcon
+    {
+        get => _appIcon;
+        private set => SetField(ref _appIcon, value);
     }
 
     public float Volume
@@ -1067,7 +1076,34 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         IsVolumeEditorOpen = false;
         PeakLevel = 0;
         Artwork = null;
+        AppIcon = null;
+        _iconLoadAppId = null;
         HasSession = false;
+    }
+
+    private async Task LoadAppIconAsync(string? appId)
+    {
+        if (string.IsNullOrWhiteSpace(appId))
+        {
+            AppIcon = null;
+            return;
+        }
+
+        if (_iconCache.TryGetValue(appId, out var cached))
+        {
+            AppIcon = cached;
+            return;
+        }
+
+        _iconLoadAppId = appId;
+        var icon = await AppIconLoader.TryLoadAsync(appId);
+        if (_disposed || !string.Equals(_iconLoadAppId, appId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _iconCache[appId] = icon;
+        AppIcon = icon;
     }
 
     private void ApplyPrimary(MediaSessionSnapshot snapshot, bool keepArtwork)
@@ -1100,6 +1136,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (appChanged || !CanControlVolume)
         {
             RefreshVolume();
+        }
+
+        if (appChanged || AppIcon is null)
+        {
+            _ = LoadAppIconAsync(snapshot.AppId);
         }
 
         var duration = snapshot.Duration < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Duration;

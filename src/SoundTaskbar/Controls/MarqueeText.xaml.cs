@@ -14,6 +14,13 @@ public partial class MarqueeText : UserControl
             typeof(MarqueeText),
             new PropertyMetadata(string.Empty));
 
+    public static readonly DependencyProperty ScrollWhenOverflowProperty =
+        DependencyProperty.Register(
+            nameof(ScrollWhenOverflow),
+            typeof(bool),
+            typeof(MarqueeText),
+            new PropertyMetadata(false, (_, __) => { /* restart via QueueRestart on size */ }));
+
     private bool _restartQueued;
     private bool _isHovering;
 
@@ -30,6 +37,13 @@ public partial class MarqueeText : UserControl
         set => SetValue(TextProperty, value);
     }
 
+    /// <summary>When true, marquee runs whenever text overflows (no hover needed).</summary>
+    public bool ScrollWhenOverflow
+    {
+        get => (bool)GetValue(ScrollWhenOverflowProperty);
+        set => SetValue(ScrollWhenOverflowProperty, value);
+    }
+
     public void SetHovering(bool hovering)
     {
         if (_isHovering == hovering)
@@ -38,7 +52,7 @@ public partial class MarqueeText : UserControl
         }
 
         _isHovering = hovering;
-        if (hovering)
+        if (hovering || ScrollWhenOverflow)
         {
             Restart();
         }
@@ -63,7 +77,7 @@ public partial class MarqueeText : UserControl
         Dispatcher.BeginInvoke(() =>
         {
             _restartQueued = false;
-            if (_isHovering)
+            if (_isHovering || ScrollWhenOverflow)
             {
                 Restart();
             }
@@ -82,7 +96,7 @@ public partial class MarqueeText : UserControl
 
     private void Restart()
     {
-        if (!IsLoaded || !_isHovering)
+        if (!IsLoaded || (!_isHovering && !ScrollWhenOverflow))
         {
             Stop();
             return;
@@ -117,7 +131,10 @@ public partial class MarqueeText : UserControl
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.Property == TextProperty || e.Property == FontSizeProperty || e.Property == FontWeightProperty)
+        if (e.Property == TextProperty ||
+            e.Property == FontSizeProperty ||
+            e.Property == FontWeightProperty ||
+            e.Property == ScrollWhenOverflowProperty)
         {
             QueueRestart();
         }

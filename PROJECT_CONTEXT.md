@@ -66,10 +66,9 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- Парный layout: `PrimaryWithExpandedSide` или `TwinVideo`; DualHost только TwinVideo
-- Expanded chip: meta width = max(title, artist); time elapsed/total с локальным тиком; VU справа от volume
-- После стопа видео — 5s hold pair UI, потом collapse
-- Parked rail right-anchored; in-place meta expand (vol/prev slide)
+- Парный layout: movable divider `parked | div | art | meta*`; meta растёт когда chip схлопывается
+- Expanded audio = mirror chrome + art|text; title marquee; accent progress; app icon вместо source
+- Стоп песни → 1s hold, потом collapse; primary ширина возвращается
 
 ## Следующие шаги
 

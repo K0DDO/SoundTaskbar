@@ -500,8 +500,7 @@ public partial class MainWindow : Window
         _parkedOpen = open;
 
         const double dividerWidth = 2.5;
-        // Extra left gap so divider sits further right of the audio chip.
-        var dividerMargin = open ? new Thickness(10, 0, 4, 0) : new Thickness(0);
+        var dividerMargin = open ? new Thickness(8, 0, 6, 0) : new Thickness(0);
 
         if (!animate)
         {
