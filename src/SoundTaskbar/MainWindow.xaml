@@ -570,7 +570,7 @@
 
     <Canvas x:Name="RootCanvas" Background="Transparent">
         <Border x:Name="WidgetRoot"
-                Width="380"
+                Width="300"
                 Height="48"
                 Padding="6,2"
                 BorderThickness="0"

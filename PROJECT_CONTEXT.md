@@ -67,7 +67,8 @@ dotnet run --project src/SoundTaskbar
 ## Текущее состояние
 
 - Парный layout: movable divider `parked | div | art | meta*`; meta растёт когда chip схлопывается
-- Expanded audio = mirror chrome + art|text; title marquee; accent progress; app icon вместо source
+- Expanded audio = mirror chrome + art|text; title marquee; accent progress; dual → mono icon, solo → source name
+- Solo widget width 300 (было 380); pair/twin остаются 520
 - Стоп песни → 1s hold, потом collapse; primary ширина возвращается
 
 ## Следующие шаги

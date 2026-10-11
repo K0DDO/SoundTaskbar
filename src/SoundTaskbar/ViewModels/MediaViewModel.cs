@@ -57,7 +57,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _isDualPlaying;
     private bool _showParkedRail;
     private bool _parkedDismissPending;
-    private double _desiredWidgetWidth = 380;
+    private const double SoloWidgetWidth = 300;
+    private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
     private DateTimeOffset? _pairExitAfter;
@@ -682,7 +683,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             ClearPairHold();
             IsDualPlaying = false;
             DualSessions.Clear();
-            DesiredWidgetWidth = 380;
+            DesiredWidgetWidth = SoloWidgetWidth;
 
             var parked = enriched
                 .Where(s => s.SessionKey != primary.SessionKey && s.IsParkable && _volume.IsAppRunning(s.AppId))
@@ -801,7 +802,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 ClearPairHold();
                 IsDualPlaying = false;
                 DualSessions.Clear();
-                DesiredWidgetWidth = 380;
+                DesiredWidgetWidth = SoloWidgetWidth;
                 RequestParkedDismiss();
                 return plan.Primary;
         }
@@ -1083,7 +1084,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private void ClearAllSessions()
     {
         IsDualPlaying = false;
-        DesiredWidgetWidth = 380;
+        DesiredWidgetWidth = SoloWidgetWidth;
         _parkedDismissPending = false;
         ShowParkedRail = false;
         SideSessions.Clear();

@@ -38,7 +38,7 @@ internal static class PairLayoutPlanner
                 playing.Count > 0 ? playing[0] : new MediaSessionSnapshot(),
                 Array.Empty<MediaSessionSnapshot>(),
                 Array.Empty<MediaSessionSnapshot>(),
-                WidgetWidth: 380);
+                WidgetWidth: 300);
         }
 
         var videos = playing.Where(s => s.IsVideo).ToList();

@@ -30,7 +30,7 @@ public sealed class TaskbarHostService : IDisposable
     private int _lastHeight = int.MinValue;
     private int _lastRegionLeft = int.MinValue;
     private int _lastRegionWidth = int.MinValue;
-    private double _desiredWidgetWidthDip = 380;
+    private double _desiredWidgetWidthDip = 300;
 
     public TaskbarHostService(Window window)
     {
