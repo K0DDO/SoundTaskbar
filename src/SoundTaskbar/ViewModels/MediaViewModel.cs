@@ -58,6 +58,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _showParkedRail;
     private bool _parkedDismissPending;
     private double _desiredWidgetWidth = 380;
+    private string? _pairPrimaryKey;
+    private string? _pairSideKey;
+    private DateTimeOffset? _pairExitAfter;
+    private const int PairExitGraceMs = 5000;
     private readonly Dictionary<string, BitmapImage?> _artworkCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Title, string Artist)> _metaCache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -620,6 +624,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (playing.Count >= 2)
         {
+            _pairExitAfter = null;
             // If pause+play chip is already on screen, pass its key so we morph in place
             // and never flash the old DualHost compact UI.
             var parkedSideKey = !IsDualPlaying && ShowParkedRail && SideSessions.Count > 0
@@ -628,8 +633,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             primary = ApplyPairPlan(
                 PairLayoutPlanner.Plan(playing, _primarySessionKey, parkedSideKey));
         }
+        else if (TryHoldPairAfterVideoStop(enriched, out var heldPrimary))
+        {
+            primary = heldPrimary;
+        }
         else
         {
+            ClearPairHold();
             IsDualPlaying = false;
             DualSessions.Clear();
             DesiredWidgetWidth = 380;
@@ -658,6 +668,60 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         ApplyPrimary(primary, keepArtwork);
     }
 
+    /// <summary>
+    /// After video stops while audio still plays, keep A/V pair UI for 5s before collapsing.
+    /// </summary>
+    private bool TryHoldPairAfterVideoStop(
+        List<MediaSessionSnapshot> enriched,
+        out MediaSessionSnapshot primary)
+    {
+        primary = default!;
+        if (string.IsNullOrEmpty(_pairPrimaryKey) || string.IsNullOrEmpty(_pairSideKey))
+        {
+            return false;
+        }
+
+        var video = enriched.FirstOrDefault(s => s.SessionKey == _pairPrimaryKey);
+        var audio = enriched.FirstOrDefault(s => s.SessionKey == _pairSideKey);
+        if (video is null || audio is null || !video.IsParkable || !audio.IsParkable)
+        {
+            return false;
+        }
+
+        // Only hold when the video side stopped/paused and audio is still the active one.
+        if (video.IsPlaying || !audio.IsPlaying)
+        {
+            return false;
+        }
+
+        _pairExitAfter ??= DateTimeOffset.UtcNow.AddMilliseconds(PairExitGraceMs);
+        if (DateTimeOffset.UtcNow >= _pairExitAfter.Value)
+        {
+            return false;
+        }
+
+        IsDualPlaying = false;
+        DualSessions.Clear();
+        DesiredWidgetWidth = 460;
+        _parkedDismissPending = false;
+        SyncCollection(
+            SideSessions,
+            new List<MediaSessionSnapshot> { audio },
+            freezeTransportIcons: true,
+            expandedMeta: true);
+        ShowParkedRail = true;
+        UpdateParkedWatchdog();
+        primary = video;
+        return true;
+    }
+
+    private void ClearPairHold()
+    {
+        _pairPrimaryKey = null;
+        _pairSideKey = null;
+        _pairExitAfter = null;
+    }
+
     private MediaSessionSnapshot ApplyPairPlan(PairPlan plan)
     {
         DesiredWidgetWidth = plan.WidgetWidth;
@@ -669,6 +733,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 IsDualPlaying = false;
                 DualSessions.Clear();
                 _parkedDismissPending = false;
+                _pairPrimaryKey = plan.Primary.SessionKey;
+                _pairSideKey = plan.SideSessions.Count > 0 ? plan.SideSessions[0].SessionKey : null;
+                _pairExitAfter = null;
                 SyncCollection(
                     SideSessions,
                     plan.SideSessions.ToList(),
@@ -676,10 +743,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     expandedMeta: true);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
-                // ShowExpandedMeta already raises ParkedLayoutChanged for in-place grow.
                 return plan.Primary;
 
             case PairKind.TwinVideo:
+                ClearPairHold();
                 IsDualPlaying = true;
                 RequestParkedDismiss();
                 SyncCollection(
@@ -691,6 +758,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 return plan.Primary;
 
             default:
+                ClearPairHold();
                 IsDualPlaying = false;
                 DualSessions.Clear();
                 DesiredWidgetWidth = 380;
@@ -979,6 +1047,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         SideSessions.Clear();
         DualSessions.Clear();
         _kindCache.Clear();
+        ClearPairHold();
         UpdateParkedWatchdog();
         _primarySessionKey = string.Empty;
         Title = "Нет активного медиа";
@@ -1168,6 +1237,21 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void TickProgress()
     {
+        if (_pairExitAfter is not null && DateTimeOffset.UtcNow >= _pairExitAfter.Value)
+        {
+            _ = RefreshAsync(full: false);
+        }
+
+        foreach (var side in SideSessions)
+        {
+            side.TickTimelineClock();
+        }
+
+        foreach (var side in DualSessions)
+        {
+            side.TickTimelineClock();
+        }
+
         if (!HasSession)
         {
             return;

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -28,6 +29,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private bool _isVideo;
     private bool _showExpandedMeta;
     private double _metaRailWidth;
+    private double _targetMetaRailWidth;
     private DualCardStyle _dualCardStyle = DualCardStyle.Compact;
     private bool _canToggle = true;
     private bool _usesSkipIcons;
@@ -44,6 +46,10 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private double _peakLevel;
     private bool _suppressVolumeWrite;
     private long _volumeWriteTicks;
+    private TimeSpan _anchorPosition;
+    private TimeSpan _durationSpan;
+    private long _anchorTickMs;
+    private string _lastPublishedSecond = string.Empty;
 
     public SideSessionViewModel(
         string sessionKey,
@@ -110,13 +116,25 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     public string Title
     {
         get => _title;
-        set => SetField(ref _title, value);
+        set
+        {
+            if (SetField(ref _title, value))
+            {
+                RecalculateMetaWidth();
+            }
+        }
     }
 
     public string Artist
     {
         get => _artist;
-        set => SetField(ref _artist, value);
+        set
+        {
+            if (SetField(ref _artist, value))
+            {
+                RecalculateMetaWidth();
+            }
+        }
     }
 
     public string SourceName
@@ -156,6 +174,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _showExpandedMeta, value))
             {
+                RecalculateMetaWidth();
                 _onChipLayoutChanged?.Invoke();
             }
         }
@@ -171,10 +190,11 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         set => SetField(ref _metaRailWidth, value);
     }
 
-    public const double ExpandedMetaWidth = 78;
-
+    /// <summary>Target chip meta width from max(title, artist) + padding.</summary>
     public double TargetMetaRailWidth =>
-        ShowExpandedMeta && !IsVolumeEditorOpen ? ExpandedMetaWidth : 0;
+        ShowExpandedMeta && !IsVolumeEditorOpen ? _targetMetaRailWidth : 0;
+
+    public double MetaContentWidth => Math.Max(0, _targetMetaRailWidth - 5);
 
     public DualCardStyle DualCardStyle
     {
@@ -375,12 +395,72 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             safePosition = safeDuration;
         }
 
+        _durationSpan = safeDuration;
+        _anchorPosition = safePosition;
+        _anchorTickMs = Environment.TickCount64;
         DurationText = FormatTime(safeDuration);
-        // Same as primary video: elapsed / total length.
-        TimeText = $"{FormatTime(safePosition)} / {FormatTime(safeDuration)}";
-        Progress = safeDuration.TotalSeconds <= 0
+        PublishTime(safePosition);
+    }
+
+    /// <summary>Local clock so TimeText advances every second while SMTC is sparse.</summary>
+    public void TickTimelineClock()
+    {
+        if (!IsPlaying || _durationSpan <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var elapsed = (Environment.TickCount64 - _anchorTickMs) / 1000.0;
+        if (elapsed < 0)
+        {
+            elapsed = 0;
+        }
+
+        var pos = _anchorPosition + TimeSpan.FromSeconds(elapsed);
+        if (pos > _durationSpan)
+        {
+            pos = _durationSpan;
+        }
+
+        PublishTime(pos);
+    }
+
+    private void PublishTime(TimeSpan position)
+    {
+        var text = $"{FormatTime(position)} / {FormatTime(_durationSpan)}";
+        var secondKey = FormatTime(position);
+        if (secondKey != _lastPublishedSecond || text != TimeText)
+        {
+            _lastPublishedSecond = secondKey;
+            TimeText = text;
+        }
+
+        Progress = _durationSpan.TotalSeconds <= 0
             ? 0
-            : Math.Clamp(safePosition.TotalSeconds / safeDuration.TotalSeconds, 0, 1);
+            : Math.Clamp(position.TotalSeconds / _durationSpan.TotalSeconds, 0, 1);
+    }
+
+    private void RecalculateMetaWidth()
+    {
+        var titleW = TextMeasure.Width(Title, fontSize: 10, FontWeights.SemiBold);
+        var artistW = TextMeasure.Width(Artist, fontSize: 8, FontWeights.Normal);
+        // Floor by typical time string so "1:23 / 3:45" is never clipped.
+        var timeW = TextMeasure.Width("0:00 / 0:00", fontSize: 8, FontWeights.Normal);
+        var content = Math.Max(titleW, Math.Max(artistW, timeW));
+        // +8 pad (incl. right margin); clamp long titles.
+        var next = Math.Clamp(Math.Ceiling(content) + 8, 44, 120);
+        if (Math.Abs(next - _targetMetaRailWidth) < 0.5)
+        {
+            return;
+        }
+
+        _targetMetaRailWidth = next;
+        OnPropertyChanged(nameof(TargetMetaRailWidth));
+        OnPropertyChanged(nameof(MetaContentWidth));
+        if (ShowExpandedMeta && !IsVolumeEditorOpen)
+        {
+            _onChipLayoutChanged?.Invoke();
+        }
     }
 
     public bool ShowDivider

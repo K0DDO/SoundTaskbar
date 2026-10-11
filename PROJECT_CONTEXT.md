@@ -66,13 +66,13 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- Парный layout: `PrimaryWithExpandedSide` (A/V и A/A) или `TwinVideo`
-- pause+play → play+play: morph того же chip (expanded meta), DualHost compact больше не мелькает
-- Parked rail Right-align; meta у левого края обложки; DualHost только для TwinVideo
+- Парный layout: `PrimaryWithExpandedSide` или `TwinVideo`; DualHost только TwinVideo
+- Expanded chip: meta width = max(title, artist); time elapsed/total с локальным тиком; VU справа от volume
+- После стопа видео — 5s hold pair UI, потом collapse
+- Parked rail right-anchored; in-place meta expand (vol/prev slide)
 
 ## Следующие шаги
 
-1. Проверить переход: видео играет + Spotify на паузе → play на Spotify
-2. TwinVideo mirrored UX
-3. Seek по клику на прогресс
-4. Автозапуск с Windows
+1. TwinVideo mirrored UX
+2. Seek по клику на прогресс
+3. Автозапуск с Windows

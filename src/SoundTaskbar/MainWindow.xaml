@@ -122,6 +122,28 @@
                     </Grid.Style>
                 </Grid>
 
+                <!-- Peak meter to the right of chip volume -->
+                <Grid Width="5"
+                      Height="18"
+                      Margin="0,0,4,0"
+                      VerticalAlignment="Center">
+                    <Border CornerRadius="1.5" Opacity="0.95">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                <GradientStop Color="#22C55E" Offset="0" />
+                                <GradientStop Color="#22C55E" Offset="0.55" />
+                                <GradientStop Color="#EAB308" Offset="0.78" />
+                                <GradientStop Color="#EF4444" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <Border VerticalAlignment="Top"
+                            Height="{Binding PeakCoverHeight}"
+                            Background="#D0121212"
+                            CornerRadius="1.5,1.5,0,0"
+                            IsHitTestVisible="False" />
+                </Grid>
+
                 <Button Width="12"
                         Height="12"
                         Padding="0"
@@ -136,7 +158,7 @@
                                             Foreground="#F2F4F7" />
                 </Button>
 
-                <!-- Audio+video: compact meta — vol/prev slide a short distance; time like primary -->
+                <!-- Width from max(title, artist); time ticks locally every second -->
                 <Grid x:Name="ChipMetaHost"
                       Width="0"
                       ClipToBounds="True"
@@ -144,7 +166,7 @@
                     <StackPanel VerticalAlignment="Center"
                                 HorizontalAlignment="Right"
                                 Margin="0,0,5,0"
-                                Width="72">
+                                Width="{Binding MetaContentWidth}">
                         <TextBlock Text="{Binding Title}"
                                    Foreground="#F5F5F5"
                                    FontSize="10"
