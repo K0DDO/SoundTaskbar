@@ -10,8 +10,8 @@ namespace SoundTaskbar;
 
 public partial class MainWindow : Window
 {
-    private const double VolumeClosedWidth = 22;
-    private const double VolumeOpenWidth = 80;
+    private const double VolumeClosedWidth = 18;
+    private const double VolumeOpenWidth = 74;
 
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;

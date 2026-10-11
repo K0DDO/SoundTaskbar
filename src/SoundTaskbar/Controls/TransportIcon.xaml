@@ -1,8 +1,8 @@
 <UserControl x:Class="SoundTaskbar.Controls.TransportIcon"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Width="14"
-             Height="14">
+             Width="11"
+             Height="11">
     <Grid>
         <Path x:Name="IconPath"
               Stretch="Uniform"
