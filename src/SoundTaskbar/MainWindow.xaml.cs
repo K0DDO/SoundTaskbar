@@ -137,8 +137,16 @@ public partial class MainWindow : Window
 
     private void OnSideSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        // Remeasure while rail stays open (e.g. 2 chips → 1).
-        if (_viewModel.ShowParkedRail && _layoutReady && !_viewModel.IsDualPlaying)
+        if (!_viewModel.ShowParkedRail || !_layoutReady || _viewModel.IsDualPlaying)
+        {
+            return;
+        }
+
+        if (_parkedOpen && ParkedHost.ActualWidth > 1)
+        {
+            ExpandChipMetaInPlace();
+        }
+        else
         {
             AnimateParkedHost(open: true, animate: true);
         }
@@ -151,8 +159,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Wait for chip volume width + art/next visibility to settle, then remasure.
-        // Measuring mid-animation left a gap before the divider.
+        // Chip already on screen: grow meta in place (only vol/prev slide).
+        // Never restart ParkedHost from width 0 — that looks like dismiss + slide-in.
+        if (_parkedOpen && ParkedHost.ActualWidth > 1)
+        {
+            ExpandChipMetaInPlace();
+            return;
+        }
+
         _parkedRemeasureCts?.Cancel();
         _parkedRemeasureCts = new CancellationTokenSource();
         var token = _parkedRemeasureCts.Token;
@@ -163,11 +177,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            // First pass: snap volume rail so the slider is not clipped while opening.
             await Dispatcher.InvokeAsync(
                 () =>
                 {
                     SnapChipVolumeHosts();
+                    SyncChipMetaWidths(animate: false);
                     AnimateParkedHost(open: true, animate: true);
                 },
                 DispatcherPriority.Loaded);
@@ -178,18 +192,125 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // Second pass: art/next visibility finished toggling — clear leftover gap.
             await Dispatcher.InvokeAsync(
                 () =>
                 {
-                    SnapChipVolumeHosts();
-                    AnimateParkedHost(open: true, animate: true);
+                    if (_parkedOpen && ParkedHost.ActualWidth > 1)
+                    {
+                        ExpandChipMetaInPlace();
+                    }
+                    else
+                    {
+                        SnapChipVolumeHosts();
+                        SyncChipMetaWidths(animate: false);
+                        AnimateParkedHost(open: true, animate: true);
+                    }
                 },
                 DispatcherPriority.Loaded);
         }
         catch (TaskCanceledException)
         {
             // newer layout change superseded this remasure
+        }
+    }
+
+    /// <summary>
+    /// Animate meta rail 0↔102 and grow ParkedHost by the same delta.
+    /// Art + divider stay fixed; volume/prev slide left.
+    /// </summary>
+    private void ExpandChipMetaInPlace()
+    {
+        var parkedFrom = ParkedHost.ActualWidth;
+        if (parkedFrom < 1)
+        {
+            SyncChipMetaWidths(animate: false);
+            AnimateParkedHost(open: true, animate: true);
+            return;
+        }
+
+        double metaDelta = 0;
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (ParkedList.Items[i] is not SideSessionViewModel side)
+            {
+                continue;
+            }
+
+            var target = side.TargetMetaRailWidth;
+            var from = side.MetaRailWidth;
+            metaDelta += target - from;
+
+            if (Math.Abs(target - from) < 0.5)
+            {
+                continue;
+            }
+
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is DependencyObject container &&
+                FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
+            {
+                metaHost.BeginAnimation(WidthProperty, null);
+                metaHost.Width = from;
+                var anim = new DoubleAnimation
+                {
+                    From = from,
+                    To = target,
+                    Duration = TimeSpan.FromMilliseconds(260),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                var captured = side;
+                var capturedTo = target;
+                anim.Completed += (_, _) =>
+                {
+                    captured.MetaRailWidth = capturedTo;
+                    metaHost.BeginAnimation(WidthProperty, null);
+                    metaHost.Width = capturedTo;
+                };
+                metaHost.BeginAnimation(WidthProperty, anim);
+            }
+
+            side.MetaRailWidth = target;
+        }
+
+        if (Math.Abs(metaDelta) < 0.5)
+        {
+            return;
+        }
+
+        var parkedTo = Math.Max(0, parkedFrom + metaDelta);
+        ParkedHost.BeginAnimation(WidthProperty, null);
+        ParkedHost.Width = parkedFrom;
+        ParkedHost.Opacity = 1;
+        ParkedHost.BeginAnimation(
+            WidthProperty,
+            new DoubleAnimation
+            {
+                From = parkedFrom,
+                To = parkedTo,
+                Duration = TimeSpan.FromMilliseconds(260),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+    }
+
+    private void SyncChipMetaWidths(bool animate)
+    {
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (ParkedList.Items[i] is not SideSessionViewModel side)
+            {
+                continue;
+            }
+
+            var target = side.TargetMetaRailWidth;
+            if (!animate)
+            {
+                side.MetaRailWidth = target;
+                if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is DependencyObject container &&
+                    FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
+                {
+                    metaHost.BeginAnimation(WidthProperty, null);
+                    metaHost.Width = target;
+                }
+            }
         }
     }
 
@@ -304,8 +425,36 @@ public partial class MainWindow : Window
         if (open)
         {
             var currentWidth = ParkedHost.ActualWidth;
+            var alreadyVisible = _parkedOpen && currentWidth > 1;
+
             ParkedHost.BeginAnimation(WidthProperty, null);
             SnapChipVolumeHosts();
+            SyncChipMetaWidths(animate: false);
+
+            // Soft resize while visible: never collapse to 0 / NaN (that re-slides from divider).
+            if (alreadyVisible && animate)
+            {
+                ParkedList.UpdateLayout();
+                targetWidth = Math.Ceiling(MeasureParkedListWidth());
+                if (targetWidth < 1)
+                {
+                    targetWidth = currentWidth;
+                }
+
+                ParkedHost.Width = currentWidth;
+                ParkedHost.Opacity = 1;
+                ParkedHost.BeginAnimation(
+                    WidthProperty,
+                    new DoubleAnimation
+                    {
+                        From = currentWidth,
+                        To = targetWidth,
+                        Duration = TimeSpan.FromMilliseconds(260),
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    });
+                return;
+            }
+
             ParkedHost.Width = double.NaN;
             ParkedHost.UpdateLayout();
             ParkedList.UpdateLayout();

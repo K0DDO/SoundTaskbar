@@ -27,6 +27,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     private bool _isPlaying;
     private bool _isVideo;
     private bool _showExpandedMeta;
+    private double _metaRailWidth;
     private DualCardStyle _dualCardStyle = DualCardStyle.Compact;
     private bool _canToggle = true;
     private bool _usesSkipIcons;
@@ -155,17 +156,22 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _showExpandedMeta, value))
             {
-                OnPropertyChanged(nameof(MetaRailWidth));
                 _onChipLayoutChanged?.Invoke();
             }
         }
     }
 
     /// <summary>
-    /// Width of the title/artist/duration rail left of artwork (0 when collapsed).
-    /// Bound directly — avoids WPF EnterActions that skip on first load.
+    /// Animated width of title/artist/duration rail. Driven by MainWindow so the
+    /// parked host can grow in place — art stays put, only vol/prev slide left.
     /// </summary>
-    public double MetaRailWidth =>
+    public double MetaRailWidth
+    {
+        get => _metaRailWidth;
+        set => SetField(ref _metaRailWidth, value);
+    }
+
+    public double TargetMetaRailWidth =>
         ShowExpandedMeta && !IsVolumeEditorOpen ? 102 : 0;
 
     public DualCardStyle DualCardStyle
@@ -320,7 +326,6 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
                 _volumeHideTimer.Stop();
             }
 
-            OnPropertyChanged(nameof(MetaRailWidth));
             _onChipLayoutChanged?.Invoke();
         }
     }

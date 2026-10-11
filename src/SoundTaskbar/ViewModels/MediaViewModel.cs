@@ -676,7 +676,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     expandedMeta: true);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
-                ParkedLayoutChanged?.Invoke(this, EventArgs.Empty);
+                // ShowExpandedMeta already raises ParkedLayoutChanged for in-place grow.
                 return plan.Primary;
 
             case PairKind.TwinVideo:

@@ -138,7 +138,7 @@
 
                 <!-- Audio+video: grows so vol/prev shift left of art; text flush to art (right) -->
                 <Grid x:Name="ChipMetaHost"
-                      Width="{Binding MetaRailWidth}"
+                      Width="0"
                       Height="28"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
