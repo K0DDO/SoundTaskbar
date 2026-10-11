@@ -154,11 +154,12 @@ public partial class MarqueeText : UserControl
         var viewWidth = _lastViewWidth;
         var textWidth = _lastTextWidth;
 
-        // Skip full restart if already scrolling the same metrics (avoids killing the anim).
+        // Ignore tiny viewport changes (pause chip shell resize) — restarting looks like a jerk.
         if (_isRunning &&
-            Math.Abs(prevView - viewWidth) < 0.5 &&
+            Math.Abs(prevView - viewWidth) < 14 &&
             Math.Abs(prevText - textWidth) < 0.5)
         {
+            _lastViewWidth = viewWidth;
             return;
         }
 

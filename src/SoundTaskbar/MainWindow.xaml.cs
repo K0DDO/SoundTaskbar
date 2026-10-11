@@ -18,12 +18,13 @@ public partial class MainWindow : Window
     private const double VolumeButtonWidth = 16;
     private const double ParkedDividerWidth = 2.5;
 
-    private static readonly DependencyProperty ShellWidthAnimProperty =
+    /// <summary>0 = hidden, 1 = fully open. Drives chip + divider + shell together.</summary>
+    private static readonly DependencyProperty ParkedRevealProperty =
         DependencyProperty.Register(
-            nameof(ShellWidthAnim),
+            nameof(ParkedReveal),
             typeof(double),
             typeof(MainWindow),
-            new PropertyMetadata(MediaViewModel.SoloWidgetWidth, OnShellWidthAnimChanged));
+            new PropertyMetadata(0.0, OnParkedRevealChanged));
 
     private readonly MediaViewModel _viewModel = new();
     private readonly EventHandler<TaskbarAppearance> _appearanceHandler;
@@ -37,25 +38,20 @@ public partial class MainWindow : Window
     private bool _dualVisual;
     private bool _parkedOpen;
     private bool _layoutReady;
+    private double _parkedChipTarget;
     private CancellationTokenSource? _parkedRemeasureCts;
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
 
-    private double ShellWidthAnim
+    private double ParkedReveal
     {
-        get => (double)GetValue(ShellWidthAnimProperty);
-        set => SetValue(ShellWidthAnimProperty, value);
+        get => (double)GetValue(ParkedRevealProperty);
+        set => SetValue(ParkedRevealProperty, value);
     }
 
-    private static void OnShellWidthAnimChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-    {
-        var window = (MainWindow)d;
-        if (window._taskbarHost is not null)
-        {
-            window._taskbarHost.DesiredWidgetWidthDip = (double)e.NewValue;
-        }
-    }
+    private static void OnParkedRevealChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) =>
+        ((MainWindow)d).ApplyParkedReveal((double)e.NewValue);
 
     public MainWindow()
     {
@@ -91,7 +87,8 @@ public partial class MainWindow : Window
         ParkedDivider.Width = 0;
         ParkedDivider.Opacity = 0;
         ParkedDivider.Margin = new Thickness(0);
-        ShellWidthAnim = MediaViewModel.SoloWidgetWidth;
+        _parkedChipTarget = 0;
+        ParkedReveal = 0;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -469,217 +466,117 @@ public partial class MainWindow : Window
         {
             _viewModel.CompleteParkedDismiss();
             _viewModel.ApplyParkedCompositeWidth(null);
-            BeginAnimation(ShellWidthAnimProperty, null);
-            ShellWidthAnim = MediaViewModel.SoloWidgetWidth;
+            BeginAnimation(ParkedRevealProperty, null);
+            ParkedReveal = 0;
             return;
         }
 
         ParkedHost.IsHitTestVisible = open;
 
-        double targetWidth = 0;
         if (open)
         {
             var currentWidth = ParkedHost.ActualWidth;
             var alreadyVisible = _parkedOpen && currentWidth > 1;
 
-            ParkedHost.BeginAnimation(WidthProperty, null);
             SnapChipVolumeHosts();
             SyncChipMetaWidths(animate: false);
 
-            // Soft resize while visible: keep shell + chip in lockstep (no play jerk).
             if (alreadyVisible && animate)
             {
                 ParkedList.UpdateLayout();
-                targetWidth = Math.Ceiling(MeasureParkedListWidth());
+                var targetWidth = Math.Ceiling(MeasureParkedListWidth());
                 if (targetWidth < 1)
                 {
                     targetWidth = currentWidth;
                 }
 
-                var resizeDuration = TimeSpan.FromMilliseconds(280);
-                var resizeEase = new CubicEase { EasingMode = EasingMode.EaseOut };
-                ParkedHost.Width = currentWidth;
-                ParkedHost.Opacity = 1;
-                ParkedHost.BeginAnimation(
-                    WidthProperty,
-                    new DoubleAnimation
+                // Soft resize at full reveal: lerp chip+shell without disturbing reveal clock.
+                BeginAnimation(ParkedRevealProperty, null);
+                ParkedReveal = 1;
+                var chipFrom = currentWidth;
+                var chipTo = targetWidth;
+                var holder = new AnimationClockHolder();
+                holder.ProgressChanged += t =>
+                {
+                    var chip = chipFrom + (chipTo - chipFrom) * t;
+                    ParkedHost.Width = chip;
+                    ParkedDivider.Width = ParkedDividerWidth;
+                    ParkedDivider.Margin = new Thickness(8, 0, 6, 0);
+                    ParkedHost.Opacity = 1;
+                    ParkedDivider.Opacity = 1;
+                    if (_taskbarHost is not null)
                     {
-                        From = currentWidth,
-                        To = targetWidth,
-                        Duration = resizeDuration,
-                        EasingFunction = resizeEase
+                        _taskbarHost.DesiredWidgetWidthDip =
+                            MediaViewModel.SoloWidgetWidth - MediaViewModel.PausePlayTrim + chip +
+                            MediaViewModel.PausePlayDividerChrome;
+                    }
+                };
+                holder.Start(
+                    0,
+                    1,
+                    TimeSpan.FromMilliseconds(280),
+                    new CubicEase { EasingMode = EasingMode.EaseOut },
+                    () =>
+                    {
+                        _parkedChipTarget = chipTo;
+                        ApplyParkedReveal(1);
+                        _viewModel.ApplyParkedCompositeWidth(chipTo);
                     });
-                AnimateShellWidth(
-                    _viewModel.ComputeParkedCompositeWidth(targetWidth),
-                    resizeDuration,
-                    resizeEase,
-                    commitParkedWidth: targetWidth);
                 return;
             }
 
             ParkedHost.Width = double.NaN;
             ParkedHost.UpdateLayout();
             ParkedList.UpdateLayout();
-            targetWidth = Math.Ceiling(MeasureParkedListWidth());
-            if (targetWidth < 1)
+            _parkedChipTarget = Math.Ceiling(MeasureParkedListWidth());
+            if (_parkedChipTarget < 1)
             {
-                targetWidth = 72;
+                _parkedChipTarget = 72;
             }
-
-            if (animate && !_parkedOpen)
-            {
-                ParkedHost.Width = 0;
-            }
-            else if (!animate)
-            {
-                ParkedHost.Width = targetWidth;
-            }
-            else
-            {
-                ParkedHost.Width = currentWidth;
-            }
+        }
+        else if (_parkedChipTarget < 1)
+        {
+            _parkedChipTarget = Math.Max(ParkedHost.ActualWidth, 72);
         }
 
         var wasOpen = _parkedOpen;
         _parkedOpen = open;
 
-        var dividerMargin = open ? new Thickness(8, 0, 6, 0) : new Thickness(0);
-
         if (!animate)
         {
-            ParkedHost.BeginAnimation(WidthProperty, null);
-            ParkedHost.BeginAnimation(OpacityProperty, null);
-            ParkedDivider.BeginAnimation(WidthProperty, null);
-            ParkedDivider.BeginAnimation(OpacityProperty, null);
-            ParkedDivider.BeginAnimation(MarginProperty, null);
-            BeginAnimation(ShellWidthAnimProperty, null);
-            ParkedHost.Width = open ? targetWidth : 0;
-            ParkedHost.Opacity = open ? 1 : 0;
-            ParkedDivider.Width = open ? ParkedDividerWidth : 0;
-            ParkedDivider.Opacity = open ? 1 : 0;
-            ParkedDivider.Margin = dividerMargin;
+            BeginAnimation(ParkedRevealProperty, null);
+            ParkedReveal = open ? 1 : 0;
             if (!open)
             {
                 _viewModel.CompleteParkedDismiss();
                 _viewModel.ApplyParkedCompositeWidth(null);
-                ShellWidthAnim = MediaViewModel.SoloWidgetWidth;
             }
             else
             {
-                _viewModel.ApplyParkedCompositeWidth(targetWidth);
-                ShellWidthAnim = _viewModel.DesiredWidgetWidth;
+                _viewModel.ApplyParkedCompositeWidth(_parkedChipTarget);
             }
 
             return;
         }
 
-        // Appear and dismiss share the same clock (mirror): wipe from/into divider + shell.
+        if (wasOpen == open)
+        {
+            return;
+        }
+
+        // One clock for appear (0→1) and dismiss (1→0) — perfectly mirrored, no stagger.
+        var from = open ? 0 : Math.Clamp(ParkedReveal, 0, 1);
+        if (!open && from < 0.05)
+        {
+            from = 1;
+        }
+
+        var to = open ? 1 : 0;
+        BeginAnimation(ParkedRevealProperty, null);
+        ParkedReveal = from;
+
         var duration = TimeSpan.FromMilliseconds(340);
-        var easeAnim = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
-        var shellTo = open
-            ? _viewModel.ComputeParkedCompositeWidth(targetWidth)
-            : MediaViewModel.SoloWidgetWidth;
-
-        if (wasOpen != open)
-        {
-            ParkedHost.BeginAnimation(OpacityProperty, null);
-            ParkedDivider.BeginAnimation(OpacityProperty, null);
-            ParkedDivider.BeginAnimation(MarginProperty, null);
-
-            if (open)
-            {
-                ParkedHost.Opacity = 0;
-                ParkedDivider.Opacity = 0;
-                ParkedDivider.Margin = new Thickness(0);
-            }
-
-            // No BeginTime on dismiss — fold into the divider immediately, same cadence as appear.
-            ParkedHost.BeginAnimation(
-                OpacityProperty,
-                new DoubleAnimation
-                {
-                    From = open ? 0 : 1,
-                    To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(160),
-                    EasingFunction = easeAnim
-                });
-
-            ParkedDivider.BeginAnimation(
-                OpacityProperty,
-                new DoubleAnimation
-                {
-                    From = open ? 0 : 1,
-                    To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(200),
-                    EasingFunction = easeAnim
-                });
-
-            ParkedDivider.BeginAnimation(
-                MarginProperty,
-                new ThicknessAnimation
-                {
-                    From = open ? new Thickness(0) : ParkedDivider.Margin,
-                    To = dividerMargin,
-                    Duration = duration,
-                    EasingFunction = easeAnim
-                });
-        }
-
-        var chipFrom = open ? 0 : Math.Max(ParkedHost.ActualWidth, 1);
-        var divFrom = open ? 0 : Math.Max(ParkedDivider.ActualWidth, 0.1);
-
-        var widthAnim = new DoubleAnimation
-        {
-            From = chipFrom,
-            To = open ? targetWidth : 0,
-            Duration = duration,
-            EasingFunction = easeAnim
-        };
-        if (!open)
-        {
-            widthAnim.Completed += (_, _) =>
-            {
-                _viewModel.CompleteParkedDismiss();
-                _viewModel.ApplyParkedCompositeWidth(null);
-                BeginAnimation(ShellWidthAnimProperty, null);
-                ShellWidthAnim = MediaViewModel.SoloWidgetWidth;
-            };
-        }
-
-        ParkedHost.BeginAnimation(WidthProperty, widthAnim);
-
-        ParkedDivider.BeginAnimation(
-            WidthProperty,
-            new DoubleAnimation
-            {
-                From = divFrom,
-                To = open ? ParkedDividerWidth : 0,
-                Duration = duration,
-                EasingFunction = easeAnim
-            });
-
-        AnimateShellWidth(
-            shellTo,
-            duration,
-            easeAnim,
-            commitParkedWidth: open ? targetWidth : null);
-    }
-
-    /// <summary>Grow/shrink taskbar shell in sync with chip so the play module does not jump.</summary>
-    private void AnimateShellWidth(
-        double to,
-        Duration duration,
-        IEasingFunction ease,
-        double? commitParkedWidth)
-    {
-        BeginAnimation(ShellWidthAnimProperty, null);
-        var from = ShellWidthAnim;
-        if (from < 1)
-        {
-            from = _viewModel.DesiredWidgetWidth;
-            ShellWidthAnim = from;
-        }
-
+        var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
         var anim = new DoubleAnimation
         {
             From = from,
@@ -690,18 +587,83 @@ public partial class MainWindow : Window
         };
         anim.Completed += (_, _) =>
         {
-            BeginAnimation(ShellWidthAnimProperty, null);
-            ShellWidthAnim = to;
-            if (commitParkedWidth is not null)
+            BeginAnimation(ParkedRevealProperty, null);
+            ParkedReveal = to;
+            if (open)
             {
-                _viewModel.ApplyParkedCompositeWidth(commitParkedWidth);
+                _viewModel.ApplyParkedCompositeWidth(_parkedChipTarget);
             }
-            else if (to <= MediaViewModel.SoloWidgetWidth + 0.5)
+            else
             {
+                _viewModel.CompleteParkedDismiss();
                 _viewModel.ApplyParkedCompositeWidth(null);
             }
         };
-        BeginAnimation(ShellWidthAnimProperty, anim);
+        BeginAnimation(ParkedRevealProperty, anim);
+    }
+
+    /// <summary>Apply chip / divider / shell from a single reveal factor (0..1).</summary>
+    private void ApplyParkedReveal(double p)
+    {
+        p = Math.Clamp(p, 0, 1);
+        var chip = _parkedChipTarget * p;
+        ParkedHost.Width = chip;
+        ParkedDivider.Width = ParkedDividerWidth * p;
+        ParkedDivider.Margin = new Thickness(8 * p, 0, 6 * p, 0);
+        // Fade rides the same clock and starts immediately on dismiss (p falls from 1).
+        var fade = Math.Clamp(p * 2.0, 0, 1);
+        ParkedHost.Opacity = fade;
+        ParkedDivider.Opacity = fade;
+
+        var shell = MediaViewModel.SoloWidgetWidth +
+                    p * (_parkedChipTarget + MediaViewModel.PausePlayDividerChrome - MediaViewModel.PausePlayTrim);
+        if (_taskbarHost is not null)
+        {
+            _taskbarHost.DesiredWidgetWidthDip = shell;
+        }
+    }
+
+    /// <summary>Tiny helper to tween a double without fighting ParkedReveal.</summary>
+    private sealed class AnimationClockHolder : Animatable
+    {
+        public static readonly DependencyProperty ValueProperty =
+            DependencyProperty.Register(
+                nameof(Value),
+                typeof(double),
+                typeof(AnimationClockHolder),
+                new PropertyMetadata(0.0, static (d, e) =>
+                    ((AnimationClockHolder)d).ProgressChanged?.Invoke((double)e.NewValue)));
+
+        public double Value
+        {
+            get => (double)GetValue(ValueProperty);
+            set => SetValue(ValueProperty, value);
+        }
+
+        public Action<double>? ProgressChanged;
+
+        protected override Freezable CreateInstanceCore() => new AnimationClockHolder();
+
+        public void Start(double from, double to, Duration duration, IEasingFunction ease, Action? onDone)
+        {
+            BeginAnimation(ValueProperty, null);
+            Value = from;
+            var anim = new DoubleAnimation
+            {
+                From = from,
+                To = to,
+                Duration = duration,
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
+            };
+            anim.Completed += (_, _) =>
+            {
+                BeginAnimation(ValueProperty, null);
+                Value = to;
+                onDone?.Invoke();
+            };
+            BeginAnimation(ValueProperty, anim);
+        }
     }
 
     private void SnapChipVolumeHosts()

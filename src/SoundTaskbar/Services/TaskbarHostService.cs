@@ -47,8 +47,9 @@ public sealed class TaskbarHostService : IDisposable
         get => _desiredWidgetWidthDip;
         set
         {
+            // Sub-pixel threshold: avoid Attach spam during shell width animation.
             var clamped = Math.Clamp(value, 220, 720);
-            if (Math.Abs(_desiredWidgetWidthDip - clamped) < 0.5)
+            if (Math.Abs(_desiredWidgetWidthDip - clamped) < 0.25)
             {
                 return;
             }
@@ -148,7 +149,6 @@ public sealed class TaskbarHostService : IDisposable
         var isHorizontal = barWidth >= barHeight;
         if (!isHorizontal)
         {
-            // Vertical taskbar: keep a simple full-strip host for now.
             desiredWidgetWidth = barWidth;
         }
 
@@ -168,39 +168,45 @@ public sealed class TaskbarHostService : IDisposable
 
         var trayWidthPx = Math.Max(0, taskbarRect.Right - trayRect.Left);
 
-        // Cover the whole taskbar (FluentFlyout approach), then clip to the widget band.
-        NativeMethods.SetWindowPos(
-            _hwnd,
-            NativeMethods.HWND_TOP,
-            topLeft.X,
-            topLeft.Y,
-            barWidth,
-            barHeight,
-            NativeMethods.SWP_NOACTIVATE |
-            NativeMethods.SWP_SHOWWINDOW |
-            NativeMethods.SWP_FRAMECHANGED |
-            NativeMethods.SWP_ASYNCWINDOWPOS);
+        var barChanged = barWidth != _lastWidth || barHeight != _lastHeight;
+        var regionChanged = widgetPoint.X != _lastRegionLeft || widgetWidth != _lastRegionWidth;
 
-        if (widgetPoint.X != _lastRegionLeft || widgetWidth != _lastRegionWidth ||
-            barWidth != _lastWidth || barHeight != _lastHeight)
+        // SetWindowPos only when the taskbar bar itself moves/resizes — not every shell-width frame.
+        if (barChanged || _lastWidth == int.MinValue)
         {
-            _lastRegionLeft = widgetPoint.X;
-            _lastRegionWidth = widgetWidth;
-            _lastWidth = barWidth;
-            _lastHeight = barHeight;
+            NativeMethods.SetWindowPos(
+                _hwnd,
+                NativeMethods.HWND_TOP,
+                topLeft.X,
+                topLeft.Y,
+                barWidth,
+                barHeight,
+                NativeMethods.SWP_NOACTIVATE |
+                NativeMethods.SWP_SHOWWINDOW |
+                NativeMethods.SWP_FRAMECHANGED |
+                NativeMethods.SWP_ASYNCWINDOWPOS);
+        }
 
-            var region = NativeMethods.CreateRectRgn(
-                widgetPoint.X,
-                0,
-                widgetPoint.X + widgetWidth,
-                barHeight);
-            if (region != IntPtr.Zero)
+        if (!regionChanged && !barChanged)
+        {
+            return;
+        }
+
+        _lastRegionLeft = widgetPoint.X;
+        _lastRegionWidth = widgetWidth;
+        _lastWidth = barWidth;
+        _lastHeight = barHeight;
+
+        var region = NativeMethods.CreateRectRgn(
+            widgetPoint.X,
+            0,
+            widgetPoint.X + widgetWidth,
+            barHeight);
+        if (region != IntPtr.Zero)
+        {
+            if (NativeMethods.SetWindowRgn(_hwnd, region, true) == 0)
             {
-                // SetWindowRgn takes ownership of the region on success.
-                if (NativeMethods.SetWindowRgn(_hwnd, region, true) == 0)
-                {
-                    NativeMethods.DeleteObject(region);
-                }
+                NativeMethods.DeleteObject(region);
             }
         }
 
