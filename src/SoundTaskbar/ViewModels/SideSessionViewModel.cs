@@ -58,6 +58,9 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         ToggleVolumeCommand = new RelayCommand(
             _ => ToggleVolumeEditor(),
             _ => CanControlVolume);
+        ToggleMuteCommand = new RelayCommand(
+            _ => ToggleMute(),
+            _ => CanControlVolume);
 
         _volumeHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
         _volumeHideTimer.Tick += (_, _) =>
@@ -83,6 +86,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     public RelayCommand PreviousCommand { get; }
     public RelayCommand NextCommand { get; }
     public RelayCommand ToggleVolumeCommand { get; }
+    public RelayCommand ToggleMuteCommand { get; }
 
     public BitmapImage? Artwork
     {
@@ -157,6 +161,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
             OnPropertyChanged();
             OnPropertyChanged(nameof(VolumeGlyph));
+            OnPropertyChanged(nameof(MuteGlyph));
+            OnPropertyChanged(nameof(IsEffectivelyMuted));
             if (!_suppressVolumeWrite && IsVolumeEditorOpen)
             {
                 BounceVolumeHideTimer();
@@ -172,6 +178,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             if (SetField(ref _isMuted, value))
             {
                 OnPropertyChanged(nameof(VolumeGlyph));
+                OnPropertyChanged(nameof(MuteGlyph));
+                OnPropertyChanged(nameof(IsEffectivelyMuted));
             }
         }
     }
@@ -228,6 +236,10 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         !CanControlVolume ? "🔈" :
         IsMuted || Volume <= 0.001f ? "🔇" :
         Volume < 0.35f ? "🔉" : "🔊";
+
+    public bool IsEffectivelyMuted => IsMuted || Volume <= 0.001f;
+
+    public string MuteGlyph => IsEffectivelyMuted ? "\uE74F" : "\uE767";
 
     public bool CanGoPrevious => _usesSkipIcons || _canSeek;
 
@@ -337,6 +349,24 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
 
         IsVolumeEditorOpen = !IsVolumeEditorOpen;
+    }
+
+    private void ToggleMute()
+    {
+        if (!CanControlVolume || string.IsNullOrWhiteSpace(AppId))
+        {
+            return;
+        }
+
+        if (_volume.TryToggleMute(AppId))
+        {
+            _volumeWriteTicks = Environment.TickCount64;
+            RefreshVolume();
+            if (IsVolumeEditorOpen)
+            {
+                BounceVolumeHideTimer();
+            }
+        }
     }
 
     private void BounceVolumeHideTimer()

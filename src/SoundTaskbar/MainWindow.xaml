@@ -22,30 +22,9 @@
     </Window.ContextMenu>
 
     <Window.Resources>
-        <!-- Parked: VU + volume | skip/seek + art▶ -->
+        <!-- Parked: mute+volume slider | skip/seek + art▶ -->
         <DataTemplate x:Key="SessionArtChip">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,2,0">
-                <Grid Width="5"
-                      Height="18"
-                      Margin="0,0,3,0"
-                      VerticalAlignment="Center">
-                    <Border CornerRadius="1.5" Opacity="0.95">
-                        <Border.Background>
-                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
-                                <GradientStop Color="#22C55E" Offset="0" />
-                                <GradientStop Color="#22C55E" Offset="0.55" />
-                                <GradientStop Color="#EAB308" Offset="0.78" />
-                                <GradientStop Color="#EF4444" Offset="1" />
-                            </LinearGradientBrush>
-                        </Border.Background>
-                    </Border>
-                    <Border VerticalAlignment="Top"
-                            Height="{Binding PeakCoverHeight}"
-                            Background="#D0121212"
-                            CornerRadius="1.5,1.5,0,0"
-                            IsHitTestVisible="False" />
-                </Grid>
-
                 <Grid x:Name="ChipVolumeHost"
                       Width="14"
                       Height="16"
@@ -55,6 +34,33 @@
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center">
+                        <Button Content="{Binding MuteGlyph}"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="9"
+                                Padding="0"
+                                Margin="0,0,2,0"
+                                Command="{Binding ToggleMuteCommand}"
+                                IsEnabled="{Binding CanControlVolume}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
+                                    <Setter Property="Width" Value="0" />
+                                    <Setter Property="Opacity" Value="0" />
+                                    <Setter Property="IsHitTestVisible" Value="False" />
+                                    <Setter Property="Foreground" Value="#F2F4F7" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                            <Setter Property="Width" Value="14" />
+                                            <Setter Property="Height" Value="14" />
+                                            <Setter Property="Opacity" Value="1" />
+                                            <Setter Property="IsHitTestVisible" Value="True" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsEffectivelyMuted}" Value="True">
+                                            <Setter Property="Foreground" Value="#EF4444" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                         <Slider Width="48"
                                 Margin="0,0,2,0"
                                 IsEnabled="{Binding CanControlVolume}"
@@ -101,7 +107,7 @@
                                         <BeginStoryboard>
                                             <Storyboard>
                                                 <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                 To="66"
+                                                                 To="80"
                                                                  Duration="0:0:0.26">
                                                     <DoubleAnimation.EasingFunction>
                                                         <CubicEase EasingMode="EaseOut" />
