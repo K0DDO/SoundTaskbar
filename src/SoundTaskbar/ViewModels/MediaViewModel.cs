@@ -151,6 +151,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(SingleModeVisibility));
                 OnPropertyChanged(nameof(DualModeVisibility));
+                NotifySourceSlotChanged();
             }
         }
     }
@@ -160,6 +161,17 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public Visibility DualModeVisibility =>
         IsDualPlaying ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Two sources active (twin dual or A/V expanded pair) → app icon; else source name.</summary>
+    public bool ShowPairAppIcon =>
+        IsDualPlaying ||
+        (ShowParkedRail && SideSessions.Any(s => s.ShowExpandedMeta));
+
+    public Visibility AppIconVisibility =>
+        ShowPairAppIcon && AppIcon is not null ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility SourceLabelVisibility =>
+        ShowPairAppIcon ? Visibility.Collapsed : Visibility.Visible;
 
     public double DesiredWidgetWidth
     {
@@ -173,7 +185,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public bool ShowParkedRail
     {
         get => _showParkedRail;
-        private set => SetField(ref _showParkedRail, value);
+        private set
+        {
+            if (SetField(ref _showParkedRail, value))
+            {
+                NotifySourceSlotChanged();
+            }
+        }
+    }
+
+    private void NotifySourceSlotChanged()
+    {
+        OnPropertyChanged(nameof(ShowPairAppIcon));
+        OnPropertyChanged(nameof(AppIconVisibility));
+        OnPropertyChanged(nameof(SourceLabelVisibility));
     }
 
     public void CompleteParkedDismiss()
@@ -325,7 +350,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public BitmapImage? AppIcon
     {
         get => _appIcon;
-        private set => SetField(ref _appIcon, value);
+        private set
+        {
+            if (SetField(ref _appIcon, value))
+            {
+                NotifySourceSlotChanged();
+            }
+        }
     }
 
     public float Volume
@@ -938,6 +969,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
         }
+
+        NotifySourceSlotChanged();
 
         // Keep visual order matching source.
         for (var i = 0; i < source.Count; i++)

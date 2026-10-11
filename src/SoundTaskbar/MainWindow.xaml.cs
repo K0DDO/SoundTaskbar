@@ -744,6 +744,7 @@ public partial class MainWindow : Window
         _progressFillBrush.Color = appearance.ProgressFill;
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
+        SourceText.Foreground = _mutedBrush;
 
         if (Resources["ProgressAccentBrush"] is SolidColorBrush accentBrush)
         {

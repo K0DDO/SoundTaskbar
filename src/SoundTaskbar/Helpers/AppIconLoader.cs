@@ -1,14 +1,17 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
-using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media.Imaging;
+using DrawingColor = System.Drawing.Color;
+using DrawingPixelFormat = System.Drawing.Imaging.PixelFormat;
 
 namespace SoundTaskbar.Helpers;
 
 internal static class AppIconLoader
 {
+    private const int OutputSize = 16;
+
     public static Task<BitmapImage?> TryLoadAsync(string? appId) =>
         Task.Run(() => TryLoad(appId));
 
@@ -33,23 +36,17 @@ internal static class AppIconLoader
                 return null;
             }
 
-            var source = Imaging.CreateBitmapSourceFromHIcon(
-                icon.Handle,
-                Int32Rect.Empty,
-                BitmapSizeOptions.FromWidthAndHeight(32, 32));
-            source.Freeze();
-
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(source));
+            using var colored = icon.ToBitmap();
+            using var mono = ToMonochromeWhite(colored, OutputSize);
             using var ms = new MemoryStream();
-            encoder.Save(ms);
+            mono.Save(ms, ImageFormat.Png);
             ms.Position = 0;
 
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.StreamSource = ms;
-            image.DecodePixelWidth = 32;
+            image.DecodePixelWidth = OutputSize;
             image.EndInit();
             image.Freeze();
             return image;
@@ -60,12 +57,38 @@ internal static class AppIconLoader
         }
     }
 
+    /// <summary>White silhouette: alpha from luminance, RGB = white.</summary>
+    private static Bitmap ToMonochromeWhite(Bitmap source, int size)
+    {
+        using var scaled = new Bitmap(source, size, size);
+        var result = new Bitmap(size, size, DrawingPixelFormat.Format32bppArgb);
+
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var p = scaled.GetPixel(x, y);
+                if (p.A < 8)
+                {
+                    result.SetPixel(x, y, DrawingColor.Transparent);
+                    continue;
+                }
+
+                // Prefer alpha from source; boost with luminance so dark glyphs stay visible.
+                var lum = (int)(0.299 * p.R + 0.587 * p.G + 0.114 * p.B);
+                var alpha = Math.Clamp((p.A * Math.Max(lum, 40)) / 255, 0, 255);
+                result.SetPixel(x, y, DrawingColor.FromArgb(alpha, 242, 244, 247));
+            }
+        }
+
+        return result;
+    }
+
     private static string? ResolveExecutable(string appId)
     {
         var id = appId.Trim();
         var lower = id.ToLowerInvariant();
 
-        // Direct path / exe name
         if (lower.EndsWith(".exe", StringComparison.Ordinal) && File.Exists(id))
         {
             return id;
@@ -138,7 +161,6 @@ internal static class AppIconLoader
             return "vlc";
         }
 
-        // AppUserModelId: Family!App → take token before _ or .
         var bang = appIdLower.IndexOf('!');
         var head = bang > 0 ? appIdLower[..bang] : appIdLower;
         var under = head.IndexOf('_');
