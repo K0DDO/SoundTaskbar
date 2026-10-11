@@ -45,7 +45,6 @@
             <Setter Property="FontSize" Value="13" />
         </Style>
 
-        <!-- Tall transparent hit area; visible fill stays a hairline -->
         <Style x:Key="VolumeSliderRepeat" TargetType="RepeatButton">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="IsTabStop" Value="False" />
@@ -53,21 +52,18 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RepeatButton">
-                        <Grid Background="Transparent">
-                            <Border Background="{TemplateBinding Background}"
-                                    Height="1.5"
-                                    CornerRadius="0.75"
-                                    VerticalAlignment="Center"
-                                    IsHitTestVisible="False" />
-                        </Grid>
+                        <Border Background="{TemplateBinding Background}"
+                                Height="1.5"
+                                CornerRadius="0.75"
+                                VerticalAlignment="Center" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Hairline track + small thumb; tall invisible grab zone -->
+        <!-- Hairline track + tiny thumb -->
         <Style x:Key="VolumeSlider" TargetType="Slider">
-            <Setter Property="Height" Value="22" />
+            <Setter Property="Height" Value="16" />
             <Setter Property="Minimum" Value="0" />
             <Setter Property="Maximum" Value="1" />
             <Setter Property="IsMoveToPointEnabled" Value="True" />
@@ -76,12 +72,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
-                        <Grid VerticalAlignment="Center" Height="22" Background="Transparent">
+                        <Grid VerticalAlignment="Center" Height="16">
                             <Border Height="1.5"
                                     CornerRadius="0.75"
                                     Background="#33FFFFFF"
-                                    VerticalAlignment="Center"
-                                    IsHitTestVisible="False" />
+                                    VerticalAlignment="Center" />
                             <Track x:Name="PART_Track">
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton Style="{StaticResource VolumeSliderRepeat}"
@@ -94,16 +89,10 @@
                                                   Command="{x:Static Slider.IncreaseLarge}" />
                                 </Track.IncreaseRepeatButton>
                                 <Track.Thumb>
-                                    <Thumb Width="14" Height="22">
+                                    <Thumb Width="6" Height="6">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Grid Background="Transparent">
-                                                    <Ellipse Width="6"
-                                                             Height="6"
-                                                             Fill="#F5F5F5"
-                                                             HorizontalAlignment="Center"
-                                                             VerticalAlignment="Center" />
-                                                </Grid>
+                                                <Ellipse Fill="#F5F5F5" />
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>

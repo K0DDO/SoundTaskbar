@@ -11,6 +11,7 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
     public required Color Foreground { get; init; }
     public required Color MutedForeground { get; init; }
     public required Color ProgressTrack { get; init; }
+    public required Color ProgressFill { get; init; }
     public required bool IsLight { get; init; }
 
     public bool Equals(TaskbarAppearance? other) =>
@@ -18,10 +19,11 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
         Foreground == other.Foreground &&
         MutedForeground == other.MutedForeground &&
         ProgressTrack == other.ProgressTrack &&
+        ProgressFill == other.ProgressFill &&
         IsLight == other.IsLight;
 
     public override bool Equals(object? obj) => Equals(obj as TaskbarAppearance);
-    public override int GetHashCode() => HashCode.Combine(Foreground, IsLight);
+    public override int GetHashCode() => HashCode.Combine(Foreground, ProgressFill, IsLight);
 }
 
 /// <summary>
@@ -92,17 +94,62 @@ public sealed class TaskbarAppearanceService : IDisposable
         var isLight = sample is not null
             ? PerceivedBrightness(sample.Value) > 160
             : IsLightTaskbar();
-        return Create(isLight);
+        return Create(isLight, GetAccentColor(isLight));
     }
 
-    private static TaskbarAppearance Create(bool isLight) =>
-        new()
+    private static TaskbarAppearance Create(bool isLight, Color? accent = null)
+    {
+        var fill = accent ?? Color.FromRgb(0x00, 0x78, 0xD4);
+        return new TaskbarAppearance
         {
             Foreground = isLight ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Color.FromRgb(0xF5, 0xF5, 0xF5),
             MutedForeground = isLight ? Color.FromRgb(0x4A, 0x4A, 0x4A) : Color.FromRgb(0xC8, 0xCD, 0xD6),
             ProgressTrack = isLight ? Color.FromArgb(0x55, 0x00, 0x00, 0x00) : Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF),
+            ProgressFill = fill,
             IsLight = isLight
         };
+    }
+
+    private static Color GetAccentColor(bool isLight)
+    {
+        try
+        {
+            var settings = new Windows.UI.ViewManagement.UISettings();
+            // Contrast-tuned accent shade for the current taskbar theme.
+            var accent = settings.GetColorValue(
+                isLight
+                    ? Windows.UI.ViewManagement.UIColorType.AccentDark1
+                    : Windows.UI.ViewManagement.UIColorType.AccentLight2);
+            if (accent.A == 0)
+            {
+                accent = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Accent);
+            }
+
+            return Color.FromArgb(accent.A, accent.R, accent.G, accent.B);
+        }
+        catch
+        {
+            // fall through to registry
+        }
+
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM");
+            if (key?.GetValue("AccentColor") is int abgr)
+            {
+                return Color.FromRgb(
+                    (byte)(abgr & 0xFF),
+                    (byte)((abgr >> 8) & 0xFF),
+                    (byte)((abgr >> 16) & 0xFF));
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return Color.FromRgb(0x00, 0x78, 0xD4);
+    }
 
     private static Color? SampleTrayColor()
     {

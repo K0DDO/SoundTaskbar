@@ -176,9 +176,7 @@ public partial class MainWindow : Window
         _titleBrush.Color = appearance.Foreground;
         _mutedBrush.Color = appearance.MutedForeground;
         _progressTrackBrush.Color = appearance.ProgressTrack;
-        _progressFillBrush.Color = appearance.IsLight
-            ? Color.FromRgb(0x00, 0x6C, 0xBE)
-            : Color.FromRgb(0x9E, 0xC5, 0xFF);
+        _progressFillBrush.Color = appearance.ProgressFill;
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
         SourceText.Foreground = _mutedBrush;
