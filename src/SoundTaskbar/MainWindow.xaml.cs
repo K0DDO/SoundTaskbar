@@ -11,7 +11,7 @@ namespace SoundTaskbar;
 public partial class MainWindow : Window
 {
     private const double VolumeClosedWidth = 18;
-    private const double VolumeOpenWidth = 56;
+    private const double VolumeOpenWidth = 74;
     private const double VolumeButtonWidth = 18;
 
     private readonly MediaViewModel _viewModel = new();
@@ -42,6 +42,8 @@ public partial class MainWindow : Window
         VolumeHost.Width = VolumeClosedWidth;
         VolumeSlider.Opacity = 0;
         VolumeSlider.IsHitTestVisible = false;
+        MuteButton.Opacity = 0;
+        MuteButton.IsHitTestVisible = false;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -139,7 +141,18 @@ public partial class MainWindow : Window
                 EasingFunction = ease
             });
 
+        MuteButton.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation
+            {
+                To = open ? 1 : 0,
+                Duration = TimeSpan.FromMilliseconds(open ? 180 : 120),
+                BeginTime = open ? TimeSpan.FromMilliseconds(60) : TimeSpan.Zero,
+                EasingFunction = ease
+            });
+
         VolumeSlider.IsHitTestVisible = open;
+        MuteButton.IsHitTestVisible = open;
         VolumeButton.IsHitTestVisible = !open;
     }
 

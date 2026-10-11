@@ -21,7 +21,7 @@
                   StrokeEndLineCap="Flat"
                   Fill="Transparent"
                   Margin="0.5"
-                  Data="M 9.6,2.35 A 5.1,5.1 0 1 1 5.55,2.55"
+                  Data="M 12,7 A 5,5 0 1 1 7,2"
                   RenderTransformOrigin="0.5,0.5">
                 <Path.RenderTransform>
                     <ScaleTransform x:Name="SeekFlip" ScaleX="1" />
@@ -30,7 +30,7 @@
             <Path x:Name="SeekTip"
                   Stretch="None"
                   Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                  Data="M 8.15,0.55 L 11.05,2.15 L 7.85,3.55 Z"
+                  Data="M 6.35,0.85 L 9.55,2.05 L 6.15,3.35 Z"
                   RenderTransformOrigin="0.5,0.5">
                 <Path.RenderTransform>
                     <ScaleTransform x:Name="TipFlip" ScaleX="1" />

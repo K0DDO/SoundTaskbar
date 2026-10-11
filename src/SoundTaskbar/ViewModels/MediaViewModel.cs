@@ -230,6 +230,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(VolumePercent));
             OnPropertyChanged(nameof(VolumeGlyph));
             OnPropertyChanged(nameof(MuteGlyph));
+            OnPropertyChanged(nameof(IsEffectivelyMuted));
 
             if (!_suppressVolumeWrite && IsVolumeEditorOpen)
             {
@@ -249,6 +250,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(VolumeGlyph));
                 OnPropertyChanged(nameof(MuteGlyph));
+                OnPropertyChanged(nameof(IsEffectivelyMuted));
             }
         }
     }
@@ -305,7 +307,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         IsMuted || Volume <= 0.001f ? "🔇" :
         Volume < 0.35f ? "🔉" : "🔊";
 
-    public string MuteGlyph => IsMuted || Volume <= 0.001f ? "🔇" : "🔈";
+    public bool IsEffectivelyMuted => IsMuted || Volume <= 0.001f;
+
+    // Segoe MDL2: Mute / Volume — monochrome so muted can turn red.
+    public string MuteGlyph => IsEffectivelyMuted ? "\uE74F" : "\uE767";
 
     public void ToggleMute()
     {
