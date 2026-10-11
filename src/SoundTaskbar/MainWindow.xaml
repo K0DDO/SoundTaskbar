@@ -748,12 +748,12 @@
                 </Border>
                 </Grid>
 
-                <!-- VU meter (single mode); left gap = right gap to volume -->
+                <!-- VU meter (single mode); equal gap text↔VU and VU↔volume -->
                 <Grid x:Name="VuHost"
                       Grid.Column="1"
                       Width="8"
                       Height="24"
-                      Margin="4,0,4,0"
+                      Margin="12,0,12,0"
                       VerticalAlignment="Center">
                     <Border CornerRadius="2" Opacity="0.95">
                         <Border.Background>

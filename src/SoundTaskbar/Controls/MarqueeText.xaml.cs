@@ -8,7 +8,7 @@ namespace SoundTaskbar.Controls;
 
 public partial class MarqueeText : UserControl
 {
-    private const double FadeStartOffset = 0.78;
+    private const double FadeStartOffset = 0.62;
 
     public static readonly DependencyProperty TextProperty =
         DependencyProperty.Register(
@@ -24,6 +24,9 @@ public partial class MarqueeText : UserControl
             typeof(MarqueeText),
             new PropertyMetadata(false, (_, __) => { /* restart via QueueRestart on size */ }));
 
+    private readonly GradientStop _fadeBegin = new(Colors.Black, 1);
+    private readonly GradientStop _fadeOut = new(Colors.Black, 1);
+    private readonly LinearGradientBrush _fadeBrush;
     private bool _restartQueued;
     private bool _isHovering;
     private bool _overflows;
@@ -31,8 +34,20 @@ public partial class MarqueeText : UserControl
     public MarqueeText()
     {
         InitializeComponent();
-        // Hover is driven by a larger parent hit-zone via SetHovering
-        // (artwork + title + artist), not by this control alone.
+
+        // Build mask in code so the brush stays unfrozen and animatable.
+        _fadeBrush = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0),
+            EndPoint = new Point(1, 0),
+            GradientStops =
+            {
+                new GradientStop(Colors.Black, 0),
+                _fadeBegin,
+                _fadeOut
+            }
+        };
+        FadeHost.OpacityMask = _fadeBrush;
     }
 
     public string Text
@@ -95,8 +110,8 @@ public partial class MarqueeText : UserControl
     private void Stop()
     {
         Slide.BeginAnimation(TranslateTransform.XProperty, null);
-        FadeBegin.BeginAnimation(GradientStop.OffsetProperty, null);
-        FadeOut.BeginAnimation(GradientStop.OffsetProperty, null);
+        _fadeBegin.BeginAnimation(GradientStop.OffsetProperty, null);
+        _fadeOut.BeginAnimation(GradientStop.OffsetProperty, null);
         Slide.X = 0;
         UpdateOverflowFlag();
         ApplyFade(_overflows);
@@ -106,15 +121,17 @@ public partial class MarqueeText : UserControl
     {
         if (show)
         {
-            FadeBegin.Offset = FadeStartOffset;
-            FadeOut.Offset = 1;
-            FadeOut.Color = Colors.Transparent;
+            _fadeBegin.Offset = FadeStartOffset;
+            _fadeBegin.Color = Colors.Black;
+            _fadeOut.Offset = 1;
+            _fadeOut.Color = Colors.Transparent;
         }
         else
         {
-            FadeBegin.Offset = 1;
-            FadeOut.Offset = 1;
-            FadeOut.Color = Colors.Black;
+            _fadeBegin.Offset = 1;
+            _fadeBegin.Color = Colors.Black;
+            _fadeOut.Offset = 1;
+            _fadeOut.Color = Colors.Black;
         }
     }
 
@@ -135,13 +152,13 @@ public partial class MarqueeText : UserControl
 
         Stop();
 
-        var viewWidth = Host.ActualWidth;
-        var textWidth = RunText.ActualWidth;
         if (!_overflows)
         {
             return;
         }
 
+        var viewWidth = Host.ActualWidth;
+        var textWidth = RunText.ActualWidth;
         var distance = textWidth - viewWidth + 12;
         var seconds = Math.Max(3.5, distance / 32);
         var duration = TimeSpan.FromSeconds(seconds);
@@ -171,21 +188,9 @@ public partial class MarqueeText : UserControl
         fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0.88)));
         fadeBeginAnim.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(1)));
 
-        var fadeOutAnim = new DoubleAnimationUsingKeyFrames
-        {
-            Duration = duration,
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-            BeginTime = begin
-        };
-        fadeOutAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0)));
-        fadeOutAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.88)));
-        fadeOutAnim.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(1)));
-
-        FadeOut.Color = Colors.Transparent;
+        ApplyFade(true);
         Slide.BeginAnimation(TranslateTransform.XProperty, slide);
-        FadeBegin.BeginAnimation(GradientStop.OffsetProperty, fadeBeginAnim);
-        FadeOut.BeginAnimation(GradientStop.OffsetProperty, fadeOutAnim);
+        _fadeBegin.BeginAnimation(GradientStop.OffsetProperty, fadeBeginAnim);
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
