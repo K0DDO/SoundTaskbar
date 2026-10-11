@@ -63,7 +63,7 @@
                     <ProgressBar Height="4"
                                  Minimum="0"
                                  Maximum="1"
-                                 Value="{Binding Progress}"
+                                 Value="{Binding Progress, Mode=OneWay}"
                                  Foreground="#7EB8FF"
                                  Background="#33FFFFFF"
                                  BorderThickness="0" />
