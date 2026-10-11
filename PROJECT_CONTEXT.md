@@ -20,7 +20,7 @@ Windows-приложение: медиа-контролы **внутри пол�
 ## Целевое поведение
 
 1. Подхватывать активный медиа-источник системы (SMTC / session API).
-2. Хостить UI как дочернее окно `Shell_TrayWnd` (не отдельная карточка над рабочим столом).
+2. Показывать UI **на полосе таскбара** (overlay поверх `Shell_TrayWnd`, слева от трея). На Win11 25H2 `SetParent` в explorer ломает отрисовку WPF — не использовать.
 3. Play / pause / next / previous через системные команды медиа-сессии.
 4. Per-app volume: менять громкость конкретного audio session, не master volume.
 5. Если источников несколько — выбрать активный или переключаться между ними (детали UX уточняются).
@@ -30,7 +30,7 @@ Windows-приложение: медиа-контролы **внутри пол�
 - Платформа: Windows 10/11
 - UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
 - Медиа: `GlobalSystemMediaTransportControlsSessionManager`
-- Хостинг в таскбаре: Win32 `FindWindow(Shell_TrayWnd)` + `SetParent` + `WS_CHILD` (`TaskbarHostService`)
+- Хостинг в таскбаре: top-level overlay по координатам `Shell_TrayWnd` / `TrayNotifyWnd` (`TaskbarHostService`), без `SetParent`
 - Громкость по приложению: Windows Core Audio — ещё не сделано
 - Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
 
@@ -60,10 +60,10 @@ dotnet run --project src/SoundTaskbar
 ## Текущее состояние
 
 - SMTC: title, artist, artwork, status, timeline + prev/play/next
-- UI встроен в таскбар слева от трея (`TaskbarHostService`)
-- Компактный вид под высоту таскбара, без отдельного floating-окна
+- UI pinned на полосу таскбара слева от трея (overlay, topmost tool window)
+- `SetParent` отвергнут: на 25H2 окно могло быть visible в Win32, но без нормальной отрисовки
 - Per-app volume ещё нет
-- Позиция пересчитывается таймером (на случай рестарта explorer)
+- Позиция/z-order обновляются таймером
 
 ## Следующие шаги
 

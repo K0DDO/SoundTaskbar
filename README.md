@@ -24,7 +24,7 @@ dotnet run --project src/SoundTaskbar
 - Читать активную медиа-сессию (title, artist, artwork, status)
 - Показывать прогресс и длительность
 - Previous / play-pause / next
-- Хостинг UI внутри таскбара (`Shell_TrayWnd`)
+- Панель закреплена на полосе таскбара слева от трея
 
 ## Дальше
 
