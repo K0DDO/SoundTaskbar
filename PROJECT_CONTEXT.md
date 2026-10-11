@@ -61,9 +61,9 @@ dotnet run --project src/SoundTaskbar
 
 - SMTC: title, artist, artwork, status, timeline + prev/play/next
 - UI pinned на полосу таскбара слева от трея (overlay, topmost tool window)
-- `SetParent` отвергнут: на 25H2 окно могло быть visible в Win32, но без нормальной отрисовки
+- Прогресс: локальная экстраполяция каждые 200ms (SMTC сам позицию обновляет редко)
+- Фон: подстройка под таскбар (`TaskbarAppearanceService`) — blur при прозрачности, solid sample/theme без неё; без рамки
 - Per-app volume ещё нет
-- Позиция/z-order обновляются таймером
 
 ## Следующие шаги
 

@@ -20,15 +20,11 @@
         </ContextMenu>
     </Window.ContextMenu>
 
-    <!-- Visible plate so the widget is obvious on the taskbar -->
-    <Border Padding="8,4"
-            CornerRadius="6"
-            BorderBrush="#55FFFFFF"
-            BorderThickness="1"
+    <Border x:Name="RootBorder"
+            Padding="8,4"
+            BorderThickness="0"
+            Background="Transparent"
             VerticalAlignment="Stretch">
-        <Border.Background>
-            <SolidColorBrush Color="#CC1C1C1C" />
-        </Border.Background>
         <Grid VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -36,11 +32,12 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#44000000">
+            <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#33000000">
                 <Grid>
-                    <TextBlock Text="♪"
+                    <TextBlock x:Name="ArtworkPlaceholder"
+                               Text="♪"
                                FontSize="14"
-                               Foreground="#CCFFFFFF"
+                               Foreground="#99FFFFFF"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
@@ -48,8 +45,9 @@
             </Border>
 
             <StackPanel Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center">
-                <TextBlock Text="{Binding Headline}"
-                           Foreground="#FFFFFFFF"
+                <TextBlock x:Name="HeadlineText"
+                           Text="{Binding Headline}"
+                           Foreground="#F2F4F7"
                            FontSize="12"
                            FontWeight="SemiBold"
                            TextTrimming="CharacterEllipsis" />
@@ -58,17 +56,19 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <ProgressBar Height="3"
+                    <ProgressBar x:Name="ProgressBar"
+                                 Height="3"
                                  Minimum="0"
                                  Maximum="1"
                                  Value="{Binding Progress, Mode=OneWay}"
                                  Foreground="#9EC5FF"
                                  Background="#44FFFFFF"
                                  BorderThickness="0" />
-                    <TextBlock Grid.Column="1"
+                    <TextBlock x:Name="TimeText"
+                               Grid.Column="1"
                                Margin="6,0,0,0"
                                VerticalAlignment="Center"
-                               Foreground="#CCFFFFFF"
+                               Foreground="#C0C6D0"
                                FontSize="10"
                                Text="{Binding TimeText}" />
                 </Grid>
@@ -79,7 +79,8 @@
                         Style="{StaticResource MediaButton}"
                         Command="{Binding PreviousCommand}"
                         ToolTip="Previous" />
-                <Button Content="{Binding PlayPauseLabel}"
+                <Button x:Name="PlayPauseButton"
+                        Content="{Binding PlayPauseLabel}"
                         Style="{StaticResource MediaButton}"
                         Command="{Binding PlayPauseCommand}"
                         ToolTip="Play / Pause"

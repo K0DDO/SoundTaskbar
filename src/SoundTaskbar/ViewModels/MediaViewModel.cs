@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
@@ -12,8 +13,10 @@ namespace SoundTaskbar.ViewModels;
 public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MediaSessionService _media;
-    private readonly DispatcherTimer _ticker;
+    private readonly DispatcherTimer _uiTicker;
+    private readonly DispatcherTimer _syncTicker;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _disposed;
 
     private string _title = "Нет активного медиа";
@@ -28,6 +31,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private bool _canTogglePlayback;
     private BitmapImage? _artwork;
 
+    private TimeSpan _anchorPosition;
+    private TimeSpan _duration;
+    private double _anchorSeconds;
+    private double _playbackRate = 1;
+
     public MediaViewModel()
     {
         _media = new MediaSessionService();
@@ -37,8 +45,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         PlayPauseCommand = new RelayCommand(async _ => await _media.TogglePlayPauseAsync(), _ => CanTogglePlayback);
         NextCommand = new RelayCommand(async _ => await _media.SkipNextAsync(), _ => CanSkipNext);
 
-        _ticker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _ticker.Tick += async (_, _) => await RefreshAsync(full: false);
+        // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
+        _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _uiTicker.Tick += (_, _) => TickProgress();
+
+        _syncTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _syncTicker.Tick += async (_, _) => await RefreshAsync(full: false);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -140,7 +152,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     {
         await _media.StartAsync();
         await RefreshAsync(full: true);
-        _ticker.Start();
+        _uiTicker.Start();
+        _syncTicker.Start();
     }
 
     public void Dispose()
@@ -151,7 +164,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _disposed = true;
-        _ticker.Stop();
+        _uiTicker.Stop();
+        _syncTicker.Stop();
         _media.Changed -= OnMediaChanged;
         _media.Dispose();
         _refreshLock.Dispose();
@@ -175,7 +189,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        await _refreshLock.WaitAsync();
+        if (!await _refreshLock.WaitAsync(0))
+        {
+            return;
+        }
+
         try
         {
             var snapshot = full ? await _media.CaptureFullAsync() : _media.Capture();
@@ -195,6 +213,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             Title = "Нет активного медиа";
             Artist = "Запусти Spotify, Яндекс Музыку или видео";
             AppId = string.Empty;
+            _duration = TimeSpan.Zero;
+            SetTimelineAnchor(TimeSpan.Zero, playing: false);
             TimeText = "0:00 / 0:00";
             Progress = 0;
             IsPlaying = false;
@@ -221,25 +241,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         CanSkipPrevious = snapshot.CanSkipPrevious;
         CanTogglePlayback = snapshot.IsPlaying ? snapshot.CanPause : snapshot.CanPlay;
 
-        var duration = snapshot.Duration;
-        var position = snapshot.Position;
-        if (duration < TimeSpan.Zero)
+        _duration = snapshot.Duration < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Duration;
+        var position = snapshot.Position < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Position;
+        if (_duration > TimeSpan.Zero && position > _duration)
         {
-            duration = TimeSpan.Zero;
+            position = _duration;
         }
 
-        if (position < TimeSpan.Zero)
-        {
-            position = TimeSpan.Zero;
-        }
-
-        if (duration > TimeSpan.Zero && position > duration)
-        {
-            position = duration;
-        }
-
-        TimeText = $"{Format(position)} / {Format(duration)}";
-        Progress = duration.TotalSeconds <= 0 ? 0 : Math.Clamp(position.TotalSeconds / duration.TotalSeconds, 0, 1);
+        SetTimelineAnchor(position, snapshot.IsPlaying);
+        PublishTimeline(position);
 
         if (!keepArtwork)
         {
@@ -247,6 +257,53 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void SetTimelineAnchor(TimeSpan position, bool playing)
+    {
+        _anchorPosition = position;
+        _anchorSeconds = _clock.Elapsed.TotalSeconds;
+        _playbackRate = playing ? 1 : 0;
+    }
+
+    private void TickProgress()
+    {
+        if (!HasSession)
+        {
+            return;
+        }
+
+        PublishTimeline(EstimatePosition());
+    }
+
+    private TimeSpan EstimatePosition()
+    {
+        if (_playbackRate <= 0)
+        {
+            return _anchorPosition;
+        }
+
+        var elapsed = _clock.Elapsed.TotalSeconds - _anchorSeconds;
+        var estimated = _anchorPosition + TimeSpan.FromSeconds(elapsed * _playbackRate);
+        if (_duration > TimeSpan.Zero && estimated > _duration)
+        {
+            estimated = _duration;
+        }
+
+        if (estimated < TimeSpan.Zero)
+        {
+            estimated = TimeSpan.Zero;
+        }
+
+        return estimated;
+    }
+
+    private void PublishTimeline(TimeSpan position)
+    {
+        TimeText = $"{Format(position)} / {Format(_duration)}";
+        Progress = _duration.TotalSeconds <= 0
+            ? 0
+            : Math.Clamp(position.TotalSeconds / _duration.TotalSeconds, 0, 1);
     }
 
     private static string Format(TimeSpan value)
