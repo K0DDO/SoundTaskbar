@@ -136,32 +136,32 @@
                                             Foreground="#F2F4F7" />
                 </Button>
 
-                <!-- Audio+video: grows so vol/prev shift left of art; text left-aligned to art -->
+                <!-- Audio+video: grows so vol/prev shift left of art; text flush to art (right) -->
                 <Grid x:Name="ChipMetaHost"
                       Width="{Binding MetaRailWidth}"
                       Height="28"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center"
-                                HorizontalAlignment="Left"
+                                HorizontalAlignment="Right"
                                 Margin="0,0,6,0"
                                 Width="96">
                         <TextBlock Text="{Binding Title}"
                                    Foreground="#F5F5F5"
                                    FontSize="10"
                                    FontWeight="SemiBold"
-                                   TextAlignment="Left"
+                                   TextAlignment="Right"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding Artist}"
                                    Foreground="#B8C0CC"
                                    FontSize="8"
-                                   TextAlignment="Left"
+                                   TextAlignment="Right"
                                    TextTrimming="CharacterEllipsis"
                                    Margin="0,1,0,0" />
                         <TextBlock Text="{Binding DurationText}"
                                    Foreground="#C8CDD6"
                                    FontSize="8"
-                                   TextAlignment="Left"
+                                   TextAlignment="Right"
                                    Margin="0,1,0,0" />
                     </StackPanel>
                 </Grid>
