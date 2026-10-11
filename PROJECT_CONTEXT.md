@@ -66,14 +66,13 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- Парный layout через `PairLayoutPlanner` (MixedAv / TwinVideo / TwinAudio)
-- MixedAv: video = primary; audio chip справа в parked-rail (Right align) → vol/prev уезжают влево; meta `MetaRailWidth` (title/artist/duration) у левого края обложки
-- Kind: AppId music/video overrides + PlaybackType/heuristics
-- Twin video / twin audio — dual host; sticky primary; dynamic widget width
+- Парный layout: `PrimaryWithExpandedSide` (A/V и A/A) или `TwinVideo`
+- pause+play → play+play: morph того же chip (expanded meta), DualHost compact больше не мелькает
+- Parked rail Right-align; meta у левого края обложки; DualHost только для TwinVideo
 
 ## Следующие шаги
 
-1. Проверить MixedAv: видео + Spotify (meta слева от обложки)
-2. Добить TwinVideo mirrored UX
+1. Проверить переход: видео играет + Spotify на паузе → play на Spotify
+2. TwinVideo mirrored UX
 3. Seek по клику на прогресс
 4. Автозапуск с Windows
