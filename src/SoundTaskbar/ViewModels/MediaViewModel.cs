@@ -872,6 +872,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         CanSeek = snapshot.CanSeek;
         CanTogglePlayback = snapshot.IsPlaying ? snapshot.CanPause : snapshot.CanPlay;
 
+        if (appChanged && IsVolumeEditorOpen)
+        {
+            IsVolumeEditorOpen = false;
+        }
+
         if (appChanged || !CanControlVolume)
         {
             RefreshVolume();
