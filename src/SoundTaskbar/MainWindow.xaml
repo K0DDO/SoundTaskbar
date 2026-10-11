@@ -5,11 +5,11 @@
         Height="48"
         Width="380"
         WindowStyle="None"
-        AllowsTransparency="False"
-        Background="#2C2C2C"
+        AllowsTransparency="True"
+        Background="Transparent"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Topmost="False"
+        Topmost="True"
         Focusable="False"
         ShowActivated="False"
         Loaded="OnLoaded"
@@ -20,10 +20,11 @@
         </ContextMenu>
     </Window.ContextMenu>
 
+    <!-- Fully transparent plate: taskbar / TranslucentTB color shows through -->
     <Border x:Name="RootBorder"
             Padding="8,4"
             BorderThickness="0"
-            Background="{Binding Background, RelativeSource={RelativeSource AncestorType=Window}}"
+            Background="Transparent"
             VerticalAlignment="Stretch">
         <Grid VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
@@ -32,12 +33,12 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#33000000">
+            <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#44000000">
                 <Grid>
                     <TextBlock x:Name="ArtworkPlaceholder"
                                Text="♪"
                                FontSize="14"
-                               Foreground="#99FFFFFF"
+                               Foreground="#CCFFFFFF"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
@@ -47,10 +48,14 @@
             <StackPanel Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center">
                 <TextBlock x:Name="HeadlineText"
                            Text="{Binding Headline}"
-                           Foreground="#F2F4F7"
+                           Foreground="#F5F5F5"
                            FontSize="12"
                            FontWeight="SemiBold"
-                           TextTrimming="CharacterEllipsis" />
+                           TextTrimming="CharacterEllipsis">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
+                    </TextBlock.Effect>
+                </TextBlock>
                 <Grid Margin="0,3,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -62,15 +67,19 @@
                                  Maximum="1"
                                  Value="{Binding Progress, Mode=OneWay}"
                                  Foreground="#9EC5FF"
-                                 Background="#44FFFFFF"
+                                 Background="#55FFFFFF"
                                  BorderThickness="0" />
                     <TextBlock x:Name="TimeText"
                                Grid.Column="1"
                                Margin="6,0,0,0"
                                VerticalAlignment="Center"
-                               Foreground="#C0C6D0"
+                               Foreground="#C8CDD6"
                                FontSize="10"
-                               Text="{Binding TimeText}" />
+                               Text="{Binding TimeText}">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
+                        </TextBlock.Effect>
+                    </TextBlock>
                 </Grid>
             </StackPanel>
 

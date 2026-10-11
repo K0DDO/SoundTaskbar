@@ -8,7 +8,6 @@ namespace SoundTaskbar.Services;
 
 public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
 {
-    public required Color PanelColor { get; init; }
     public required Color Foreground { get; init; }
     public required Color MutedForeground { get; init; }
     public required Color ProgressTrack { get; init; }
@@ -16,19 +15,18 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
 
     public bool Equals(TaskbarAppearance? other) =>
         other is not null &&
-        PanelColor == other.PanelColor &&
         Foreground == other.Foreground &&
         MutedForeground == other.MutedForeground &&
         ProgressTrack == other.ProgressTrack &&
         IsLight == other.IsLight;
 
     public override bool Equals(object? obj) => Equals(obj as TaskbarAppearance);
-    public override int GetHashCode() => HashCode.Combine(PanelColor, Foreground, IsLight);
+    public override int GetHashCode() => HashCode.Combine(Foreground, IsLight);
 }
 
 /// <summary>
-/// Matches the real taskbar / TranslucentTB color by sampling TrayNotifyWnd pixels
-/// (outside our widget). Opaque fill only — child windows cannot use WPF layered transparency.
+/// Panel stays fully transparent so TranslucentTB / system taskbar color shows through.
+/// Only foreground contrast is adapted from a tray sample.
 /// </summary>
 public sealed class TaskbarAppearanceService : IDisposable
 {
@@ -40,14 +38,14 @@ public sealed class TaskbarAppearanceService : IDisposable
     public TaskbarAppearanceService(Window window)
     {
         _window = window;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _timer.Tick += (_, _) => Refresh();
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
     public event EventHandler<TaskbarAppearance>? Changed;
 
-    public TaskbarAppearance Current { get; private set; } = CreateFallback(isLight: false);
+    public TaskbarAppearance Current { get; private set; } = Create(isLight: false);
 
     public void Start()
     {
@@ -78,8 +76,7 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
 
         var appearance = Detect();
-        if (!force && _last is not null && ColorDistance(_last.PanelColor, appearance.PanelColor) < 10 &&
-            _last.IsLight == appearance.IsLight)
+        if (!force && _last is not null && _last.Equals(appearance))
         {
             return;
         }
@@ -91,84 +88,43 @@ public sealed class TaskbarAppearanceService : IDisposable
 
     private static TaskbarAppearance Detect()
     {
-        var themeLight = IsLightTaskbar();
-        var sample = SampleTaskbarChrome();
+        var sample = SampleTrayColor();
         var isLight = sample is not null
             ? PerceivedBrightness(sample.Value) > 160
-            : themeLight;
-
-        var panel = sample is not null
-            ? Color.FromRgb(sample.Value.R, sample.Value.G, sample.Value.B)
-            : (isLight ? Color.FromRgb(0xF3, 0xF3, 0xF3) : Color.FromRgb(0x2C, 0x2C, 0x2C));
-
-        // Soften TranslucentTB noise a bit without lagging big accent shifts.
-        panel = Quantize(panel, step: 6);
-
-        return new TaskbarAppearance
-        {
-            PanelColor = panel,
-            Foreground = isLight ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Color.FromRgb(0xF2, 0xF4, 0xF7),
-            MutedForeground = isLight ? Color.FromRgb(0x5A, 0x5A, 0x5A) : Color.FromRgb(0xC0, 0xC6, 0xD0),
-            ProgressTrack = isLight ? Color.FromArgb(0x40, 0x00, 0x00, 0x00) : Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF),
-            IsLight = isLight
-        };
+            : IsLightTaskbar();
+        return Create(isLight);
     }
 
-    private static TaskbarAppearance CreateFallback(bool isLight) =>
+    private static TaskbarAppearance Create(bool isLight) =>
         new()
         {
-            PanelColor = isLight ? Color.FromRgb(0xF3, 0xF3, 0xF3) : Color.FromRgb(0x2C, 0x2C, 0x2C),
-            Foreground = isLight ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Color.FromRgb(0xF2, 0xF4, 0xF7),
-            MutedForeground = isLight ? Color.FromRgb(0x5A, 0x5A, 0x5A) : Color.FromRgb(0xC0, 0xC6, 0xD0),
-            ProgressTrack = isLight ? Color.FromArgb(0x40, 0x00, 0x00, 0x00) : Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF),
+            Foreground = isLight ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Color.FromRgb(0xF5, 0xF5, 0xF5),
+            MutedForeground = isLight ? Color.FromRgb(0x4A, 0x4A, 0x4A) : Color.FromRgb(0xC8, 0xCD, 0xD6),
+            ProgressTrack = isLight ? Color.FromArgb(0x55, 0x00, 0x00, 0x00) : Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF),
             IsLight = isLight
         };
 
-    private static Color? SampleTaskbarChrome()
+    private static Color? SampleTrayColor()
     {
         var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
-        if (taskbar == IntPtr.Zero || !NativeMethods.GetWindowRect(taskbar, out var taskbarRect))
+        if (taskbar == IntPtr.Zero)
         {
             return null;
         }
 
-        // Prefer TrayNotifyWnd: same chrome as the bar, and not covered by our widget.
         var tray = NativeMethods.FindWindowEx(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);
-        var colors = new List<Color>();
-
-        if (tray != IntPtr.Zero && NativeMethods.GetWindowRect(tray, out var trayRect) && trayRect.Width > 8)
+        if (tray == IntPtr.Zero || !NativeMethods.GetWindowRect(tray, out var trayRect) || trayRect.Width < 8)
         {
-            var y = trayRect.Top + Math.Max(2, trayRect.Height / 2);
-            TryAdd(colors, trayRect.Left + 4, y);
-            TryAdd(colors, trayRect.Left + 12, y);
-            TryAdd(colors, trayRect.Left + Math.Min(28, trayRect.Width / 3), y);
+            if (!NativeMethods.GetWindowRect(taskbar, out var bar))
+            {
+                return null;
+            }
+
+            return SampleScreenColor(bar.Left + 16, bar.Top + Math.Max(2, bar.Height / 2));
         }
 
-        // Fallback: far-left of the taskbar (Start area padding), also usually free of our widget.
-        if (colors.Count == 0)
-        {
-            var y = taskbarRect.Top + Math.Max(2, taskbarRect.Height / 2);
-            TryAdd(colors, taskbarRect.Left + 8, y);
-            TryAdd(colors, taskbarRect.Left + 20, y);
-        }
-
-        if (colors.Count == 0)
-        {
-            return null;
-        }
-
-        // If TranslucentTB is clear, nearby pixels can differ a lot — median is stabler than average.
-        colors.Sort((a, b) => PerceivedBrightness(a).CompareTo(PerceivedBrightness(b)));
-        return colors[colors.Count / 2];
-    }
-
-    private static void TryAdd(List<Color> colors, int x, int y)
-    {
-        var c = SampleScreenColor(x, y);
-        if (c is not null)
-        {
-            colors.Add(c.Value);
-        }
+        var y = trayRect.Top + Math.Max(2, trayRect.Height / 2);
+        return SampleScreenColor(trayRect.Left + 8, y);
     }
 
     private static Color? SampleScreenColor(int x, int y)
@@ -198,22 +154,8 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
     }
 
-    private static Color Quantize(Color c, byte step)
-    {
-        static byte Q(byte v, byte s) => (byte)(Math.Clamp((v + s / 2) / s * s, 0, 255));
-        return Color.FromRgb(Q(c.R, step), Q(c.G, step), Q(c.B, step));
-    }
-
     private static double PerceivedBrightness(Color c) =>
         (0.299 * c.R) + (0.587 * c.G) + (0.114 * c.B);
-
-    private static double ColorDistance(Color a, Color b)
-    {
-        var dr = a.R - b.R;
-        var dg = a.G - b.G;
-        var db = a.B - b.B;
-        return Math.Sqrt(dr * dr + dg * dg + db * db);
-    }
 
     private static bool IsLightTaskbar()
     {
@@ -221,18 +163,11 @@ public sealed class TaskbarAppearanceService : IDisposable
         {
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
             var system = key?.GetValue("SystemUsesLightTheme");
-            if (system is int s)
-            {
-                return s != 0;
-            }
-
-            var apps = key?.GetValue("AppsUseLightTheme");
-            return apps is int a && a != 0;
+            return system is int s && s != 0;
         }
         catch
         {
             return false;
         }
     }
-
 }

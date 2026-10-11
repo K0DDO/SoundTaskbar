@@ -5,7 +5,7 @@
 
 ## Продукт
 
-Windows-приложение: медиа-контролы **внутри полосы таскбара** для музыки и видео.
+Windows-приложение: медиа-контролы **на полосе таскбара** для музыки и видео.
 
 Когда играет источник вроде Spotify, Яндекс Музыки, YouTube или другого плеера, на таскбаре видно:
 
@@ -20,18 +20,23 @@ Windows-приложение: медиа-контролы **внутри пол�
 ## Целевое поведение
 
 1. Подхватывать активный медиа-источник системы (SMTC / session API).
-2. Показывать UI **в полосе таскбара** как child `Shell_TrayWnd` (`SetParent`) — иначе Win+D прячет окно. `AllowsTransparency` нельзя (layered child не рисуется).
+2. Показывать UI на полосе таскбара слева от трея.
 3. Play / pause / next / previous через системные команды медиа-сессии.
 4. Per-app volume: менять громкость конкретного audio session, не master volume.
 5. Если источников несколько — выбрать активный или переключаться между ними (детали UX уточняются).
+
+## Важные ограничения Win11 25H2
+
+- `SetParent(Shell_TrayWnd)` + child: переживает Win+D, но **невидим** — XAML taskbar рисуется сверху.
+- `AllowsTransparency` + `SetParent`: layered child не рисуется.
+- Рабочий путь: **top-level overlay** + отказ от `SWP_HIDEWINDOW` в `WM_WINDOWPOSCHANGING` + прозрачный фон (цвет таскбара/TranslucentTB просвечивает).
 
 ## Стек
 
 - Платформа: Windows 10/11
 - UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
 - Медиа: `GlobalSystemMediaTransportControlsSessionManager`
-- Хостинг в таскбаре: `SetParent` → `Shell_TrayWnd` + opaque WPF (`TaskbarHostService`)
-- Громкость по приложению: Windows Core Audio — ещё не сделано
+- Хостинг: overlay `TaskbarHostService`
 - Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
 
 ## Запуск
@@ -56,24 +61,19 @@ dotnet run --project src/SoundTaskbar
 3. Не коммить секреты.
 4. Не раздувай scope.
 5. После логического куска — коммит (договорённость сессии).
+6. Запускай приложение сам после изменений.
 
 ## Текущее состояние
 
-- SMTC: title, artist, artwork, status, timeline + prev/play/next
-- UI — child `Shell_TrayWnd` (переживает Win+D), opaque WPF без AllowsTransparency
-- Прогресс: локальная экстраполяция + anti-rewind
-- Цвет: sample `TrayNotifyWnd` (TranslucentTB), без acrylic
+- SMTC + prev/play/next + smooth progress (anti-rewind)
+- Overlay на таскбаре, прозрачный фон (TranslucentTB виден как есть)
+- Win+D: блокируем hide через WM_WINDOWPOSCHANGING + visibility watchdog
 - Per-app volume ещё нет
 
 ## Следующие шаги
 
 1. Per-app volume slider
-2. Более точный layout на Win11 (centered taskbar / widgets collision)
+2. Более точный layout на Win11 (centered taskbar / widgets)
 3. Переключение между несколькими SMTC-сессиями
 4. Seek по клику на прогресс
-5. Автозапуск с Windows + иконка в трее
-
-## Открытые решения
-
-- Поведение при нехватке места между кнопками приложений и треем
-- Secondary taskbar на других мониторах
+5. Автозапуск с Windows
