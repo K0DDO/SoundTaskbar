@@ -437,7 +437,8 @@
                     </ItemsControl.RenderTransform>
                 </ItemsControl>
 
-                <!-- Single: parked chips + full primary player -->
+                <!-- Single: right-anchored so parked growth eats left space only
+                     (divider + primary stay put; only chip vol/prev slide left). -->
                 <Border x:Name="SingleHost"
                         Background="Transparent"
                         MouseEnter="OnMarqueeZoneEnter"
@@ -446,126 +447,123 @@
                         <TranslateTransform x:Name="SingleSlide" X="0" />
                     </Border.RenderTransform>
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Paused chips: roll in/out like volume slider -->
-                        <Grid x:Name="ParkedHost"
-                              Width="0"
-                              ClipToBounds="True"
-                              Opacity="0"
-                              VerticalAlignment="Center">
-                            <ItemsControl x:Name="ParkedList"
-                                          ItemsSource="{Binding SideSessions}"
-                                          ItemTemplate="{StaticResource SessionArtChip}"
-                                          HorizontalAlignment="Right"
-                                          VerticalAlignment="Center">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
-                        </Grid>
-
-                        <!-- Divider outside clipped host so it is never cut off -->
-                        <Border x:Name="ParkedDivider"
-                                Grid.Column="1"
-                                Width="0"
-                                Height="28"
-                                CornerRadius="1.25"
-                                Background="#AAFFFFFF"
-                                Margin="0"
-                                Opacity="0"
-                                VerticalAlignment="Center" />
-
-                        <Border Grid.Column="2"
-                                Width="28"
-                                Height="28"
-                                CornerRadius="4"
-                                ClipToBounds="True"
-                                Background="#44000000"
-                                VerticalAlignment="Center">
-                            <Grid>
-                                <TextBlock x:Name="ArtworkPlaceholder"
-                                           Text="♪"
-                                           FontSize="12"
-                                           Foreground="#CCFFFFFF"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                                <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                            </Grid>
-                        </Border>
-
-                        <Grid Grid.Column="3" Margin="6,0,6,0" VerticalAlignment="Center" MinWidth="70">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-
-                            <controls:MarqueeText x:Name="TitleMarquee"
-                                                  Text="{Binding Title}"
-                                                  FontSize="11"
-                                                  FontWeight="SemiBold"
-                                                  Foreground="#F5F5F5"
-                                                  Height="14" />
-
-                            <Grid Grid.Row="1" Margin="0,1,0,1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="ArtistText"
-                                           Text="{Binding Artist}"
-                                           Foreground="#B8C0CC"
-                                           FontSize="9"
-                                           TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center">
-                                    <TextBlock.Effect>
-                                        <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
-                                    </TextBlock.Effect>
-                                </TextBlock>
-                                <TextBlock x:Name="SourceText"
-                                           Grid.Column="1"
-                                           Text="{Binding SourceName}"
-                                           Foreground="#B8C0CC"
-                                           FontSize="9"
-                                           Margin="6,0,0,0"
-                                           VerticalAlignment="Center"
-                                           TextAlignment="Right">
-                                    <TextBlock.Effect>
-                                        <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
-                                    </TextBlock.Effect>
-                                </TextBlock>
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                            <!-- Paused / paired audio chip -->
+                            <Grid x:Name="ParkedHost"
+                                  Width="0"
+                                  ClipToBounds="True"
+                                  Opacity="0"
+                                  VerticalAlignment="Center">
+                                <ItemsControl x:Name="ParkedList"
+                                              ItemsSource="{Binding SideSessions}"
+                                              ItemTemplate="{StaticResource SessionArtChip}"
+                                              HorizontalAlignment="Right"
+                                              VerticalAlignment="Center">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
                             </Grid>
 
-                            <Grid Grid.Row="2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <ProgressBar x:Name="ProgressBar"
-                                             Height="2"
-                                             Minimum="0"
-                                             Maximum="1"
-                                             Value="{Binding Progress, Mode=OneWay}"
-                                             Foreground="#9EC5FF"
-                                             Background="#55FFFFFF"
-                                             BorderThickness="0" />
-                                <TextBlock x:Name="TimeText"
-                                           Grid.Column="1"
-                                           Margin="4,0,0,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="#C8CDD6"
-                                           FontSize="8"
-                                           Text="{Binding TimeText}" />
+                            <Border x:Name="ParkedDivider"
+                                    Width="0"
+                                    Height="28"
+                                    CornerRadius="1.25"
+                                    Background="#AAFFFFFF"
+                                    Margin="0"
+                                    Opacity="0"
+                                    VerticalAlignment="Center" />
+
+                            <Border Width="28"
+                                    Height="28"
+                                    CornerRadius="4"
+                                    ClipToBounds="True"
+                                    Background="#44000000"
+                                    VerticalAlignment="Center">
+                                <Grid>
+                                    <TextBlock x:Name="ArtworkPlaceholder"
+                                               Text="♪"
+                                               FontSize="12"
+                                               Foreground="#CCFFFFFF"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                    <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                </Grid>
+                            </Border>
+
+                            <Grid Margin="6,0,6,0"
+                                  VerticalAlignment="Center"
+                                  Width="120"
+                                  MinWidth="70">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <controls:MarqueeText x:Name="TitleMarquee"
+                                                      Text="{Binding Title}"
+                                                      FontSize="11"
+                                                      FontWeight="SemiBold"
+                                                      Foreground="#F5F5F5"
+                                                      Height="14" />
+
+                                <Grid Grid.Row="1" Margin="0,1,0,1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ArtistText"
+                                               Text="{Binding Artist}"
+                                               Foreground="#B8C0CC"
+                                               FontSize="9"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Effect>
+                                            <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
+                                        </TextBlock.Effect>
+                                    </TextBlock>
+                                    <TextBlock x:Name="SourceText"
+                                               Grid.Column="1"
+                                               Text="{Binding SourceName}"
+                                               Foreground="#B8C0CC"
+                                               FontSize="9"
+                                               Margin="6,0,0,0"
+                                               VerticalAlignment="Center"
+                                               TextAlignment="Right">
+                                        <TextBlock.Effect>
+                                            <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
+                                        </TextBlock.Effect>
+                                    </TextBlock>
+                                </Grid>
+
+                                <Grid Grid.Row="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ProgressBar x:Name="ProgressBar"
+                                                 Height="2"
+                                                 Minimum="0"
+                                                 Maximum="1"
+                                                 Value="{Binding Progress, Mode=OneWay}"
+                                                 Foreground="#9EC5FF"
+                                                 Background="#55FFFFFF"
+                                                 BorderThickness="0" />
+                                    <TextBlock x:Name="TimeText"
+                                               Grid.Column="1"
+                                               Margin="4,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="#C8CDD6"
+                                               FontSize="8"
+                                               Text="{Binding TimeText}" />
+                                </Grid>
                             </Grid>
-                        </Grid>
+                        </StackPanel>
                     </Grid>
                 </Border>
                 </Grid>
