@@ -75,7 +75,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
     private DateTimeOffset? _pairExitAfter;
-    private const int PairExitGraceMs = 1000;
+    private DateTimeOffset? _emptySessionsGraceUntil;
+    /// <summary>Hold pair UI across Win+D / minimize-all SMTC blips.</summary>
+    private const int PairExitGraceMs = 2500;
+    private const int EmptySessionsGraceMs = 2000;
     private BitmapImage? _appIcon;
     private readonly Dictionary<string, BitmapImage?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
     private string? _iconLoadAppId;
@@ -669,6 +672,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     {
         if (snapshots.Count == 0)
         {
+            // Win+D / minimize-all can briefly empty SMTC — do not nuke UI.
+            if (ShouldHoldEmptySessions())
+            {
+                return;
+            }
+
             ClearAllSessions();
             return;
         }
@@ -693,9 +702,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (enriched.Count == 0)
         {
+            if (ShouldHoldEmptySessions())
+            {
+                return;
+            }
+
             ClearAllSessions();
             return;
         }
+
+        _emptySessionsGraceUntil = null;
 
         var playing = enriched.Where(s => s.IsPlaying).ToList();
         var focusedKey = _media.FocusedKey;
@@ -711,7 +727,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             primary = ApplyPairPlan(
                 PairLayoutPlanner.Plan(playing, _primarySessionKey, parkedSideKey));
         }
-        else if (TryHoldPairAfterVideoStop(enriched, out var heldPrimary))
+        else if (TryHoldPairGrace(enriched, playing, out var heldPrimary))
         {
             primary = heldPrimary;
         }
@@ -745,11 +761,23 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         ApplyPrimary(primary, keepArtwork);
     }
 
+    private bool ShouldHoldEmptySessions()
+    {
+        if (!HasSession && SideSessions.Count == 0)
+        {
+            return false;
+        }
+
+        _emptySessionsGraceUntil ??= DateTimeOffset.UtcNow.AddMilliseconds(EmptySessionsGraceMs);
+        return DateTimeOffset.UtcNow < _emptySessionsGraceUntil.Value;
+    }
+
     /// <summary>
-    /// After video stops while audio still plays, keep A/V pair UI for 5s before collapsing.
+    /// Keep play+play / pair UI briefly when SMTC flickers (Win+D, minimize-all, pause blip).
     /// </summary>
-    private bool TryHoldPairAfterVideoStop(
+    private bool TryHoldPairGrace(
         List<MediaSessionSnapshot> enriched,
+        List<MediaSessionSnapshot> playing,
         out MediaSessionSnapshot primary)
     {
         primary = default!;
@@ -758,15 +786,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return false;
         }
 
-        var video = enriched.FirstOrDefault(s => s.SessionKey == _pairPrimaryKey);
-        var audio = enriched.FirstOrDefault(s => s.SessionKey == _pairSideKey);
-        if (video is null || audio is null || !video.IsParkable || !audio.IsParkable)
+        var left = enriched.FirstOrDefault(s => s.SessionKey == _pairSideKey);
+        var right = enriched.FirstOrDefault(s => s.SessionKey == _pairPrimaryKey);
+        if (left is null || right is null || !left.IsParkable || !right.IsParkable)
         {
             return false;
         }
 
-        // Only hold when the video side stopped/paused and audio is still the active one.
-        if (video.IsPlaying || !audio.IsPlaying)
+        // Still two playing — planner should have handled; do not hold.
+        if (playing.Count >= 2)
         {
             return false;
         }
@@ -777,16 +805,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return false;
         }
 
+        // Hold play+play chrome through the blip (do not morph down then up).
         _parkedDismissPending = false;
         SyncCollection(
             SideSessions,
-            new List<MediaSessionSnapshot> { audio },
+            new List<MediaSessionSnapshot> { left },
             freezeTransportIcons: true,
             expandedMeta: true);
         ShowParkedRail = true;
         UpdateParkedWatchdog();
-        // Width measured by MainWindow MorphPlayPlay.
-        primary = video;
+        primary = right;
         return true;
     }
 
@@ -1103,6 +1131,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         SideSessions.Clear();
         _kindCache.Clear();
         ClearPairHold();
+        _emptySessionsGraceUntil = null;
         UpdateParkedWatchdog();
         _primarySessionKey = string.Empty;
         Title = "Нет активного медиа";

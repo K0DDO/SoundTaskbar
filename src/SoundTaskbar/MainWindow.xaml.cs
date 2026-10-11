@@ -417,6 +417,8 @@ public partial class MainWindow : Window
                 _viewModel.ApplyParkedCompositeWidth(compactWidth);
             }
 
+            _taskbarHost?.FlushRegion();
+            ApplyChipMarqueeScrims();
             _playPlayClock = null;
             return;
         }
@@ -457,6 +459,8 @@ public partial class MainWindow : Window
                     _viewModel.ApplyParkedCompositeWidth(compactWidth);
                 }
 
+                _taskbarHost?.FlushRegion();
+                ApplyChipMarqueeScrims();
                 _playPlayClock = null;
             });
 
@@ -488,8 +492,6 @@ public partial class MainWindow : Window
                 metaHost.Width = side.EffectiveMetaRailWidth;
             }
         }
-
-        ApplyChipMarqueeScrims();
 
         ParkedHost.BeginAnimation(WidthProperty, null);
         ParkedHost.Width = chipWidth;
@@ -591,6 +593,7 @@ public partial class MainWindow : Window
             {
                 ParkedHost.Width = to;
                 _viewModel.ApplyParkedCompositeWidth(to);
+                _taskbarHost?.FlushRegion();
             });
     }
 
@@ -827,6 +830,8 @@ public partial class MainWindow : Window
                 _viewModel.CompleteParkedDismiss();
                 _viewModel.ApplyParkedCompositeWidth(null);
             }
+
+            _taskbarHost?.FlushRegion();
         };
         BeginAnimation(ParkedRevealProperty, anim);
     }

@@ -22,11 +22,17 @@ internal static class NativeMethods
     public const uint SWP_NOZORDER = 0x0004;
     public const uint SWP_NOACTIVATE = 0x0010;
     public const uint SWP_SHOWWINDOW = 0x0040;
+    public const uint SWP_HIDEWINDOW = 0x0080;
     public const uint SWP_FRAMECHANGED = 0x0020;
     public const uint SWP_ASYNCWINDOWPOS = 0x4000;
 
     public const int WM_GETOBJECT = 0x003D;
+    public const int WM_WINDOWPOSCHANGING = 0x0046;
+    public const int WM_SHOWWINDOW = 0x0018;
+    public const int WM_SIZE = 0x0005;
     public const int SW_SHOWNOACTIVATE = 4;
+    public const int SIZE_MINIMIZED = 1;
+    public const int DWMWA_CLOAKED = 14;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -45,6 +51,18 @@ internal static class NativeMethods
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WINDOWPOS
+    {
+        public IntPtr hwnd;
+        public IntPtr hwndInsertAfter;
+        public int x;
+        public int y;
+        public int cx;
+        public int cy;
+        public uint flags;
     }
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -82,6 +100,17 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        out int pvAttribute,
+        int cbAttribute);
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetDC(IntPtr hWnd);

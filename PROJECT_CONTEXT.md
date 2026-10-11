@@ -68,9 +68,11 @@ dotnet run --project src/SoundTaskbar
 
 - **Solo заморожен** (310, marquee/fade/icon/VU gaps) — не менять без явного запроса
 - **pause+play заморожен** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms) — не трогать
-- **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`; volume steals meta (art shifts, chip fixed); primary name→icon latched; left app icon; title hover-marquee; DualHost удалён
-- Title fade: edge-scrim from tray sample (same as contrast detect)
-- Стоп песни → 1s hold, потом collapse
+- **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`; volume steals meta; name→icon latched; DualHost удалён
+- Win+D / minimize-all: reject hide + uncloak timer; pair/empty SMTC grace 2–2.5s (no collapse blip)
+- Shell width: throttled SetWindowRgn (~32ms) + FlushRegion at anim end
+- Title fade: edge-scrim from tray sample
+- Стоп / pair exit → 2.5s hold, потом collapse
 
 ## Следующие шаги
 
