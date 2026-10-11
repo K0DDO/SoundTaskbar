@@ -8,9 +8,6 @@ namespace SoundTaskbar.Controls;
 
 public partial class MarqueeText : UserControl
 {
-    /// <summary>Fade lives on the right edge of the title block (not the text end).</summary>
-    private const double FadeStartOffset = 0.72;
-
     public static readonly DependencyProperty TextProperty =
         DependencyProperty.Register(
             nameof(Text),
@@ -23,34 +20,15 @@ public partial class MarqueeText : UserControl
             nameof(ScrollWhenOverflow),
             typeof(bool),
             typeof(MarqueeText),
-            new PropertyMetadata(false, (_, __) => { /* restart via QueueRestart on size */ }));
+            new PropertyMetadata(false));
 
-    private readonly GradientStop _fadeBegin = new(Colors.Black, 1);
-    private readonly GradientStop _fadeOut = new(Colors.Black, 1);
-    private readonly LinearGradientBrush _fadeBrush;
     private bool _restartQueued;
     private bool _isHovering;
     private bool _overflows;
-    private bool _atTextEnd;
 
     public MarqueeText()
     {
         InitializeComponent();
-
-        // Unfrozen brush so offsets stay animatable.
-        _fadeBrush = new LinearGradientBrush
-        {
-            StartPoint = new Point(0, 0),
-            EndPoint = new Point(1, 0),
-            MappingMode = BrushMappingMode.RelativeToBoundingBox,
-            GradientStops =
-            {
-                new GradientStop(Colors.Black, 0),
-                _fadeBegin,
-                _fadeOut
-            }
-        };
-        FadeHost.OpacityMask = _fadeBrush;
         Loaded += (_, _) => QueueRestart();
     }
 
@@ -60,11 +38,25 @@ public partial class MarqueeText : UserControl
         set => SetValue(TextProperty, value);
     }
 
-    /// <summary>When true, marquee runs whenever text overflows (no hover needed).</summary>
     public bool ScrollWhenOverflow
     {
         get => (bool)GetValue(ScrollWhenOverflowProperty);
         set => SetValue(ScrollWhenOverflowProperty, value);
+    }
+
+    /// <summary>Match scrim to taskbar luminance so the edge fade reads as text disappearing.</summary>
+    public void SetEdgeScrim(bool isLight)
+    {
+        if (isLight)
+        {
+            ScrimMid.Color = Color.FromArgb(0x99, 0xE8, 0xE8, 0xE8);
+            ScrimEnd.Color = Color.FromArgb(0xF0, 0xE8, 0xE8, 0xE8);
+        }
+        else
+        {
+            ScrimMid.Color = Color.FromArgb(0x99, 0x18, 0x18, 0x18);
+            ScrimEnd.Color = Color.FromArgb(0xF0, 0x12, 0x12, 0x12);
+        }
     }
 
     public void SetHovering(bool hovering)
@@ -108,42 +100,24 @@ public partial class MarqueeText : UserControl
             {
                 Stop();
             }
-        }, DispatcherPriority.Loaded);
+        }, DispatcherPriority.Render);
     }
 
     private void Stop()
     {
         Slide.BeginAnimation(TranslateTransform.XProperty, null);
-        _fadeBegin.BeginAnimation(GradientStop.OffsetProperty, null);
-        _fadeOut.BeginAnimation(GradientStop.OffsetProperty, null);
+        ShadowSlide.BeginAnimation(TranslateTransform.XProperty, null);
+        EdgeScrim.BeginAnimation(OpacityProperty, null);
         Slide.X = 0;
-        _atTextEnd = false;
+        ShadowSlide.X = 0;
         UpdateOverflowFlag();
-        // Block-edge fade while clipped; off when the visible end is the real text end.
-        ApplyFade(_overflows && !_atTextEnd);
-    }
-
-    private void ApplyFade(bool show)
-    {
-        if (show)
-        {
-            _fadeBegin.Offset = FadeStartOffset;
-            _fadeBegin.Color = Colors.Black;
-            _fadeOut.Offset = 1;
-            _fadeOut.Color = Colors.Transparent;
-        }
-        else
-        {
-            _fadeBegin.Offset = 1;
-            _fadeBegin.Color = Colors.Black;
-            _fadeOut.Offset = 1;
-            _fadeOut.Color = Colors.Black;
-        }
+        // Scrim marks the block edge whenever title is clipped.
+        EdgeScrim.Opacity = _overflows ? 1 : 0;
     }
 
     private void UpdateOverflowFlag()
     {
-        var viewWidth = Host.ActualWidth;
+        var viewWidth = Root.ActualWidth;
         var textWidth = RunText.ActualWidth;
         _overflows = viewWidth > 1 && textWidth > viewWidth + 2;
     }
@@ -163,7 +137,7 @@ public partial class MarqueeText : UserControl
             return;
         }
 
-        var viewWidth = Host.ActualWidth;
+        var viewWidth = Root.ActualWidth;
         var textWidth = RunText.ActualWidth;
         var distance = textWidth - viewWidth + 8;
         var seconds = Math.Max(3.5, distance / 32);
@@ -182,21 +156,22 @@ public partial class MarqueeText : UserControl
             BeginTime = begin
         };
 
-        // Fade marks the block's right edge; hide only when scroll reaches the text end.
-        var fadeBeginAnim = new DoubleAnimationUsingKeyFrames
+        // Hide edge scrim only when scroll reaches the real end of the title.
+        var scrimAnim = new DoubleAnimationUsingKeyFrames
         {
             Duration = duration,
             AutoReverse = true,
             RepeatBehavior = RepeatBehavior.Forever,
             BeginTime = begin
         };
-        fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0)));
-        fadeBeginAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(FadeStartOffset, KeyTime.FromPercent(0.9)));
-        fadeBeginAnim.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(1)));
+        scrimAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0)));
+        scrimAnim.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromPercent(0.9)));
+        scrimAnim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(1)));
 
-        ApplyFade(true);
+        EdgeScrim.Opacity = 1;
         Slide.BeginAnimation(TranslateTransform.XProperty, slide);
-        _fadeBegin.BeginAnimation(GradientStop.OffsetProperty, fadeBeginAnim);
+        ShadowSlide.BeginAnimation(TranslateTransform.XProperty, slide.Clone());
+        EdgeScrim.BeginAnimation(OpacityProperty, scrimAnim);
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)

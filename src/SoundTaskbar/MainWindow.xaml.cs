@@ -672,6 +672,7 @@ public partial class MainWindow : Window
 
     private void AnimateVolumeEditor(bool open)
     {
+        // One shared clock so volume grow and source-name collapse stay in lockstep.
         var duration = TimeSpan.FromMilliseconds(260);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
@@ -689,8 +690,7 @@ public partial class MainWindow : Window
             new DoubleAnimation
             {
                 To = open ? 1 : 0,
-                Duration = TimeSpan.FromMilliseconds(open ? 200 : 140),
-                BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.Zero,
+                Duration = duration,
                 EasingFunction = ease
             });
 
@@ -699,8 +699,7 @@ public partial class MainWindow : Window
             new DoubleAnimation
             {
                 To = open ? 0 : 1,
-                Duration = TimeSpan.FromMilliseconds(open ? 120 : 180),
-                BeginTime = open ? TimeSpan.Zero : TimeSpan.FromMilliseconds(60),
+                Duration = duration,
                 EasingFunction = ease
             });
 
@@ -718,8 +717,7 @@ public partial class MainWindow : Window
             new DoubleAnimation
             {
                 To = open ? 1 : 0,
-                Duration = TimeSpan.FromMilliseconds(open ? 180 : 120),
-                BeginTime = open ? TimeSpan.FromMilliseconds(60) : TimeSpan.Zero,
+                Duration = duration,
                 EasingFunction = ease
             });
 
@@ -727,55 +725,45 @@ public partial class MainWindow : Window
         MuteButton.IsHitTestVisible = open;
         VolumeButton.IsHitTestVisible = !open;
 
-        AnimateSourceNameForVolume(open);
+        AnimateSourceNameForVolume(open, duration, ease);
     }
 
-    /// <summary>Solo: collapse app name into the mono icon while the volume slider is open.</summary>
-    private void AnimateSourceNameForVolume(bool volumeOpen)
+    /// <summary>Solo: collapse app name into the mono icon in sync with the volume host width.</summary>
+    private void AnimateSourceNameForVolume(bool volumeOpen, Duration duration, IEasingFunction ease)
     {
         if (_viewModel.ShowPairAppIcon || SourceText.Visibility != Visibility.Visible)
         {
             SourceNameHost.BeginAnimation(WidthProperty, null);
             SourceNameHost.Width = double.NaN;
-            SourceText.BeginAnimation(OpacityProperty, null);
             SourceText.Opacity = 1;
             return;
         }
 
         SourceText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var full = Math.Max(1, Math.Ceiling(SourceText.DesiredSize.Width));
+        var from = SourceNameHost.ActualWidth > 0.5
+            ? SourceNameHost.ActualWidth
+            : (volumeOpen ? full : 0);
+        var to = volumeOpen ? 0 : full;
 
         SourceNameHost.BeginAnimation(WidthProperty, null);
-        if (double.IsNaN(SourceNameHost.Width) || SourceNameHost.ActualWidth < 0.5)
-        {
-            SourceNameHost.Width = volumeOpen ? full : 0;
-        }
+        SourceNameHost.Width = from;
 
-        var ease = new CubicEase { EasingMode = volumeOpen ? EasingMode.EaseIn : EasingMode.EaseOut };
         var widthAnim = new DoubleAnimation
         {
-            To = volumeOpen ? 0 : full,
-            Duration = TimeSpan.FromMilliseconds(220),
-            EasingFunction = ease
+            From = from,
+            To = to,
+            Duration = duration,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.Stop
         };
-        if (!volumeOpen)
+        widthAnim.Completed += (_, _) =>
         {
-            widthAnim.Completed += (_, _) =>
-            {
-                SourceNameHost.BeginAnimation(WidthProperty, null);
-                SourceNameHost.Width = double.NaN;
-            };
-        }
+            SourceNameHost.BeginAnimation(WidthProperty, null);
+            SourceNameHost.Width = volumeOpen ? 0 : double.NaN;
+        };
 
         SourceNameHost.BeginAnimation(WidthProperty, widthAnim);
-        SourceText.BeginAnimation(
-            OpacityProperty,
-            new DoubleAnimation
-            {
-                To = volumeOpen ? 0 : 1,
-                Duration = TimeSpan.FromMilliseconds(160),
-                EasingFunction = ease
-            });
     }
 
     private void ApplyLayout(TaskbarLayout layout)
@@ -793,6 +781,7 @@ public partial class MainWindow : Window
         _progressTrackBrush.Color = appearance.ProgressTrack;
         _progressFillBrush.Color = appearance.ProgressFill;
         TitleMarquee.Foreground = _titleBrush;
+        TitleMarquee.SetEdgeScrim(appearance.IsLight);
         ArtistText.Foreground = _mutedBrush;
         SourceText.Foreground = _mutedBrush;
 

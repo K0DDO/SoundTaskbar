@@ -3,27 +3,42 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ClipToBounds="True"
              Height="16">
-    <!-- Effect on outer shell: OpacityMask on the same element as Effect is broken in WPF -->
-    <Grid>
-        <Grid.Effect>
-            <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.65" Color="#000000" />
-        </Grid.Effect>
-        <!-- Near-invisible background forces OpacityMask to map to control bounds, not text width -->
-        <Grid x:Name="FadeHost"
-              ClipToBounds="True"
-              Background="#0A000000">
-            <Canvas x:Name="Host" SizeChanged="OnHostSizeChanged">
-                <TextBlock x:Name="RunText"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                           FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                           FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                           Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                           SizeChanged="OnTextSizeChanged">
-                    <TextBlock.RenderTransform>
-                        <TranslateTransform x:Name="Slide" />
-                    </TextBlock.RenderTransform>
-                </TextBlock>
-            </Canvas>
-        </Grid>
+    <Grid x:Name="Root" ClipToBounds="True" SizeChanged="OnHostSizeChanged">
+        <!-- Soft shadow without Effect (Effect breaks alpha fades on layered windows) -->
+        <TextBlock x:Name="ShadowText"
+                   Foreground="#A0000000"
+                   FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   Margin="0.6,0.8,0,0"
+                   IsHitTestVisible="False">
+            <TextBlock.RenderTransform>
+                <TranslateTransform x:Name="ShadowSlide" />
+            </TextBlock.RenderTransform>
+        </TextBlock>
+        <TextBlock x:Name="RunText"
+                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   Text="{Binding Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   SizeChanged="OnTextSizeChanged">
+            <TextBlock.RenderTransform>
+                <TranslateTransform x:Name="Slide" />
+            </TextBlock.RenderTransform>
+        </TextBlock>
+        <!-- Viewport-edge fade: scrim always maps to the block's right edge -->
+        <Rectangle x:Name="EdgeScrim"
+                   Width="18"
+                   HorizontalAlignment="Right"
+                   IsHitTestVisible="False"
+                   Opacity="0">
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                    <GradientStop Color="#00000000" Offset="0" />
+                    <GradientStop x:Name="ScrimMid" Color="#99000000" Offset="0.55" />
+                    <GradientStop x:Name="ScrimEnd" Color="#E6000000" Offset="1" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
     </Grid>
 </UserControl>
