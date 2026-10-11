@@ -55,6 +55,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private long _volumeWriteTicks;
     private string _primarySessionKey = string.Empty;
     private bool _isDualPlaying;
+    private bool _showParkedRail;
+    private bool _parkedDismissPending;
     private readonly Dictionary<string, BitmapImage?> _artworkCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Title, string Artist)> _metaCache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -134,6 +136,27 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     public Visibility DualModeVisibility =>
         IsDualPlaying ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// Drives parked-rail slide. Stays true until UI finishes shrink animation, then clears chips.
+    /// </summary>
+    public bool ShowParkedRail
+    {
+        get => _showParkedRail;
+        private set => SetField(ref _showParkedRail, value);
+    }
+
+    public void CompleteParkedDismiss()
+    {
+        if (!_parkedDismissPending && SideSessions.Count == 0)
+        {
+            return;
+        }
+
+        _parkedDismissPending = false;
+        SideSessions.Clear();
+        UpdateParkedWatchdog();
+    }
 
     public string Title
     {
@@ -554,8 +577,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             IsDualPlaying = true;
             primary = playing.FirstOrDefault(s => s.SessionKey == focusedKey) ?? playing[0];
             SyncCollection(DualSessions, playing.Take(2).ToList(), freezeTransportIcons: false);
-            SideSessions.Clear();
-            UpdateParkedWatchdog();
+            RequestParkedDismiss();
         }
         else
         {
@@ -571,8 +593,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 .ThenByDescending(s => s.Artwork is not null)
                 .Take(2)
                 .ToList();
-            SyncCollection(SideSessions, parked, freezeTransportIcons: true);
-            UpdateParkedWatchdog();
+
+            if (parked.Count > 0)
+            {
+                _parkedDismissPending = false;
+                SyncCollection(SideSessions, parked, freezeTransportIcons: true);
+                ShowParkedRail = true;
+                UpdateParkedWatchdog();
+            }
+            else
+            {
+                RequestParkedDismiss();
+            }
         }
 
         _media.Focus(primary.SessionKey);
@@ -710,9 +742,21 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         await RefreshAsync(full: false);
     }
 
+    private void RequestParkedDismiss()
+    {
+        if (ShowParkedRail || SideSessions.Count > 0)
+        {
+            _parkedDismissPending = true;
+            ShowParkedRail = false;
+            // Keep SideSessions until CompleteParkedDismiss after slide-out.
+        }
+
+        UpdateParkedWatchdog();
+    }
+
     private void UpdateParkedWatchdog()
     {
-        if (SideSessions.Count > 0)
+        if (ShowParkedRail && SideSessions.Count > 0)
         {
             if (!_parkedWatchdog.IsEnabled)
             {
@@ -727,30 +771,21 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnParkedWatchdog()
     {
-        if (_disposed || SideSessions.Count == 0)
+        if (_disposed || !ShowParkedRail || SideSessions.Count == 0)
         {
             _parkedWatchdog.Stop();
             return;
         }
 
-        // Drop chips whose process already quit (SMTC often lags).
-        var removed = false;
-        for (var i = SideSessions.Count - 1; i >= 0; i--)
+        // Process quit → slide rail away (chips stay visible during animation).
+        var dead = SideSessions.Any(s => !_volume.IsAppRunning(s.AppId));
+        if (dead)
         {
-            var side = SideSessions[i];
-            if (!_volume.IsAppRunning(side.AppId))
-            {
-                SideSessions.RemoveAt(i);
-                removed = true;
-            }
+            RequestParkedDismiss();
+            return;
         }
 
-        if (removed)
-        {
-            UpdateParkedWatchdog();
-        }
-
-        if (_media.PollSessions() || removed)
+        if (_media.PollSessions())
         {
             _ = RefreshAsync(full: false);
         }
@@ -759,6 +794,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private void ClearAllSessions()
     {
         IsDualPlaying = false;
+        _parkedDismissPending = false;
+        ShowParkedRail = false;
         SideSessions.Clear();
         DualSessions.Clear();
         UpdateParkedWatchdog();

@@ -78,7 +78,7 @@ public partial class MainWindow : Window
 
         await _viewModel.InitializeAsync();
         ApplyModeVisual(_viewModel.IsDualPlaying, animate: false);
-        AnimateParkedHost(_viewModel.SideSessions.Count > 0, animate: false);
+        AnimateParkedHost(_viewModel.ShowParkedRail, animate: false);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -111,10 +111,20 @@ public partial class MainWindow : Window
         {
             ApplyModeVisual(_viewModel.IsDualPlaying, animate: _layoutReady);
         }
+        else if (e.PropertyName == nameof(MediaViewModel.ShowParkedRail))
+        {
+            AnimateParkedHost(_viewModel.ShowParkedRail, animate: _layoutReady && !_viewModel.IsDualPlaying);
+        }
     }
 
-    private void OnSideSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        AnimateParkedHost(_viewModel.SideSessions.Count > 0, animate: _layoutReady && !_viewModel.IsDualPlaying);
+    private void OnSideSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // Remeasure while rail stays open (e.g. 2 chips → 1).
+        if (_viewModel.ShowParkedRail && _layoutReady && !_viewModel.IsDualPlaying)
+        {
+            AnimateParkedHost(open: true, animate: true);
+        }
+    }
 
     private void OnMarqueeZoneEnter(object sender, System.Windows.Input.MouseEventArgs e) =>
         TitleMarquee.SetHovering(true);
@@ -215,6 +225,12 @@ public partial class MainWindow : Window
 
     private void AnimateParkedHost(bool open, bool animate)
     {
+        if (!open && !_parkedOpen)
+        {
+            _viewModel.CompleteParkedDismiss();
+            return;
+        }
+
         ParkedHost.IsHitTestVisible = open;
 
         double targetWidth = 0;
@@ -245,11 +261,6 @@ public partial class MainWindow : Window
             }
         }
 
-        if (_parkedOpen == open && animate && !open)
-        {
-            return;
-        }
-
         var wasOpen = _parkedOpen;
         _parkedOpen = open;
 
@@ -267,20 +278,29 @@ public partial class MainWindow : Window
             ParkedDivider.Width = open ? dividerWidth : 0;
             ParkedDivider.Opacity = open ? 1 : 0;
             ParkedDivider.Margin = dividerMargin;
+            if (!open)
+            {
+                _viewModel.CompleteParkedDismiss();
+            }
+
             return;
         }
 
-        var duration = TimeSpan.FromMilliseconds(260);
+        var duration = TimeSpan.FromMilliseconds(open ? 260 : 300);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
-        ParkedHost.BeginAnimation(
-            WidthProperty,
-            new DoubleAnimation
-            {
-                To = open ? targetWidth : 0,
-                Duration = duration,
-                EasingFunction = ease
-            });
+        var widthAnim = new DoubleAnimation
+        {
+            To = open ? targetWidth : 0,
+            Duration = duration,
+            EasingFunction = ease
+        };
+        if (!open)
+        {
+            widthAnim.Completed += (_, _) => _viewModel.CompleteParkedDismiss();
+        }
+
+        ParkedHost.BeginAnimation(WidthProperty, widthAnim);
 
         ParkedDivider.BeginAnimation(
             WidthProperty,
@@ -293,13 +313,14 @@ public partial class MainWindow : Window
 
         if (wasOpen != open)
         {
+            // Keep chips fully visible while width rolls shut — only fade at the end.
             ParkedHost.BeginAnimation(
                 OpacityProperty,
                 new DoubleAnimation
                 {
                     To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 140),
-                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.Zero,
+                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 120),
+                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMilliseconds(160),
                     EasingFunction = ease
                 });
 
@@ -308,8 +329,8 @@ public partial class MainWindow : Window
                 new DoubleAnimation
                 {
                     To = open ? 1 : 0,
-                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 140),
-                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.Zero,
+                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 120),
+                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMilliseconds(160),
                     EasingFunction = ease
                 });
             ParkedDivider.Margin = dividerMargin;
