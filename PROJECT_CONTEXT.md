@@ -66,19 +66,14 @@ dotnet run --project src/SoundTaskbar
 
 ## Текущее состояние
 
-- SMTC multi-session + kind (PlaybackType / heuristics): music vs video
-- 2 playing:
-  - audio+video → big video primary + слева expanded audio chip (title/artist/duration, без timeline)
-  - video+video → twin full cards, левый mirrored (transport|meta|art)
-  - audio+audio → compact dual
-- Sticky primary; parked volume morph; remasure after chip volume settle
-- Transport icons: пара всегда skip или seek (fix PropertyChanged race → не «10с + next»)
-- Host width динамический (380 / 440 / 520); region на полосе таскбара
+- Парный layout через `PairLayoutPlanner` (MixedAv / TwinVideo / TwinAudio)
+- MixedAv: video = primary; audio chip справа в parked-rail (Right align) → vol/prev уезжают влево; meta `MetaRailWidth` (title/artist/duration) у левого края обложки
+- Kind: AppId music/video overrides + PlaybackType/heuristics
+- Twin video / twin audio — dual host; sticky primary; dynamic widget width
 
 ## Следующие шаги
 
-1. Проверить dual: Spotify+YouTube и два видео
-2. Более точный layout на Win11 (centered taskbar / widgets)
+1. Проверить MixedAv: видео + Spotify (meta слева от обложки)
+2. Добить TwinVideo mirrored UX
 3. Seek по клику на прогресс
 4. Автозапуск с Windows
-5. Dual twin: volume per card

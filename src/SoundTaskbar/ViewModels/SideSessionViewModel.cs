@@ -155,14 +155,18 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _showExpandedMeta, value))
             {
-                OnPropertyChanged(nameof(ExpandedMetaVisibility));
+                OnPropertyChanged(nameof(MetaRailWidth));
                 _onChipLayoutChanged?.Invoke();
             }
         }
     }
 
-    public System.Windows.Visibility ExpandedMetaVisibility =>
-        ShowExpandedMeta ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+    /// <summary>
+    /// Width of the title/artist/duration rail left of artwork (0 when collapsed).
+    /// Bound directly — avoids WPF EnterActions that skip on first load.
+    /// </summary>
+    public double MetaRailWidth =>
+        ShowExpandedMeta && !IsVolumeEditorOpen ? 102 : 0;
 
     public DualCardStyle DualCardStyle
     {
@@ -316,6 +320,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
                 _volumeHideTimer.Stop();
             }
 
+            OnPropertyChanged(nameof(MetaRailWidth));
             _onChipLayoutChanged?.Invoke();
         }
     }

@@ -33,7 +33,6 @@ public partial class MainWindow : Window
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
-    private const double ChipMetaOpenWidth = 102;
 
     public MainWindow()
     {
@@ -426,13 +425,6 @@ public partial class MainWindow : Window
                 volumeHost.Width = side.IsVolumeEditorOpen
                     ? ChipVolumeOpenWidth
                     : ChipVolumeClosedWidth;
-            }
-
-            if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
-            {
-                var metaOpen = side.ShowExpandedMeta && !side.IsVolumeEditorOpen;
-                metaHost.BeginAnimation(WidthProperty, null);
-                metaHost.Width = metaOpen ? ChipMetaOpenWidth : 0;
             }
         }
     }

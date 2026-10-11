@@ -61,6 +61,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private readonly Dictionary<string, BitmapImage?> _artworkCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Title, string Artist)> _metaCache =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, bool> _kindCache = new(StringComparer.OrdinalIgnoreCase);
 
     public const double MeterHeight = 24;
     private const double SeekAnimSeconds = 0.3;
@@ -619,7 +620,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (playing.Count >= 2)
         {
-            ApplyMultiPlaying(playing, ref primary);
+            primary = ApplyPairPlan(PairLayoutPlanner.Plan(playing, _primarySessionKey));
         }
         else
         {
@@ -651,76 +652,46 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         ApplyPrimary(primary, keepArtwork);
     }
 
-    /// <summary>
-    /// audio+video → primary video + expanded audio chip (title/artist/duration);
-    /// video+video → twin full cards (one mirrored);
-    /// audio+audio → compact dual cards.
-    /// </summary>
-    private void ApplyMultiPlaying(List<MediaSessionSnapshot> playing, ref MediaSessionSnapshot primary)
+    private MediaSessionSnapshot ApplyPairPlan(PairPlan plan)
     {
-        var videos = playing.Where(s => s.IsVideo).ToList();
-        var audios = playing.Where(s => !s.IsVideo).ToList();
+        DesiredWidgetWidth = plan.WidgetWidth;
 
-        if (videos.Count >= 2)
+        switch (plan.Kind)
         {
-            IsDualPlaying = true;
-            DesiredWidgetWidth = 520;
-            RequestParkedDismiss();
-
-            var stickyKey = _primarySessionKey;
-            var pickedKey = primary.SessionKey;
-            var right = playing.FirstOrDefault(s => s.SessionKey == stickyKey && s.IsVideo)
-                        ?? playing.FirstOrDefault(s => s.SessionKey == pickedKey && s.IsVideo)
-                        ?? videos[0];
-            var left = videos.FirstOrDefault(s => s.SessionKey != right.SessionKey) ?? videos[0];
-            primary = right;
-            SyncCollection(
-                DualSessions,
-                new List<MediaSessionSnapshot> { left, right },
-                freezeTransportIcons: false,
-                expandedMeta: false,
-                twinVideo: true);
-            return;
-        }
-
-        if (videos.Count == 1 && audios.Count >= 1)
-        {
-            // Keep big video primary; expand audio chip to the left.
-            IsDualPlaying = false;
-            DualSessions.Clear();
-            DesiredWidgetWidth = 440;
-            primary = videos[0];
-
-            var audioParked = audios
-                .Where(s => _volume.IsAppRunning(s.AppId))
-                .Take(1)
-                .ToList();
-
-            if (audioParked.Count > 0)
-            {
+            case PairKind.MixedAv:
+                IsDualPlaying = false;
+                DualSessions.Clear();
                 _parkedDismissPending = false;
-                SyncCollection(SideSessions, audioParked, freezeTransportIcons: true, expandedMeta: true);
+                SyncCollection(
+                    SideSessions,
+                    plan.SideSessions.ToList(),
+                    freezeTransportIcons: true,
+                    expandedMeta: true);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
-            }
-            else
-            {
+                // Force remasure after containers exist (meta width + right-aligned chip).
+                ParkedLayoutChanged?.Invoke(this, EventArgs.Empty);
+                return plan.Primary;
+
+            case PairKind.TwinVideo:
+            case PairKind.TwinAudio:
+                IsDualPlaying = true;
                 RequestParkedDismiss();
-            }
+                SyncCollection(
+                    DualSessions,
+                    plan.DualSessions.ToList(),
+                    freezeTransportIcons: false,
+                    expandedMeta: false,
+                    twinVideo: plan.DualTwinVideo);
+                return plan.Primary;
 
-            return;
+            default:
+                IsDualPlaying = false;
+                DualSessions.Clear();
+                DesiredWidgetWidth = 380;
+                RequestParkedDismiss();
+                return plan.Primary;
         }
-
-        // audio + audio
-        IsDualPlaying = true;
-        DesiredWidgetWidth = 380;
-        RequestParkedDismiss();
-        SyncCollection(
-            DualSessions,
-            playing.Take(2).ToList(),
-            freezeTransportIcons: false,
-            expandedMeta: false,
-            twinVideo: false);
     }
 
     /// <summary>
@@ -768,6 +739,14 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             ? snap.Artist
             : meta.Artist ?? string.Empty;
 
+        // AppId beats PlaybackType heuristics (Spotify must never become "video").
+        var isVideo = MediaKindHelper.IsKnownMusicAppId(snap.AppId)
+            ? false
+            : MediaKindHelper.IsKnownVideoAppId(snap.AppId)
+                ? true
+                : snap.IsVideo;
+        _kindCache[snap.SessionKey] = isVideo;
+
         return new MediaSessionSnapshot
         {
             HasSession = snap.HasSession,
@@ -782,7 +761,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             CanSkipNext = snap.CanSkipNext,
             CanSkipPrevious = snap.CanSkipPrevious,
             CanSeek = snap.CanSeek,
-            IsVideo = snap.IsVideo,
+            IsVideo = isVideo,
             Position = snap.Position,
             Duration = snap.Duration,
             Artwork = snap.Artwork ?? art
@@ -981,6 +960,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         ShowParkedRail = false;
         SideSessions.Clear();
         DualSessions.Clear();
+        _kindCache.Clear();
         UpdateParkedWatchdog();
         _primarySessionKey = string.Empty;
         Title = "Нет активного медиа";

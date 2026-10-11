@@ -136,9 +136,9 @@
                                             Foreground="#F2F4F7" />
                 </Button>
 
-                <!-- Audio+video: vol/prev slide left as this opens; text flush to art's left edge -->
+                <!-- Audio+video: grows so vol/prev shift left of art; text left-aligned to art -->
                 <Grid x:Name="ChipMetaHost"
-                      Width="0"
+                      Width="{Binding MetaRailWidth}"
                       Height="28"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
@@ -164,45 +164,6 @@
                                    TextAlignment="Left"
                                    Margin="0,1,0,0" />
                     </StackPanel>
-                    <Grid.Style>
-                        <Style TargetType="Grid">
-                            <Setter Property="Width" Value="0" />
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding ShowExpandedMeta}" Value="True" />
-                                        <Condition Binding="{Binding IsVolumeEditorOpen}" Value="False" />
-                                    </MultiDataTrigger.Conditions>
-                                    <MultiDataTrigger.EnterActions>
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                 To="102"
-                                                                 Duration="0:0:0.26">
-                                                    <DoubleAnimation.EasingFunction>
-                                                        <CubicEase EasingMode="EaseOut" />
-                                                    </DoubleAnimation.EasingFunction>
-                                                </DoubleAnimation>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </MultiDataTrigger.EnterActions>
-                                    <MultiDataTrigger.ExitActions>
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                 To="0"
-                                                                 Duration="0:0:0.22">
-                                                    <DoubleAnimation.EasingFunction>
-                                                        <CubicEase EasingMode="EaseIn" />
-                                                    </DoubleAnimation.EasingFunction>
-                                                </DoubleAnimation>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </MultiDataTrigger.ExitActions>
-                                </MultiDataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
                 </Grid>
 
                 <!-- Art + next: hidden while this chip's volume slider is open -->
@@ -501,7 +462,7 @@
                             <ItemsControl x:Name="ParkedList"
                                           ItemsSource="{Binding SideSessions}"
                                           ItemTemplate="{StaticResource SessionArtChip}"
-                                          HorizontalAlignment="Left"
+                                          HorizontalAlignment="Right"
                                           VerticalAlignment="Center">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>

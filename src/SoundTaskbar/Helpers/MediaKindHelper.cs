@@ -21,17 +21,17 @@ internal static class MediaKindHelper
             return false;
         }
 
-        var id = (appId ?? string.Empty).ToLowerInvariant();
-
-        if (IsKnownMusicApp(id))
+        if (IsKnownMusicAppId(appId))
         {
             return false;
         }
 
-        if (IsKnownVideoApp(id))
+        if (IsKnownVideoAppId(appId))
         {
             return true;
         }
+
+        var id = (appId ?? string.Empty).ToLowerInvariant();
 
         // Browsers almost always host video when SMTC is active.
         if (IsBrowser(id))
@@ -48,14 +48,15 @@ internal static class MediaKindHelper
         return false;
     }
 
-    private static bool IsKnownMusicApp(string id) =>
+    public static bool IsKnownMusicAppId(string? appId) =>
         ContainsAny(
-            id,
+            (appId ?? string.Empty).ToLowerInvariant(),
             "spotify",
             "youtubemusic",
             "music.youtube",
             "yandexmusic",
             "yandex.music",
+            "yandexmusic.desktop",
             "applemusic",
             "itunes",
             "amazonmusic",
@@ -64,11 +65,14 @@ internal static class MediaKindHelper
             "soundcloud",
             "foobar",
             "aimp",
-            "vk_music");
+            "vk_music",
+            "musicbee",
+            "elisa",
+            "groove");
 
-    private static bool IsKnownVideoApp(string id) =>
+    public static bool IsKnownVideoAppId(string? appId) =>
         ContainsAny(
-            id,
+            (appId ?? string.Empty).ToLowerInvariant(),
             "netflix",
             "moviesandtv",
             "zunevideo",
