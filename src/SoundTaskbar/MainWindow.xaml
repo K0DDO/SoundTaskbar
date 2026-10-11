@@ -25,15 +25,15 @@
         <!-- Parked source: skip/seek icons + art▶ + divider before primary -->
         <DataTemplate x:Key="SessionArtChip">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,2,0">
-                <Button Width="14"
-                        Height="14"
+                <Button Width="12"
+                        Height="12"
                         Padding="0"
-                        Margin="0,0,4,0"
+                        Margin="0,0,7,0"
                         Style="{StaticResource CompactMediaButton}"
                         Command="{Binding PreviousCommand}"
                         VerticalAlignment="Center">
-                    <controls:TransportIcon Width="9"
-                                            Height="9"
+                    <controls:TransportIcon Width="7"
+                                            Height="7"
                                             Kind="{Binding PreviousIconKind}"
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
@@ -69,15 +69,15 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <Button Width="14"
-                        Height="14"
+                <Button Width="12"
+                        Height="12"
                         Padding="0"
-                        Margin="4,0,0,0"
+                        Margin="7,0,0,0"
                         Style="{StaticResource CompactMediaButton}"
                         Command="{Binding NextCommand}"
                         VerticalAlignment="Center">
-                    <controls:TransportIcon Width="9"
-                                            Height="9"
+                    <controls:TransportIcon Width="7"
+                                            Height="7"
                                             Kind="{Binding NextIconKind}"
                                             Seconds="{Binding SeekSeconds}"
                                             Foreground="#F2F4F7" />
@@ -145,24 +145,32 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
+                <Grid Grid.Column="0" ClipToBounds="True">
                 <!-- Dual: two compact players when both sources play -->
-                <ItemsControl ItemsSource="{Binding DualSessions}"
+                <ItemsControl x:Name="DualHost"
+                              ItemsSource="{Binding DualSessions}"
                               ItemTemplate="{StaticResource DualSessionCard}"
-                              Visibility="{Binding DualModeVisibility}"
+                              Opacity="0"
+                              IsHitTestVisible="False"
                               VerticalAlignment="Center">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal" />
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
+                    <ItemsControl.RenderTransform>
+                        <TranslateTransform x:Name="DualSlide" X="28" />
+                    </ItemsControl.RenderTransform>
                 </ItemsControl>
 
                 <!-- Single: parked chips + full primary player -->
-                <Border x:Name="MarqueeHoverZone"
+                <Border x:Name="SingleHost"
                         Background="Transparent"
-                        Visibility="{Binding SingleModeVisibility}"
                         MouseEnter="OnMarqueeZoneEnter"
                         MouseLeave="OnMarqueeZoneLeave">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="SingleSlide" X="0" />
+                    </Border.RenderTransform>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -170,16 +178,24 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- Paused / other sources: artwork + resume -->
-                        <ItemsControl ItemsSource="{Binding SideSessions}"
-                                      ItemTemplate="{StaticResource SessionArtChip}"
-                                      VerticalAlignment="Center">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
+                        <!-- Paused chips: roll in/out like volume slider -->
+                        <Grid x:Name="ParkedHost"
+                              Width="0"
+                              ClipToBounds="True"
+                              Opacity="0"
+                              VerticalAlignment="Center">
+                            <ItemsControl x:Name="ParkedList"
+                                          ItemsSource="{Binding SideSessions}"
+                                          ItemTemplate="{StaticResource SessionArtChip}"
+                                          HorizontalAlignment="Left"
+                                          VerticalAlignment="Center">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </Grid>
 
                         <Border Grid.Column="1"
                                 Width="28"
@@ -266,14 +282,15 @@
                         </Grid>
                     </Grid>
                 </Border>
+                </Grid>
 
                 <!-- VU meter (single mode) -->
-                <Grid Grid.Column="1"
+                <Grid x:Name="VuHost"
+                      Grid.Column="1"
                       Width="8"
                       Height="24"
                       Margin="0,0,4,0"
-                      VerticalAlignment="Center"
-                      Visibility="{Binding SingleModeVisibility}">
+                      VerticalAlignment="Center">
                     <Border CornerRadius="2" Opacity="0.95">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
@@ -337,10 +354,10 @@
                 </Grid>
 
                 <!-- Transport (single mode) -->
-                <StackPanel Grid.Column="3"
+                <StackPanel x:Name="TransportHost"
+                            Grid.Column="3"
                             Orientation="Horizontal"
-                            VerticalAlignment="Center"
-                            Visibility="{Binding SingleModeVisibility}">
+                            VerticalAlignment="Center">
                     <Button Style="{StaticResource CompactMediaButton}"
                             Command="{Binding PreviousCommand}">
                         <controls:TransportIcon x:Name="PreviousIcon"

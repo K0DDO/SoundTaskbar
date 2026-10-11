@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -23,6 +24,9 @@ public partial class MainWindow : Window
     private readonly SolidColorBrush _progressFillBrush = new(Color.FromRgb(0x9E, 0xC5, 0xFF));
     private TaskbarHostService? _taskbarHost;
     private TaskbarAppearanceService? _appearance;
+    private bool _dualVisual;
+    private bool _parkedOpen;
+    private bool _layoutReady;
 
     public MainWindow()
     {
@@ -31,6 +35,7 @@ public partial class MainWindow : Window
         _appearanceHandler = (_, appearance) => ApplyAppearance(appearance);
         _layoutHandler = (_, layout) => ApplyLayout(layout);
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _viewModel.SideSessions.CollectionChanged += OnSideSessionsChanged;
 
         TitleMarquee.Foreground = _titleBrush;
         ArtistText.Foreground = _mutedBrush;
@@ -45,10 +50,20 @@ public partial class MainWindow : Window
         VolumeSlider.IsHitTestVisible = false;
         MuteButton.Opacity = 0;
         MuteButton.IsHitTestVisible = false;
+
+        DualHost.Opacity = 0;
+        DualHost.IsHitTestVisible = false;
+        DualSlide.X = 28;
+        SingleHost.Opacity = 1;
+        SingleHost.IsHitTestVisible = true;
+        SingleSlide.X = 0;
+        ParkedHost.Width = 0;
+        ParkedHost.Opacity = 0;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _layoutReady = true;
         _taskbarHost = new TaskbarHostService(this);
         _taskbarHost.LayoutChanged += _layoutHandler;
         _taskbarHost.Start();
@@ -59,11 +74,14 @@ public partial class MainWindow : Window
         ApplyAppearance(_appearance.Current);
 
         await _viewModel.InitializeAsync();
+        ApplyModeVisual(_viewModel.IsDualPlaying, animate: false);
+        AnimateParkedHost(_viewModel.SideSessions.Count > 0, animate: false);
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _viewModel.SideSessions.CollectionChanged -= OnSideSessionsChanged;
 
         if (_taskbarHost is not null)
         {
@@ -86,7 +104,14 @@ public partial class MainWindow : Window
         {
             AnimateVolumeEditor(_viewModel.IsVolumeEditorOpen);
         }
+        else if (e.PropertyName == nameof(MediaViewModel.IsDualPlaying))
+        {
+            ApplyModeVisual(_viewModel.IsDualPlaying, animate: _layoutReady);
+        }
     }
+
+    private void OnSideSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        AnimateParkedHost(_viewModel.SideSessions.Count > 0, animate: _layoutReady && !_viewModel.IsDualPlaying);
 
     private void OnMarqueeZoneEnter(object sender, System.Windows.Input.MouseEventArgs e) =>
         TitleMarquee.SetHovering(true);
@@ -103,6 +128,197 @@ public partial class MainWindow : Window
         }
 
         _viewModel.IsVolumeEditorOpen = !_viewModel.IsVolumeEditorOpen;
+    }
+
+    private void ApplyModeVisual(bool dual, bool animate)
+    {
+        if (_dualVisual == dual && animate)
+        {
+            return;
+        }
+
+        _dualVisual = dual;
+
+        if (!animate)
+        {
+            DualHost.BeginAnimation(OpacityProperty, null);
+            SingleHost.BeginAnimation(OpacityProperty, null);
+            DualSlide.BeginAnimation(TranslateTransform.XProperty, null);
+            SingleSlide.BeginAnimation(TranslateTransform.XProperty, null);
+            VuHost.BeginAnimation(OpacityProperty, null);
+            TransportHost.BeginAnimation(OpacityProperty, null);
+
+            DualHost.Opacity = dual ? 1 : 0;
+            DualHost.IsHitTestVisible = dual;
+            DualSlide.X = dual ? 0 : 28;
+
+            SingleHost.Opacity = dual ? 0 : 1;
+            SingleHost.IsHitTestVisible = !dual;
+            SingleSlide.X = dual ? -28 : 0;
+
+            VuHost.Opacity = dual ? 0 : 1;
+            VuHost.IsHitTestVisible = !dual;
+            TransportHost.Opacity = dual ? 0 : 1;
+            TransportHost.IsHitTestVisible = !dual;
+
+            if (dual)
+            {
+                AnimateParkedHost(open: false, animate: false);
+            }
+
+            return;
+        }
+
+        var duration = TimeSpan.FromMilliseconds(260);
+        var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+        if (dual)
+        {
+            // Single rolls left out, dual rolls in from the right.
+            AnimateOpacity(SingleHost, 0, 160, easeIn);
+            AnimateTranslate(SingleSlide, -28, duration, easeIn);
+            SingleHost.IsHitTestVisible = false;
+
+            DualHost.IsHitTestVisible = true;
+            DualSlide.X = 28;
+            AnimateOpacity(DualHost, 1, 220, easeOut, beginMs: 40);
+            AnimateTranslate(DualSlide, 0, duration, easeOut, beginMs: 40);
+
+            AnimateOpacity(VuHost, 0, 140, easeIn);
+            AnimateOpacity(TransportHost, 0, 140, easeIn);
+            VuHost.IsHitTestVisible = false;
+            TransportHost.IsHitTestVisible = false;
+            AnimateParkedHost(open: false, animate: true);
+        }
+        else
+        {
+            AnimateOpacity(DualHost, 0, 160, easeIn);
+            AnimateTranslate(DualSlide, 28, duration, easeIn);
+            DualHost.IsHitTestVisible = false;
+
+            SingleHost.IsHitTestVisible = true;
+            SingleSlide.X = -28;
+            AnimateOpacity(SingleHost, 1, 220, easeOut, beginMs: 40);
+            AnimateTranslate(SingleSlide, 0, duration, easeOut, beginMs: 40);
+
+            VuHost.IsHitTestVisible = true;
+            TransportHost.IsHitTestVisible = true;
+            AnimateOpacity(VuHost, 1, 200, easeOut, beginMs: 40);
+            AnimateOpacity(TransportHost, 1, 200, easeOut, beginMs: 40);
+            AnimateParkedHost(_viewModel.SideSessions.Count > 0, animate: true);
+        }
+    }
+
+    private void AnimateParkedHost(bool open, bool animate)
+    {
+        ParkedHost.IsHitTestVisible = open;
+
+        double targetWidth = 0;
+        if (open)
+        {
+            var currentWidth = ParkedHost.ActualWidth;
+            ParkedHost.BeginAnimation(WidthProperty, null);
+            ParkedHost.Width = double.NaN;
+            ParkedHost.UpdateLayout();
+            ParkedList.UpdateLayout();
+            targetWidth = Math.Ceiling(Math.Max(ParkedList.DesiredSize.Width, ParkedList.ActualWidth));
+            if (targetWidth < 1)
+            {
+                targetWidth = 72;
+            }
+
+            if (animate && !_parkedOpen)
+            {
+                ParkedHost.Width = 0;
+            }
+            else if (!animate)
+            {
+                ParkedHost.Width = targetWidth;
+            }
+            else
+            {
+                ParkedHost.Width = currentWidth;
+            }
+        }
+
+        if (_parkedOpen == open && animate && !open)
+        {
+            return;
+        }
+
+        var wasOpen = _parkedOpen;
+        _parkedOpen = open;
+
+        if (!animate)
+        {
+            ParkedHost.BeginAnimation(WidthProperty, null);
+            ParkedHost.BeginAnimation(OpacityProperty, null);
+            ParkedHost.Width = open ? targetWidth : 0;
+            ParkedHost.Opacity = open ? 1 : 0;
+            return;
+        }
+
+        var duration = TimeSpan.FromMilliseconds(260);
+        var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
+
+        ParkedHost.BeginAnimation(
+            WidthProperty,
+            new DoubleAnimation
+            {
+                To = open ? targetWidth : 0,
+                Duration = duration,
+                EasingFunction = ease
+            });
+
+        if (wasOpen != open)
+        {
+            ParkedHost.BeginAnimation(
+                OpacityProperty,
+                new DoubleAnimation
+                {
+                    To = open ? 1 : 0,
+                    Duration = TimeSpan.FromMilliseconds(open ? 200 : 140),
+                    BeginTime = open ? TimeSpan.FromMilliseconds(40) : TimeSpan.Zero,
+                    EasingFunction = ease
+                });
+        }
+    }
+
+    private static void AnimateOpacity(
+        UIElement element,
+        double to,
+        int ms,
+        IEasingFunction ease,
+        int beginMs = 0)
+    {
+        element.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation
+            {
+                To = to,
+                Duration = TimeSpan.FromMilliseconds(ms),
+                BeginTime = TimeSpan.FromMilliseconds(beginMs),
+                EasingFunction = ease
+            });
+    }
+
+    private static void AnimateTranslate(
+        TranslateTransform transform,
+        double to,
+        TimeSpan duration,
+        IEasingFunction ease,
+        int beginMs = 0)
+    {
+        transform.BeginAnimation(
+            TranslateTransform.XProperty,
+            new DoubleAnimation
+            {
+                To = to,
+                Duration = duration,
+                BeginTime = TimeSpan.FromMilliseconds(beginMs),
+                EasingFunction = ease
+            });
     }
 
     private void AnimateVolumeEditor(bool open)
