@@ -618,18 +618,16 @@
                             <ColumnDefinition Width="*" MinWidth="64" />
                         </Grid.ColumnDefinitions>
 
+                        <!-- Right-aligned: chip unfolds from the divider toward the left -->
                         <Grid x:Name="ParkedHost"
                               Width="0"
                               ClipToBounds="True"
                               Opacity="0"
                               VerticalAlignment="Center">
-                            <Grid.RenderTransform>
-                                <TranslateTransform x:Name="ParkedSlide" X="0" />
-                            </Grid.RenderTransform>
                             <ItemsControl x:Name="ParkedList"
                                           ItemsSource="{Binding SideSessions}"
                                           ItemTemplate="{StaticResource SessionArtChip}"
-                                          HorizontalAlignment="Left"
+                                          HorizontalAlignment="Right"
                                           VerticalAlignment="Center">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>

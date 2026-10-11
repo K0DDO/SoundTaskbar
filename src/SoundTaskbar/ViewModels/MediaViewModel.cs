@@ -61,10 +61,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public const double SoloWidgetWidth = 310;
 
     /// <summary>Play zone is slightly narrower than solo when a pause chip sits beside it.</summary>
-    private const double PausePlayTrim = 28;
+    public const double PausePlayTrim = 28;
 
     /// <summary>ParkedDivider width 2.5 + margins 8+6.</summary>
-    private const double PausePlayDividerChrome = 16.5;
+    public const double PausePlayDividerChrome = 16.5;
 
     private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
@@ -189,6 +189,17 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         private set => SetField(ref _desiredWidgetWidth, value);
     }
 
+    /// <summary>pause+play shell width, or solo when parked is absent.</summary>
+    public double ComputeParkedCompositeWidth(double? parkedMeasuredWidth)
+    {
+        if (parkedMeasuredWidth is null || parkedMeasuredWidth < 1)
+        {
+            return SoloWidgetWidth;
+        }
+
+        return SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
+    }
+
     /// <summary>
     /// pause+play: (solo - trim) + parked chip + divider. Solo-only / dual / expanded pair: leave alone or reset.
     /// </summary>
@@ -205,7 +216,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        DesiredWidgetWidth = SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
+        DesiredWidgetWidth = ComputeParkedCompositeWidth(parkedMeasuredWidth);
     }
 
     /// <summary>
