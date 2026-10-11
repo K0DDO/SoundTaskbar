@@ -466,8 +466,7 @@ public partial class MainWindow : Window
         {
             _viewModel.CompleteParkedDismiss();
             _viewModel.ApplyParkedCompositeWidth(null);
-            BeginAnimation(ParkedRevealProperty, null);
-            ParkedReveal = 0;
+            SealParkedReveal(0);
             return;
         }
 
@@ -544,8 +543,7 @@ public partial class MainWindow : Window
 
         if (!animate)
         {
-            BeginAnimation(ParkedRevealProperty, null);
-            ParkedReveal = open ? 1 : 0;
+            SealParkedReveal(open ? 1 : 0);
             if (!open)
             {
                 _viewModel.CompleteParkedDismiss();
@@ -564,16 +562,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        // One clock for appear (0→1) and dismiss (1→0) — perfectly mirrored, no stagger.
-        var from = open ? 0 : Math.Clamp(ParkedReveal, 0, 1);
-        if (!open && from < 0.05)
-        {
-            from = 1;
-        }
-
+        // Appear 0→1 EaseOut; dismiss = exact reverse (1→0 EaseIn), same duration / curve family.
+        var from = open ? 0 : 1;
         var to = open ? 1 : 0;
-        BeginAnimation(ParkedRevealProperty, null);
-        ParkedReveal = from;
+        SealParkedReveal(from);
 
         var duration = TimeSpan.FromMilliseconds(340);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
@@ -587,8 +579,7 @@ public partial class MainWindow : Window
         };
         anim.Completed += (_, _) =>
         {
-            BeginAnimation(ParkedRevealProperty, null);
-            ParkedReveal = to;
+            SealParkedReveal(to);
             if (open)
             {
                 _viewModel.ApplyParkedCompositeWidth(_parkedChipTarget);
@@ -602,6 +593,19 @@ public partial class MainWindow : Window
         BeginAnimation(ParkedRevealProperty, anim);
     }
 
+    /// <summary>
+    /// Write the visual value into the local DP before clearing clocks — otherwise
+    /// BeginAnimation(null) snaps to the old base (often 0) and the chip blinks.
+    /// </summary>
+    private void SealParkedReveal(double value)
+    {
+        value = Math.Clamp(value, 0, 1);
+        SetValue(ParkedRevealProperty, value);
+        BeginAnimation(ParkedRevealProperty, null);
+        SetValue(ParkedRevealProperty, value);
+        ApplyParkedReveal(value);
+    }
+
     /// <summary>Apply chip / divider / shell from a single reveal factor (0..1).</summary>
     private void ApplyParkedReveal(double p)
     {
@@ -610,7 +614,7 @@ public partial class MainWindow : Window
         ParkedHost.Width = chip;
         ParkedDivider.Width = ParkedDividerWidth * p;
         ParkedDivider.Margin = new Thickness(8 * p, 0, 6 * p, 0);
-        // Fade rides the same clock and starts immediately on dismiss (p falls from 1).
+        // Same opacity mapping both ways so dismiss is a true reverse of appear.
         var fade = Math.Clamp(p * 2.0, 0, 1);
         ParkedHost.Opacity = fade;
         ParkedDivider.Opacity = fade;
