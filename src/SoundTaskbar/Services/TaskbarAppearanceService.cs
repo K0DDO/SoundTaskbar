@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
@@ -30,7 +31,8 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
 }
 
 /// <summary>
-/// Tracks Windows taskbar theme: dark / light / transparency, and keeps a matching brush.
+/// Tracks taskbar look including TranslucentTB dynamic accents.
+/// Samples the taskbar strip and only reapplies composition when the look actually changes.
 /// </summary>
 public sealed class TaskbarAppearanceService : IDisposable
 {
@@ -43,7 +45,8 @@ public sealed class TaskbarAppearanceService : IDisposable
     public TaskbarAppearanceService(Window window)
     {
         _window = window;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        // TranslucentTB can restyle the bar often — poll, but apply only on real deltas.
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         _timer.Tick += (_, _) => Refresh();
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
@@ -82,37 +85,47 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
 
         var appearance = Detect();
-        ApplyBlur(_hwnd, appearance.UseBlur, appearance.PanelColor);
-
         if (_last is not null && _last.Equals(appearance))
         {
             return;
         }
 
+        ApplyBlur(_hwnd, appearance.UseBlur, appearance.PanelColor);
         _last = appearance;
         Current = appearance;
         Changed?.Invoke(this, appearance);
     }
 
-    private static TaskbarAppearance Detect()
+    private TaskbarAppearance Detect()
     {
-        var transparent = IsTransparencyEnabled();
-        var isLight = IsLightTaskbar();
-        var sampled = TrySampleTaskbarColor();
+        var themeLight = IsLightTaskbar();
+        var registryTransparent = IsTransparencyEnabled();
+        var translucentTb = IsTranslucentTbRunning();
+        var sample = SampleTaskbar();
+
+        var transparent = registryTransparent || translucentTb || sample.LooksTransparent;
+        var isLight = sample.HasColor
+            ? PerceivedBrightness(sample.Average) > 160
+            : themeLight;
 
         Color panel;
         if (transparent)
         {
-            // Mostly see-through; blur does the rest. Tiny tint so text stays readable.
-            panel = isLight
-                ? Color.FromArgb(0x55, 0xF3, 0xF3, 0xF3)
-                : Color.FromArgb(0x55, 0x20, 0x20, 0x20);
+            if (sample.HasColor)
+            {
+                var a = (byte)(translucentTb ? 0x40 : 0x55);
+                panel = Color.FromArgb(a, sample.Average.R, sample.Average.G, sample.Average.B);
+            }
+            else
+            {
+                panel = isLight
+                    ? Color.FromArgb(0x55, 0xF3, 0xF3, 0xF3)
+                    : Color.FromArgb(0x55, 0x20, 0x20, 0x20);
+            }
         }
-        else if (sampled is not null)
+        else if (sample.HasColor)
         {
-            var c = sampled.Value;
-            panel = Color.FromArgb(0xFF, c.R, c.G, c.B);
-            isLight = PerceivedBrightness(c) > 160;
+            panel = Color.FromArgb(0xFF, sample.Average.R, sample.Average.G, sample.Average.B);
         }
         else
         {
@@ -120,6 +133,8 @@ public sealed class TaskbarAppearanceService : IDisposable
                 ? Color.FromRgb(0xF3, 0xF3, 0xF3)
                 : Color.FromRgb(0x20, 0x20, 0x20);
         }
+
+        panel = Quantize(panel, step: 8);
 
         return new TaskbarAppearance
         {
@@ -145,6 +160,18 @@ public sealed class TaskbarAppearanceService : IDisposable
             IsLight = isLight
         };
 
+    private static bool IsTranslucentTbRunning()
+    {
+        try
+        {
+            return Process.GetProcessesByName("TranslucentTB").Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool IsTransparencyEnabled()
     {
         try
@@ -164,7 +191,6 @@ public sealed class TaskbarAppearanceService : IDisposable
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            // SystemUsesLightTheme drives taskbar/chrome; AppsUseLightTheme is for apps.
             var system = key?.GetValue("SystemUsesLightTheme");
             if (system is int s)
             {
@@ -180,18 +206,67 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
     }
 
-    private static Color? TrySampleTaskbarColor()
+    private SampleResult SampleTaskbar()
     {
         var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
         if (taskbar == IntPtr.Zero || !NativeMethods.GetWindowRect(taskbar, out var rect))
         {
-            return null;
+            return SampleResult.Empty;
         }
 
-        // Sample a few pixels near the center of the taskbar strip, away from icons/tray.
-        var x = rect.Left + Math.Max(8, rect.Width / 2);
+        // Sample on the left side of the bar so we don't read our own overlay (near the tray).
         var y = rect.Top + Math.Max(2, rect.Height / 2);
-        return SampleScreenColor(x, y);
+        var points = new (int X, int Y)[]
+        {
+            (rect.Left + 24, y),
+            (rect.Left + 48, y),
+            (rect.Left + Math.Min(120, Math.Max(60, rect.Width / 8)), y)
+        };
+
+        var colors = new List<Color>(points.Length);
+        foreach (var (x, py) in points)
+        {
+            if (x >= rect.Right)
+            {
+                continue;
+            }
+
+            var c = SampleScreenColor(x, py);
+            if (c is not null)
+            {
+                colors.Add(c.Value);
+            }
+        }
+
+        if (colors.Count == 0)
+        {
+            return SampleResult.Empty;
+        }
+
+        double r = 0, g = 0, b = 0;
+        foreach (var c in colors)
+        {
+            r += c.R;
+            g += c.G;
+            b += c.B;
+        }
+
+        var avg = Color.FromRgb(
+            (byte)Math.Round(r / colors.Count),
+            (byte)Math.Round(g / colors.Count),
+            (byte)Math.Round(b / colors.Count));
+
+        double variance = 0;
+        foreach (var c in colors)
+        {
+            variance += Math.Abs(PerceivedBrightness(c) - PerceivedBrightness(avg));
+        }
+
+        variance /= colors.Count;
+        // High variance across nearby pixels ≈ see-through taskbar (wallpaper/TranslucentTB).
+        var looksTransparent = variance > 12;
+
+        return new SampleResult(avg, looksTransparent, true);
     }
 
     private static Color? SampleScreenColor(int x, int y)
@@ -221,6 +296,12 @@ public sealed class TaskbarAppearanceService : IDisposable
         }
     }
 
+    private static Color Quantize(Color c, byte step)
+    {
+        static byte Q(byte v, byte s) => (byte)(Math.Clamp((v + s / 2) / s * s, 0, 255));
+        return Color.FromArgb(c.A, Q(c.R, step), Q(c.G, step), Q(c.B, step));
+    }
+
     private static double PerceivedBrightness(Color c) =>
         (0.299 * c.R) + (0.587 * c.G) + (0.114 * c.B);
 
@@ -237,7 +318,6 @@ public sealed class TaskbarAppearanceService : IDisposable
                 ? AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND
                 : AccentState.ACCENT_DISABLED,
             AccentFlags = 2,
-            // ABGR
             GradientColor = enable
                 ? ((uint)tint.A << 24) | ((uint)tint.B << 16) | ((uint)tint.G << 8) | tint.R
                 : 0
@@ -250,7 +330,7 @@ public sealed class TaskbarAppearanceService : IDisposable
             Marshal.StructureToPtr(accent, accentPtr, false);
             var data = new NativeMethods.WindowCompositionAttributeData
             {
-                Attribute = 19, // WCA_ACCENT_POLICY
+                Attribute = 19,
                 Data = accentPtr,
                 SizeOfData = accentSize
             };
@@ -260,6 +340,11 @@ public sealed class TaskbarAppearanceService : IDisposable
         {
             Marshal.FreeHGlobal(accentPtr);
         }
+    }
+
+    private readonly record struct SampleResult(Color Average, bool LooksTransparent, bool HasColor)
+    {
+        public static SampleResult Empty => new(default, false, false);
     }
 
     private enum AccentState

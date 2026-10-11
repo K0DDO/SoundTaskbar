@@ -14,7 +14,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MediaSessionService _media;
     private readonly DispatcherTimer _uiTicker;
-    private readonly DispatcherTimer _syncTicker;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _disposed;
@@ -34,12 +33,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private TimeSpan _anchorPosition;
     private TimeSpan _duration;
     private double _anchorSeconds;
-    private double _playbackRate = 1;
+    private double _playbackRate;
 
     public MediaViewModel()
     {
         _media = new MediaSessionService();
         _media.Changed += OnMediaChanged;
+        _media.TimelineChanged += OnTimelineChanged;
 
         PreviousCommand = new RelayCommand(async _ => await _media.SkipPreviousAsync(), _ => CanSkipPrevious);
         PlayPauseCommand = new RelayCommand(async _ => await _media.TogglePlayPauseAsync(), _ => CanTogglePlayback);
@@ -48,9 +48,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
         _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _uiTicker.Tick += (_, _) => TickProgress();
-
-        _syncTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _syncTicker.Tick += async (_, _) => await RefreshAsync(full: false);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -153,7 +150,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         await _media.StartAsync();
         await RefreshAsync(full: true);
         _uiTicker.Start();
-        _syncTicker.Start();
     }
 
     public void Dispose()
@@ -165,8 +161,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _disposed = true;
         _uiTicker.Stop();
-        _syncTicker.Stop();
         _media.Changed -= OnMediaChanged;
+        _media.TimelineChanged -= OnTimelineChanged;
         _media.Dispose();
         _refreshLock.Dispose();
     }
@@ -180,6 +176,17 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _ = dispatcher.InvokeAsync(async () => await RefreshAsync(full: true));
+    }
+
+    private void OnTimelineChanged(object? sender, EventArgs e)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            return;
+        }
+
+        _ = dispatcher.InvokeAsync(async () => await RefreshAsync(full: false));
     }
 
     private async Task RefreshAsync(bool full)
@@ -236,20 +243,19 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         AppId = snapshot.AppId;
-        IsPlaying = snapshot.IsPlaying;
         CanSkipNext = snapshot.CanSkipNext;
         CanSkipPrevious = snapshot.CanSkipPrevious;
         CanTogglePlayback = snapshot.IsPlaying ? snapshot.CanPause : snapshot.CanPlay;
 
-        _duration = snapshot.Duration < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Duration;
+        var duration = snapshot.Duration < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Duration;
         var position = snapshot.Position < TimeSpan.Zero ? TimeSpan.Zero : snapshot.Position;
-        if (_duration > TimeSpan.Zero && position > _duration)
+        if (duration > TimeSpan.Zero && position > duration)
         {
-            position = _duration;
+            position = duration;
         }
 
-        SetTimelineAnchor(position, snapshot.IsPlaying);
-        PublishTimeline(position);
+        SyncTimeline(position, duration, snapshot.IsPlaying);
+        IsPlaying = snapshot.IsPlaying;
 
         if (!keepArtwork)
         {
@@ -257,6 +263,50 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>
+    /// SMTC often re-reports a stale Position. Never jump backwards while playing unless it looks like a seek.
+    /// </summary>
+    private void SyncTimeline(TimeSpan reported, TimeSpan duration, bool playing)
+    {
+        _duration = duration;
+
+        if (!playing)
+        {
+            SetTimelineAnchor(reported, playing: false);
+            PublishTimeline(reported);
+            return;
+        }
+
+        var estimated = EstimatePosition();
+        var deltaSeconds = (reported - estimated).TotalSeconds;
+
+        // Large jump either way = seek / track change.
+        if (Math.Abs(deltaSeconds) >= 1.5 || _playbackRate <= 0)
+        {
+            SetTimelineAnchor(reported, playing: true);
+            PublishTimeline(reported);
+            return;
+        }
+
+        // Stale SMTC behind our clock — keep extrapolating, do not rewind.
+        if (deltaSeconds < 0)
+        {
+            _playbackRate = 1;
+            return;
+        }
+
+        // Source is a bit ahead — rebase gently.
+        if (deltaSeconds > 0.4)
+        {
+            SetTimelineAnchor(reported, playing: true);
+            PublishTimeline(reported);
+        }
+        else
+        {
+            _playbackRate = 1;
+        }
     }
 
     private void SetTimelineAnchor(TimeSpan position, bool playing)

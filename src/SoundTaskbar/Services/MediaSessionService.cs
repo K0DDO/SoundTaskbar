@@ -29,6 +29,7 @@ public sealed class MediaSessionService : IDisposable
     private bool _disposed;
 
     public event EventHandler? Changed;
+    public event EventHandler? TimelineChanged;
 
     public async Task StartAsync()
     {
@@ -160,9 +161,9 @@ public sealed class MediaSessionService : IDisposable
             return;
         }
 
-        _session.MediaPropertiesChanged += OnSessionChanged;
-        _session.PlaybackInfoChanged += OnSessionChanged;
-        _session.TimelinePropertiesChanged += OnSessionChanged;
+        _session.MediaPropertiesChanged += OnMediaPropertiesChanged;
+        _session.PlaybackInfoChanged += OnPlaybackInfoChanged;
+        _session.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
     }
 
     private void DetachSession()
@@ -172,14 +173,20 @@ public sealed class MediaSessionService : IDisposable
             return;
         }
 
-        _session.MediaPropertiesChanged -= OnSessionChanged;
-        _session.PlaybackInfoChanged -= OnSessionChanged;
-        _session.TimelinePropertiesChanged -= OnSessionChanged;
+        _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
+        _session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
+        _session.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
         _session = null;
     }
 
-    private void OnSessionChanged(GlobalSystemMediaTransportControlsSession sender, object args) =>
+    private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args) =>
         RaiseChanged();
+
+    private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args) =>
+        RaiseChanged();
+
+    private void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args) =>
+        TimelineChanged?.Invoke(this, EventArgs.Empty);
 
     private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
 

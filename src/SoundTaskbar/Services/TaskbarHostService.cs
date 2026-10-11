@@ -15,11 +15,15 @@ public sealed class TaskbarHostService : IDisposable
     private readonly DispatcherTimer _timer;
     private IntPtr _hwnd;
     private bool _disposed;
+    private int _lastX = int.MinValue;
+    private int _lastY = int.MinValue;
+    private int _lastWidth = int.MinValue;
+    private int _lastHeight = int.MinValue;
 
     public TaskbarHostService(Window window)
     {
         _window = window;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(750) };
         _timer.Tick += (_, _) => PositionOnTaskbar();
     }
 
@@ -27,7 +31,7 @@ public sealed class TaskbarHostService : IDisposable
     {
         _hwnd = new WindowInteropHelper(_window).EnsureHandle();
         ApplyWindowStyles(_hwnd);
-        PositionOnTaskbar();
+        PositionOnTaskbar(force: true);
         NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
         _timer.Start();
     }
@@ -43,7 +47,7 @@ public sealed class TaskbarHostService : IDisposable
         _timer.Stop();
     }
 
-    private void PositionOnTaskbar()
+    private void PositionOnTaskbar(bool force = false)
     {
         if (_disposed || _hwnd == IntPtr.Zero || !NativeMethods.IsWindow(_hwnd))
         {
@@ -106,19 +110,56 @@ public sealed class TaskbarHostService : IDisposable
             }
         }
 
-        _window.Width = width / scale;
-        _window.Height = height / scale;
+        var geometryChanged =
+            force ||
+            x != _lastX ||
+            y != _lastY ||
+            width != _lastWidth ||
+            height != _lastHeight;
 
-        NativeMethods.SetWindowPos(
-            _hwnd,
-            NativeMethods.HWND_TOPMOST,
-            x,
-            y,
-            width,
-            height,
-            NativeMethods.SWP_NOACTIVATE |
-            NativeMethods.SWP_SHOWWINDOW |
-            NativeMethods.SWP_ASYNCWINDOWPOS);
+        if (geometryChanged)
+        {
+            _lastX = x;
+            _lastY = y;
+            _lastWidth = width;
+            _lastHeight = height;
+
+            var logicalWidth = width / scale;
+            var logicalHeight = height / scale;
+            if (Math.Abs(_window.Width - logicalWidth) > 0.5)
+            {
+                _window.Width = logicalWidth;
+            }
+
+            if (Math.Abs(_window.Height - logicalHeight) > 0.5)
+            {
+                _window.Height = logicalHeight;
+            }
+
+            NativeMethods.SetWindowPos(
+                _hwnd,
+                NativeMethods.HWND_TOPMOST,
+                x,
+                y,
+                width,
+                height,
+                NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_ASYNCWINDOWPOS);
+        }
+        else
+        {
+            // Re-assert z-order only — avoids flicker from repeated move/size/show.
+            NativeMethods.SetWindowPos(
+                _hwnd,
+                NativeMethods.HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                NativeMethods.SWP_NOMOVE |
+                NativeMethods.SWP_NOSIZE |
+                NativeMethods.SWP_NOACTIVATE |
+                NativeMethods.SWP_ASYNCWINDOWPOS);
+        }
     }
 
     private static void ApplyWindowStyles(IntPtr hwnd)
