@@ -2511,12 +2511,20 @@ public partial class MainWindow : Window
         {
             t = Math.Clamp(t, 0, 1);
             var easeT = Ease(t);
+            // Art / title / artist / icon cubes finish in half the swap duration.
+            var cubeEaseT = Ease(Math.Clamp(t * 2, 0, 1));
             ApplyProgress(t, easeT);
 
             for (var i = 0; i < faces.Count; i++)
             {
                 var (ghost, ghostScale, live, liveScale, kind, _, _) = faces[i];
-                ApplyFace(ghost, ghostScale, live, liveScale, kind, easeT);
+                ApplyFace(
+                    ghost,
+                    ghostScale,
+                    live,
+                    liveScale,
+                    kind,
+                    kind == SwapFaceKind.Cube ? cubeEaseT : easeT);
             }
         }
 
