@@ -335,7 +335,7 @@
                             <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
                         </Border>
 
-                        <!-- Width animates; content fills host so title marquee fades (not hard-clipped) -->
+                        <!-- Meta shrinks on volume; app icon stays OUTSIDE so ClipToBounds can't eat it -->
                         <Grid x:Name="ChipMetaHost"
                               Width="0"
                               Margin="6,0,0,0"
@@ -351,28 +351,13 @@
                                                   FontWeight="SemiBold"
                                                   Foreground="#F5F5F5"
                                                   Height="14" />
-                            <!-- Artist left, app icon right — artist stays when volume opens (like primary) -->
-                            <Grid Grid.Row="1" Margin="0,1,0,1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Artist}"
-                                           Foreground="#B8C0CC"
-                                           FontSize="9"
-                                           TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center" />
-                                <Image Grid.Column="1"
-                                       Source="{Binding AppIcon}"
-                                       Width="8"
-                                       Height="8"
-                                       Margin="5,0,0,0"
-                                       Stretch="Uniform"
-                                       Opacity="0.9"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding AppIconVisibility}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Grid>
+                            <TextBlock Grid.Row="1"
+                                       Margin="0,1,0,1"
+                                       Text="{Binding Artist}"
+                                       Foreground="#B8C0CC"
+                                       FontSize="9"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center" />
                             <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -386,7 +371,6 @@
                                              Background="{DynamicResource ProgressTrackBrush}"
                                              BorderThickness="0"
                                              VerticalAlignment="Center" />
-                                <!-- Only duration dissolves into progress (solo-style) -->
                                 <Grid x:Name="ChipTimeTextHost"
                                       Grid.Column="1"
                                       ClipToBounds="True"
@@ -400,6 +384,15 @@
                                 </Grid>
                             </Grid>
                         </Grid>
+                        <Image Source="{Binding AppIcon}"
+                               Width="8"
+                               Height="8"
+                               Margin="5,0,0,0"
+                               Stretch="Uniform"
+                               Opacity="0.9"
+                               VerticalAlignment="Center"
+                               Visibility="{Binding AppIconVisibility}"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -556,11 +549,12 @@
                                         <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
                                     </TextBlock.Effect>
                                 </TextBlock>
-                                <!-- Solo: mono icon + app name; name collapses into icon when volume opens -->
+                                <!-- Icon always visible (MinWidth); name collapses into it on volume / play+play -->
                                 <StackPanel x:Name="SourceSlot"
                                             Grid.Column="1"
                                             Orientation="Horizontal"
                                             Margin="5,0,0,0"
+                                            MinWidth="8"
                                             VerticalAlignment="Center">
                                     <Image x:Name="SourceAppIcon"
                                            Source="{Binding AppIcon}"
