@@ -180,7 +180,8 @@
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
-                        <Button Style="{StaticResource CompactMediaButton}"
+                        <Button x:Name="ChipExpandedPrev"
+                                Style="{StaticResource CompactMediaButton}"
                                 Width="16"
                                 Height="16"
                                 Padding="0"
@@ -204,7 +205,8 @@
                                                     IsPlaying="{Binding IsPlaying}"
                                                     Foreground="#F2F4F7" />
                         </Button>
-                        <Button Style="{StaticResource CompactMediaButton}"
+                        <Button x:Name="ChipExpandedNext"
+                                Style="{StaticResource CompactMediaButton}"
                                 Width="16"
                                 Height="16"
                                 Padding="0"

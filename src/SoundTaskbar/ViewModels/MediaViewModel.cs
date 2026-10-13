@@ -967,7 +967,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         return SideSessions.FirstOrDefault(s => playing.Any(p => p.SessionKey == s.SessionKey))?.SessionKey;
     }
 
-    /// <summary>Swap primary with the side chip next to the divider (click on divider).</summary>
+    /// <summary>
+    /// Swap primary with the divider-adjacent side chip. Only same playback state
+    /// (play↔play or pause↔pause) — never play with pause.
+    /// </summary>
     public void SwapPrimaryAndSide()
     {
         if (!ShowParkedRail || SideSessions.Count == 0 || string.IsNullOrWhiteSpace(_primarySessionKey))
@@ -977,6 +980,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         var side = SideSessions.LastOrDefault(s => s.ShowExpandedMeta) ?? SideSessions[^1];
         if (string.Equals(side.SessionKey, _primarySessionKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // play↔play or pause↔pause only.
+        if (side.IsPlaying != IsPlaying)
         {
             return;
         }
