@@ -45,7 +45,7 @@
                     <!-- Width driven in code with art/next steal (same clock) — no XAML storyboard -->
                     <Grid x:Name="ChipVolumeHost"
                           Width="14"
-                          Height="36"
+                          Height="16"
                           Margin="0,0,4,0"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
@@ -53,17 +53,18 @@
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center">
                             <Button Width="14"
-                                    Height="36"
+                                    Height="16"
                                     Padding="0"
                                     IsEnabled="{Binding CanControlVolume}"
                                     ToolTip="{Binding SourceName}">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
                                         <Setter Property="Width" Value="14" />
-                                        <Setter Property="Height" Value="36" />
+                                        <Setter Property="Height" Value="16" />
+                                        <Setter Property="MinHeight" Value="16" />
                                         <Setter Property="FontSize" Value="9" />
                                         <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Padding" Value="0,1,0,0" />
                                         <Setter Property="Content" Value="{Binding VolumeGlyph}" />
                                         <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                         <Setter Property="Foreground" Value="#F2F4F7" />
@@ -245,7 +246,7 @@
                     <Grid x:Name="ChipVolumeHostExpanded"
                           Grid.Column="1"
                           Width="14"
-                          Height="36"
+                          Height="16"
                           Margin="0,0,4,0"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
@@ -254,16 +255,17 @@
                                     VerticalAlignment="Center">
                             <Button x:Name="ChipVolumeButton"
                                     Width="14"
-                                    Height="36"
+                                    Height="16"
                                     Padding="0"
                                     IsEnabled="{Binding CanControlVolume}">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
                                         <Setter Property="Width" Value="14" />
-                                        <Setter Property="Height" Value="36" />
+                                        <Setter Property="Height" Value="16" />
+                                        <Setter Property="MinHeight" Value="16" />
                                         <Setter Property="FontSize" Value="9" />
                                         <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Padding" Value="0,1,0,0" />
                                         <Setter Property="Content" Value="{Binding VolumeGlyph}" />
                                         <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                         <Setter Property="Foreground" Value="#F2F4F7" />
@@ -716,7 +718,7 @@
                 <Grid x:Name="VolumeHost"
                       Grid.Column="2"
                       Width="16"
-                      Height="36"
+                      Height="16"
                       Margin="0,0,2,0"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
@@ -732,17 +734,18 @@
                                 Value="{Binding Volume, Mode=TwoWay}" />
                         <Button x:Name="VolumeButton"
                                 Width="16"
-                                Height="36"
+                                Height="16"
                                 Padding="0"
                                 VerticalAlignment="Center"
                                 IsEnabled="{Binding CanControlVolume}">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
                                     <Setter Property="Width" Value="16" />
-                                    <Setter Property="Height" Value="36" />
+                                    <Setter Property="Height" Value="16" />
+                                    <Setter Property="MinHeight" Value="16" />
                                     <Setter Property="FontSize" Value="10" />
                                     <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Padding" Value="0,1,0,0" />
                                     <Setter Property="Content" Value="{Binding VolumeGlyph}" />
                                     <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                     <Setter Property="Foreground" Value="#F2F4F7" />

@@ -1590,24 +1590,39 @@ public partial class MainWindow : Window
         // Mute replaces speaker in place; slider opens left and (in pause+play) steals art + next/play.
         var duration = TimeSpan.FromMilliseconds(260);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
+        var hostTo = open ? VolumeOpenWidth : VolumeClosedWidth;
 
+        // Clear HoldEnd residue, then lerp closed↔open (16 ↔ 74).
         VolumeHost.BeginAnimation(WidthProperty, null);
-        VolumeHost.BeginAnimation(
-            WidthProperty,
-            new DoubleAnimation
-            {
-                From = VolumeHost.ActualWidth > 0.5 ? VolumeHost.ActualWidth : (open ? VolumeClosedWidth : VolumeOpenWidth),
-                To = open ? VolumeOpenWidth : VolumeClosedWidth,
-                Duration = duration,
-                EasingFunction = ease,
-                FillBehavior = FillBehavior.HoldEnd
-            });
+        var hostFrom = !double.IsNaN(VolumeHost.Width) && VolumeHost.Width > 0.5
+            ? VolumeHost.Width
+            : (VolumeHost.ActualWidth > 0.5
+                ? VolumeHost.ActualWidth
+                : (open ? VolumeClosedWidth : VolumeOpenWidth));
+        hostFrom = Math.Clamp(hostFrom, VolumeClosedWidth, VolumeOpenWidth);
+        VolumeHost.Width = hostFrom;
+        var hostAnim = new DoubleAnimation
+        {
+            From = hostFrom,
+            To = hostTo,
+            Duration = duration,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        hostAnim.Completed += (_, _) =>
+        {
+            VolumeHost.BeginAnimation(WidthProperty, null);
+            VolumeHost.Width = hostTo;
+        };
+        VolumeHost.BeginAnimation(WidthProperty, hostAnim);
 
         VolumeSlider.BeginAnimation(OpacityProperty, null);
+        var sliderOpacityFrom = VolumeSlider.Opacity;
         VolumeSlider.BeginAnimation(
             OpacityProperty,
             new DoubleAnimation
             {
+                From = sliderOpacityFrom,
                 To = open ? 1 : 0,
                 Duration = duration,
                 EasingFunction = ease,
@@ -1617,6 +1632,8 @@ public partial class MainWindow : Window
         VolumeSlider.IsHitTestVisible = open;
         VolumeButton.BeginAnimation(WidthProperty, null);
         VolumeButton.Width = VolumeButtonWidth;
+        VolumeButton.Height = VolumeClosedWidth;
+        VolumeButton.MinHeight = VolumeClosedWidth;
         VolumeButton.BeginAnimation(OpacityProperty, null);
         VolumeButton.Opacity = 1;
         VolumeButton.IsHitTestVisible = true;
