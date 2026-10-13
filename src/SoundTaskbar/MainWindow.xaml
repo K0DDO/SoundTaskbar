@@ -235,7 +235,7 @@
                                                 Foreground="#F2F4F7" />
                     </Button>
 
-                    <!-- Mirror of solo VolumeHost: btn anchors left, mute+slider open to the right into art -->
+                    <!-- Speaker pinned; slider opens to its RIGHT and pushes VU/art/meta -->
                     <Grid x:Name="ChipVolumeHostExpanded"
                           Width="14"
                           Height="16"
@@ -249,43 +249,43 @@
                                     Width="14"
                                     Height="14"
                                     Padding="0"
-                                    FontSize="8"
-                                    FontFamily="Segoe UI Emoji"
-                                    Content="{Binding VolumeGlyph}"
-                                    Command="{Binding ToggleVolumeCommand}"
-                                    IsEnabled="{Binding CanControlVolume}"
-                                    Style="{StaticResource CompactMediaButton}"
-                                    Foreground="#F2F4F7" />
+                                    IsEnabled="{Binding CanControlVolume}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
+                                        <Setter Property="Width" Value="14" />
+                                        <Setter Property="Height" Value="14" />
+                                        <Setter Property="FontSize" Value="8" />
+                                        <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+                                        <Setter Property="Content" Value="{Binding VolumeGlyph}" />
+                                        <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
+                                        <Setter Property="Foreground" Value="#F2F4F7" />
+                                        <Style.Triggers>
+                                            <!-- Same slot: speaker → mute while open (position stays) -->
+                                            <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                                                <Setter Property="FontSize" Value="9" />
+                                                <Setter Property="Content" Value="{Binding MuteGlyph}" />
+                                                <Setter Property="Command" Value="{Binding ToggleMuteCommand}" />
+                                            </DataTrigger>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding IsVolumeEditorOpen}" Value="True" />
+                                                    <Condition Binding="{Binding IsEffectivelyMuted}" Value="True" />
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Foreground" Value="#EF4444" />
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Slider x:Name="ChipVolumeSlider"
                                     Width="48"
-                                    Margin="2,0,2,0"
+                                    Margin="2,0,0,0"
                                     IsEnabled="{Binding CanControlVolume}"
                                     Value="{Binding Volume, Mode=TwoWay}"
                                     Opacity="0"
                                     IsHitTestVisible="False"
                                     Style="{StaticResource VolumeSlider}" />
-                            <Button x:Name="ChipMuteButton"
-                                    Width="14"
-                                    Height="14"
-                                    Padding="0"
-                                    FontFamily="Segoe MDL2 Assets"
-                                    FontSize="9"
-                                    Content="{Binding MuteGlyph}"
-                                    Command="{Binding ToggleMuteCommand}"
-                                    IsEnabled="{Binding CanControlVolume}"
-                                    Opacity="0"
-                                    IsHitTestVisible="False">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
-                                        <Setter Property="Foreground" Value="#F2F4F7" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsEffectivelyMuted}" Value="True">
-                                                <Setter Property="Foreground" Value="#EF4444" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
                         </StackPanel>
                     </Grid>
 

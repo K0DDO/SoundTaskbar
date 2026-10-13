@@ -678,9 +678,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play left chip volume — mirror of solo VolumeHost:
-    /// speaker anchors on the left, mute+slider open to the right into art;
-    /// transport stays put; artist/time dissolve like solo.
+    /// Left chip volume: pin transport + speaker; slider opens to the RIGHT of the speaker
+    /// and pushes VU/art/meta right; artist + duration dissolve like solo.
     /// </summary>
     private void AnimatePlayPlaySideVolume(SideSessionViewModel side)
     {
@@ -700,6 +699,7 @@ public partial class MainWindow : Window
             var duration = TimeSpan.FromMilliseconds(260);
             var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
+            // Left-align so transport + speaker stay put; only content to the right moves.
             SyncParkedListAlignment(playPlay: true);
 
             if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
@@ -712,8 +712,8 @@ public partial class MainWindow : Window
                 ? ParkedHost.Width
                 : ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
 
-            // Measure target chip width with volume chrome already at the end state.
-            ApplyChipVolumeChrome(container, open, animate: false);
+            // End-state for measure: speaker stays 14px, host 64, text collapsed.
+            ApplyChipVolumeOpen(container, open, animate: false);
             SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", open);
             SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", open);
             ParkedHost.BeginAnimation(WidthProperty, null);
@@ -723,30 +723,28 @@ public partial class MainWindow : Window
             var chipTo = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
             ParkedHost.Width = chipFrom;
 
-            // Rewind chrome to the start frame, then animate solo-style in sync.
-            ApplyChipVolumeChrome(container, !open, animate: false);
+            // Start frame, then animate host/slider + dissolves + chip push in sync.
+            ApplyChipVolumeOpen(container, !open, animate: false);
             SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", !open);
             SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", !open);
-            ApplyChipVolumeChrome(container, open, animate: true, duration, ease);
+            ApplyChipVolumeOpen(container, open, animate: true, duration, ease);
             AnimateChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", open, duration, ease);
             AnimateChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", open, duration, ease);
 
+            _parkedChipTarget = chipTo;
             if (Math.Abs(chipTo - chipFrom) < 0.5)
             {
-                _parkedChipTarget = chipTo;
                 _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
                 return;
             }
 
-            _parkedChipTarget = chipTo;
             var shellFrom = _taskbarHost?.DesiredWidgetWidthDip
                             ?? _viewModel.ComputePlayPlayCompositeWidth(chipFrom);
             var shellTo = _viewModel.ComputePlayPlayCompositeWidth(chipTo);
             var holder = new AnimationClockHolder();
             holder.ProgressChanged += t =>
             {
-                var chip = chipFrom + (chipTo - chipFrom) * t;
-                ParkedHost.Width = chip;
+                ParkedHost.Width = chipFrom + (chipTo - chipFrom) * t;
                 if (_taskbarHost is not null)
                 {
                     _taskbarHost.DesiredWidgetWidthDip = shellFrom + (shellTo - shellFrom) * t;
@@ -768,10 +766,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Solo VolumeHost mirrored for the left chip: host grows, speaker collapses,
-    /// mute+slider fade in to the right of where the speaker was.
+    /// Speaker width stays 14; only the host grows so the slider appears to the right.
     /// </summary>
-    private static void ApplyChipVolumeChrome(
+    private static void ApplyChipVolumeOpen(
         DependencyObject container,
         bool open,
         bool animate,
@@ -786,41 +783,26 @@ public partial class MainWindow : Window
         var dur = duration ?? TimeSpan.FromMilliseconds(260);
         var easing = ease ?? new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
         var hostTo = open ? ChipVolumeOpenWidth : ChipVolumeClosedWidth;
-        var btnTo = open ? 0 : ChipVolumeClosedWidth;
-        var panelTo = open ? 1.0 : 0.0;
+        var sliderOpacity = open ? 1.0 : 0.0;
 
-        void SnapWidth(FrameworkElement el, double to)
+        if (FindDescendantByName(container, "ChipVolumeButton") is FrameworkElement volBtn)
         {
-            el.BeginAnimation(WidthProperty, null);
-            el.Width = to;
-        }
-
-        void SnapOpacity(UIElement el, double to)
-        {
-            el.BeginAnimation(UIElement.OpacityProperty, null);
-            el.Opacity = to;
+            volBtn.BeginAnimation(WidthProperty, null);
+            volBtn.Width = ChipVolumeClosedWidth;
+            volBtn.BeginAnimation(UIElement.OpacityProperty, null);
+            volBtn.Opacity = 1;
+            volBtn.IsHitTestVisible = true;
         }
 
         if (!animate)
         {
-            SnapWidth(host, hostTo);
-            if (FindDescendantByName(container, "ChipVolumeButton") is FrameworkElement volBtn)
-            {
-                SnapWidth(volBtn, btnTo);
-                SnapOpacity(volBtn, open ? 0 : 1);
-                volBtn.IsHitTestVisible = !open;
-            }
-
+            host.BeginAnimation(WidthProperty, null);
+            host.Width = hostTo;
             if (FindDescendantByName(container, "ChipVolumeSlider") is FrameworkElement slider)
             {
-                SnapOpacity(slider, panelTo);
+                slider.BeginAnimation(UIElement.OpacityProperty, null);
+                slider.Opacity = sliderOpacity;
                 slider.IsHitTestVisible = open;
-            }
-
-            if (FindDescendantByName(container, "ChipMuteButton") is FrameworkElement mute)
-            {
-                SnapOpacity(mute, panelTo);
-                mute.IsHitTestVisible = open;
             }
 
             return;
@@ -836,55 +818,18 @@ public partial class MainWindow : Window
                 FillBehavior = FillBehavior.HoldEnd
             });
 
-        if (FindDescendantByName(container, "ChipVolumeButton") is FrameworkElement volumeButton)
-        {
-            volumeButton.BeginAnimation(
-                WidthProperty,
-                new DoubleAnimation
-                {
-                    To = btnTo,
-                    Duration = dur,
-                    EasingFunction = easing,
-                    FillBehavior = FillBehavior.HoldEnd
-                });
-            volumeButton.BeginAnimation(
-                UIElement.OpacityProperty,
-                new DoubleAnimation
-                {
-                    To = open ? 0 : 1,
-                    Duration = dur,
-                    EasingFunction = easing,
-                    FillBehavior = FillBehavior.HoldEnd
-                });
-            volumeButton.IsHitTestVisible = !open;
-        }
-
         if (FindDescendantByName(container, "ChipVolumeSlider") is FrameworkElement volumeSlider)
         {
             volumeSlider.BeginAnimation(
                 UIElement.OpacityProperty,
                 new DoubleAnimation
                 {
-                    To = panelTo,
+                    To = sliderOpacity,
                     Duration = dur,
                     EasingFunction = easing,
                     FillBehavior = FillBehavior.HoldEnd
                 });
             volumeSlider.IsHitTestVisible = open;
-        }
-
-        if (FindDescendantByName(container, "ChipMuteButton") is FrameworkElement muteButton)
-        {
-            muteButton.BeginAnimation(
-                UIElement.OpacityProperty,
-                new DoubleAnimation
-                {
-                    To = panelTo,
-                    Duration = dur,
-                    EasingFunction = easing,
-                    FillBehavior = FillBehavior.HoldEnd
-                });
-            muteButton.IsHitTestVisible = open;
         }
     }
 
@@ -1286,7 +1231,6 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            // Compact pause chip still uses the old single-button host.
             if (FindDescendantByName(container, "ChipVolumeHost") is FrameworkElement compactHost)
             {
                 compactHost.BeginAnimation(WidthProperty, null);
@@ -1295,7 +1239,7 @@ public partial class MainWindow : Window
                     : ChipVolumeClosedWidth;
             }
 
-            ApplyChipVolumeChrome(container, side.IsVolumeEditorOpen, animate: false);
+            ApplyChipVolumeOpen(container, side.IsVolumeEditorOpen, animate: false);
             SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", side.IsVolumeEditorOpen);
             SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", side.IsVolumeEditorOpen);
         }
