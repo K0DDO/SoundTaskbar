@@ -290,6 +290,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Never cancel an in-flight morph — that left play+play stuck mid phase-1 (chip never grew).
+        if (_playPlayClock is not null)
+        {
+            return;
+        }
+
         if (_morphScheduled)
         {
             return;
@@ -300,6 +306,11 @@ public partial class MainWindow : Window
             () =>
             {
                 _morphScheduled = false;
+                if (_playPlayClock is not null)
+                {
+                    return;
+                }
+
                 if (_viewModel.ShowParkedRail && _parkedOpen && ParkedHost.ActualWidth > 1)
                 {
                     MorphSideChips(animate: true);
@@ -372,8 +383,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        _playPlayClock?.Cancel();
-        _playPlayClock = null;
+        if (_playPlayClock is not null)
+        {
+            return;
+        }
 
         var sides = ParkedList.Items.OfType<SideSessionViewModel>().ToList();
         var progressFrom = sides.Select(s => s.ExpandProgress).ToArray();
@@ -438,31 +451,72 @@ public partial class MainWindow : Window
         // between the two sequential phases.
         var compactChip = expand ? parkedFrom : chipTo;
         var midShell = _viewModel.ComputePlayPlayCompositeWidth(compactChip);
+        var half = TimeSpan.FromMilliseconds(PlayPlayMorphMs / 2.0);
+        var phaseEase = new CubicEase { EasingMode = EasingMode.EaseInOut };
 
-        var clock = new AnimationClockHolder();
-        clock.ProgressChanged += t =>
+        void ApplyPhase(bool phaseExpandChip, double u)
         {
-            MapPlayPlayPhases(
-                t,
-                expand,
-                parkedFrom,
-                chipTo,
-                shellFrom,
-                midShell,
-                shellTo,
-                out var progressT,
-                out var chip,
-                out var shell);
+            u = Math.Clamp(u, 0, 1);
+            double progressT;
+            double chip;
+            double shell;
+            if (expand)
+            {
+                if (!phaseExpandChip)
+                {
+                    // Phase 1: primary shrinks, divider moves, chip stays compact.
+                    progressT = 0;
+                    chip = parkedFrom;
+                    shell = shellFrom + (midShell - shellFrom) * u;
+                }
+                else
+                {
+                    // Phase 2: chip grows into play+play.
+                    progressT = u;
+                    chip = parkedFrom + (chipTo - parkedFrom) * u;
+                    shell = midShell + (shellTo - midShell) * u;
+                }
+            }
+            else if (!phaseExpandChip)
+            {
+                // Collapse phase 1: chip shrinks first.
+                progressT = u;
+                chip = parkedFrom + (chipTo - parkedFrom) * u;
+                shell = shellFrom + (midShell - shellFrom) * u;
+            }
+            else
+            {
+                // Collapse phase 2: primary grows back.
+                progressT = 1;
+                chip = chipTo;
+                shell = midShell + (shellTo - midShell) * u;
+            }
+
             ApplySideFrame(sides, progressFrom, progressTo, metaTargets, progressT, chip, shell);
-        };
-        _playPlayClock = clock;
-        // Linear outer clock — easing lives inside each phase so the hold at midShell is crisp.
-        clock.Start(
+        }
+
+        // Two chained clocks so phase 2 always runs (a single cancelled clock used to strand phase 1).
+        var clock1 = new AnimationClockHolder();
+        clock1.ProgressChanged += t => ApplyPhase(phaseExpandChip: false, t);
+        _playPlayClock = clock1;
+        clock1.Start(
             0,
             1,
-            TimeSpan.FromMilliseconds(PlayPlayMorphMs),
-            ease: null,
-            Finish);
+            half,
+            phaseEase,
+            () =>
+            {
+                if (!ReferenceEquals(_playPlayClock, clock1))
+                {
+                    return;
+                }
+
+                ApplyPhase(phaseExpandChip: false, 1);
+                var clock2 = new AnimationClockHolder();
+                clock2.ProgressChanged += t => ApplyPhase(phaseExpandChip: true, t);
+                _playPlayClock = clock2;
+                clock2.Start(0, 1, half, phaseEase, Finish);
+            });
 
         if (expand != wasExpanded)
         {
@@ -472,67 +526,6 @@ public partial class MainWindow : Window
                 animate: true,
                 phaseDurationMs: PlayPlayMorphMs / 2,
                 beginMs: expand ? 0 : PlayPlayMorphMs / 2);
-        }
-    }
-
-    /// <summary>
-    /// Sequential play+play morph:
-    /// expand — phase1 primary shrinks (divider moves), phase2 chip grows;
-    /// collapse — phase1 chip shrinks, phase2 primary grows back.
-    /// </summary>
-    private static void MapPlayPlayPhases(
-        double t,
-        bool expand,
-        double chipFrom,
-        double chipTo,
-        double shellFrom,
-        double midShell,
-        double shellTo,
-        out double progressT,
-        out double chip,
-        out double shell)
-    {
-        t = Math.Clamp(t, 0, 1);
-        // Smooth each half independently (hold at the boundary between phases).
-        static double EaseHalf(double u)
-        {
-            u = Math.Clamp(u, 0, 1);
-            // Cubic ease-in-out
-            return u < 0.5
-                ? 4 * u * u * u
-                : 1 - Math.Pow(-2 * u + 2, 3) / 2;
-        }
-
-        if (expand)
-        {
-            if (t <= 0.5)
-            {
-                var u = EaseHalf(t / 0.5);
-                progressT = 0;
-                chip = chipFrom;
-                shell = shellFrom + (midShell - shellFrom) * u;
-            }
-            else
-            {
-                var u = EaseHalf((t - 0.5) / 0.5);
-                progressT = u;
-                chip = chipFrom + (chipTo - chipFrom) * u;
-                shell = midShell + (shellTo - midShell) * u;
-            }
-        }
-        else if (t <= 0.5)
-        {
-            var u = EaseHalf(t / 0.5);
-            progressT = u;
-            chip = chipFrom + (chipTo - chipFrom) * u;
-            shell = shellFrom + (midShell - shellFrom) * u;
-        }
-        else
-        {
-            var u = EaseHalf((t - 0.5) / 0.5);
-            progressT = 1;
-            chip = chipTo;
-            shell = midShell + (shellTo - midShell) * u;
         }
     }
 
