@@ -726,6 +726,8 @@
                           VerticalAlignment="Center">
                         <Button x:Name="PreviousButton"
                                 Style="{StaticResource CompactMediaButton}"
+                                Width="16"
+                                Height="16"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Center"
                                 Command="{Binding PreviousCommand}">
@@ -757,9 +759,11 @@
                           VerticalAlignment="Center">
                         <Button x:Name="NextTransportButton"
                                 Style="{StaticResource CompactMediaButton}"
+                                Width="16"
+                                Height="16"
                                 VerticalAlignment="Center"
-                                Command="{Binding NextCommand}"
-                                HorizontalAlignment="Center">
+                                HorizontalAlignment="Center"
+                                Command="{Binding NextCommand}">
                             <controls:TransportIcon x:Name="NextIcon"
                                                       Kind="{Binding NextIconKind}"
                                                       Seconds="{Binding SeekSeconds}"

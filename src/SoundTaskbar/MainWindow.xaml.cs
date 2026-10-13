@@ -2195,10 +2195,10 @@ public partial class MainWindow : Window
 
         void PrepLiveSeek(FrameworkElement live, ScaleTransform liveScale)
         {
+            // Scale the button inside a fixed clip host — never the host itself (prev was jumping down).
             live.RenderTransformOrigin = new Point(0.5, 0.5);
             live.RenderTransform = liveScale;
-            live.Opacity = 1;
-            live.ClipToBounds = true;
+            live.Opacity = 0;
             _swapLiveFaces.Add(live);
         }
 
@@ -2277,9 +2277,9 @@ public partial class MainWindow : Window
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistRow);
         AddPairedCube(PrimaryTimeRow);
-        // Same clip-host scale appear for prev and next (icon geometry is mirrored, not ScaleX-flipped).
-        AddPairedSeek(PreviousTransportClip);
-        AddPairedSeek(NextTransportClip);
+        // Animate buttons inside fixed clips (host stays put — scaling the clip made prev jump down).
+        AddPairedSeek(PreviousButton);
+        AddPairedSeek(NextTransportButton);
 
         // Outgoing chip media + seek only (not pause / volume).
         var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
@@ -2290,8 +2290,8 @@ public partial class MainWindow : Window
             AddChipCubeGhost("ChipTitleRow", FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddChipCubeGhost("ChipArtistRow", FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement);
             AddChipCubeGhost("ChipTimeRow", FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
-            AddChipSeekGhost("ChipExpandedPrevClip", FindDescendantByName(chipRoot, "ChipExpandedPrevClip") as FrameworkElement);
-            AddChipSeekGhost("ChipExpandedNextClip", FindDescendantByName(chipRoot, "ChipExpandedNextClip") as FrameworkElement);
+            AddChipSeekGhost("ChipExpandedPrev", FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
+            AddChipSeekGhost("ChipExpandedNext", FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
         }
 
         // Hide live chip under SwapOverlay ghosts until lives are prepped.
@@ -2407,8 +2407,8 @@ public partial class MainWindow : Window
             AttachCube("ChipTitleRow");
             AttachCube("ChipArtistRow");
             AttachCube("ChipTimeRow");
-            AttachSeek("ChipExpandedPrevClip");
-            AttachSeek("ChipExpandedNextClip");
+            AttachSeek("ChipExpandedPrev");
+            AttachSeek("ChipExpandedNext");
 
             // Pause stays put — same play/pause state, no animation.
             if (FindDescendantByName(newChip, "ChipExpandedPlay") is FrameworkElement play)
@@ -2449,7 +2449,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Seek prev/next: shrink out, grow in (uniform scale).
+                // Seek prev/next: ghost shrinks in place; live grows inside fixed clip (same for both).
                 if (ghostScale is not null && ghost is not null)
                 {
                     var s = 1 - p;
@@ -2462,7 +2462,7 @@ public partial class MainWindow : Window
                 {
                     liveScale.ScaleX = p;
                     liveScale.ScaleY = p;
-                    live.Opacity = p > 0.02 ? 1 : 0;
+                    live.Opacity = p > 0.01 ? 1 : 0;
                 }
             }
         }
