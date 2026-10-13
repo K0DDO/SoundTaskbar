@@ -185,6 +185,7 @@
                                 Width="16"
                                 Height="16"
                                 Padding="0"
+                                VerticalAlignment="Center"
                                 Command="{Binding PreviousCommand}">
                             <controls:TransportIcon Width="8"
                                                     Height="8"
@@ -198,8 +199,7 @@
                                 Width="22"
                                 Height="22"
                                 FontSize="10"
-                                Margin="1,-3,0,0"
-                                ClipToBounds="True"
+                                Margin="1,0"
                                 VerticalAlignment="Center"
                                 Command="{Binding ToggleCommand}" />
                         <Button Style="{StaticResource CompactMediaButton}"
@@ -207,6 +207,7 @@
                                 Height="16"
                                 Padding="0"
                                 Margin="0,0,4,0"
+                                VerticalAlignment="Center"
                                 Command="{Binding NextCommand}">
                             <controls:TransportIcon Width="8"
                                                     Height="8"
@@ -665,6 +666,7 @@
                                 Width="16"
                                 Height="16"
                                 Padding="0"
+                                VerticalAlignment="Center"
                                 IsEnabled="{Binding CanControlVolume}">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
@@ -703,6 +705,7 @@
                             VerticalAlignment="Center">
                     <Button x:Name="PreviousButton"
                             Style="{StaticResource CompactMediaButton}"
+                            VerticalAlignment="Center"
                             Command="{Binding PreviousCommand}">
                         <controls:TransportIcon x:Name="PreviousIcon"
                                                   Kind="{Binding PreviousIconKind}"
@@ -710,13 +713,12 @@
                                                   Foreground="#F2F4F7" />
                     </Button>
                     <Grid x:Name="PlayPauseTransportClip"
-                          Margin="2,-4,0,0"
+                          Margin="2,0,0,0"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="PlayPauseTransportButton"
                                 Content="{Binding PlayPauseLabel}"
                                 Style="{StaticResource PlayPauseButton}"
-                                ClipToBounds="True"
                                 Command="{Binding PlayPauseCommand}"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center" />
@@ -726,6 +728,7 @@
                           VerticalAlignment="Center">
                         <Button x:Name="NextTransportButton"
                                 Style="{StaticResource CompactMediaButton}"
+                                VerticalAlignment="Center"
                                 Command="{Binding NextCommand}"
                                 HorizontalAlignment="Right">
                             <controls:TransportIcon x:Name="NextIcon"
