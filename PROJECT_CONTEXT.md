@@ -74,7 +74,7 @@ dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTask
 
 ## Текущее состояние
 
-- **Solo заморожен** (310, marquee/fade/icon/VU gaps) — не менять без явного запроса
+- **Solo**: 310 / marquee / icon / VU — layout заморожен; volume open → имя + `TimeText` dissolve в прогресс (ширина+opacity, 260ms)
 - **pause+play заморожен** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms) — не трогать
 - **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`; volume steals meta; name→icon latched; DualHost удалён
 - **3+ источника**: `MaxSideChips=3`; лишние — маленькие paused-чипы слева, разделители между чипами (`DividerVisibility` в шаблоне); expanded play-чип всегда последний (у основного). `MorphSideChips` — прогресс на каждый чип, один clock, коалесинг через `ScheduleSideMorph` (ждёт конец ParkedReveal)

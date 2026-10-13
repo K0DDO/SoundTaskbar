@@ -1057,6 +1057,7 @@ public partial class MainWindow : Window
         VolumeButton.IsHitTestVisible = !open;
 
         AnimateSourceNameForVolume(open, duration, ease);
+        AnimateTimeTextForVolume(open, duration, ease);
     }
 
     /// <summary>Solo: collapse app name into the mono icon in sync with the volume host width.</summary>
@@ -1069,6 +1070,97 @@ public partial class MainWindow : Window
         }
 
         AnimateSourceNameWidth(collapse: volumeOpen, animate: true, duration, ease);
+    }
+
+    /// <summary>
+    /// Solo: dissolve elapsed/duration into the progress bar when volume opens —
+    /// width collapses left into the timeline while opacity fades.
+    /// </summary>
+    private void AnimateTimeTextForVolume(bool volumeOpen, Duration duration, IEasingFunction ease)
+    {
+        // play+play: keep time visible (volume already steals left meta, not primary time).
+        if (_viewModel.ShowPairAppIcon)
+        {
+            TimeTextHost.BeginAnimation(WidthProperty, null);
+            TimeTextHost.Width = double.NaN;
+            TimeText.BeginAnimation(OpacityProperty, null);
+            TimeText.Opacity = 1;
+            return;
+        }
+
+        TimeText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var full = Math.Max(
+            1,
+            Math.Ceiling(TimeText.DesiredSize.Width + TimeText.Margin.Left + TimeText.Margin.Right));
+
+        var current = TimeTextHost.Width;
+        if (volumeOpen && !double.IsNaN(current) && current < 0.5 && TimeTextHost.ActualWidth < 0.5)
+        {
+            TimeTextHost.BeginAnimation(WidthProperty, null);
+            TimeTextHost.Width = 0;
+            TimeText.BeginAnimation(OpacityProperty, null);
+            TimeText.Opacity = 0;
+            return;
+        }
+
+        if (!volumeOpen && double.IsNaN(current) && TimeTextHost.ActualWidth > 0.5 && TimeText.Opacity > 0.95)
+        {
+            return;
+        }
+
+        var from = TimeTextHost.ActualWidth > 0.5
+            ? TimeTextHost.ActualWidth
+            : (!double.IsNaN(current) && current >= 0 ? current : (volumeOpen ? full : 0));
+        var to = volumeOpen ? 0 : full;
+        var opacityFrom = TimeText.Opacity;
+        if (double.IsNaN(opacityFrom))
+        {
+            opacityFrom = volumeOpen ? 1 : 0;
+        }
+
+        var opacityTo = volumeOpen ? 0 : 1;
+
+        if (Math.Abs(to - from) < 0.5 && Math.Abs(opacityTo - opacityFrom) < 0.02)
+        {
+            TimeTextHost.BeginAnimation(WidthProperty, null);
+            TimeTextHost.Width = volumeOpen ? 0 : double.NaN;
+            TimeText.BeginAnimation(OpacityProperty, null);
+            TimeText.Opacity = opacityTo;
+            return;
+        }
+
+        TimeTextHost.BeginAnimation(WidthProperty, null);
+        TimeTextHost.Width = from;
+        TimeText.BeginAnimation(OpacityProperty, null);
+        TimeText.Opacity = opacityFrom;
+
+        var widthAnim = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = duration,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        widthAnim.Completed += (_, _) =>
+        {
+            TimeTextHost.BeginAnimation(WidthProperty, null);
+            TimeTextHost.Width = volumeOpen ? 0 : double.NaN;
+            TimeText.BeginAnimation(OpacityProperty, null);
+            TimeText.Opacity = opacityTo;
+        };
+
+        TimeTextHost.BeginAnimation(WidthProperty, widthAnim);
+        TimeText.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation
+            {
+                From = opacityFrom,
+                To = opacityTo,
+                Duration = duration,
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
+            });
     }
 
     /// <summary>play+play: collapse app name into icon; reverse when leaving pair.</summary>

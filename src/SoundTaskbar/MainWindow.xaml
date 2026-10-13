@@ -589,14 +589,20 @@
                                              Value="{Binding Progress, Mode=OneWay}"
                                              Foreground="{DynamicResource ProgressAccentBrush}"
                                              Background="{DynamicResource ProgressTrackBrush}"
-                                             BorderThickness="0" />
-                                <TextBlock x:Name="TimeText"
-                                           Grid.Column="1"
-                                           Margin="4,0,0,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="#C8CDD6"
-                                           FontSize="8"
-                                           Text="{Binding TimeText}" />
+                                             BorderThickness="0"
+                                             VerticalAlignment="Center" />
+                                <!-- Width/opacity animated into progress when volume opens -->
+                                <Grid x:Name="TimeTextHost"
+                                      Grid.Column="1"
+                                      ClipToBounds="True"
+                                      VerticalAlignment="Center">
+                                    <TextBlock x:Name="TimeText"
+                                               Margin="4,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="#C8CDD6"
+                                               FontSize="8"
+                                               Text="{Binding TimeText}" />
+                                </Grid>
                             </Grid>
                         </Grid>
                     </Grid>
