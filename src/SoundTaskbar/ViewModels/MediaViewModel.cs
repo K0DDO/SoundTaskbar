@@ -1484,11 +1484,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             Artist = snapshot.Artist?.Trim() ?? string.Empty;
         }
 
-        if (fresh)
-        {
-            Artwork = snapshot.Artwork;
-        }
-
         var appChanged = !string.Equals(AppId, snapshot.AppId, StringComparison.OrdinalIgnoreCase);
         AppId = snapshot.AppId;
         CanSkipNext = snapshot.CanSkipNext;
@@ -1521,9 +1516,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         SyncTimeline(position, duration, snapshot.IsPlaying);
         IsPlaying = snapshot.IsPlaying;
 
-        if (!keepArtwork || snapshot.Artwork is not null)
+        // Never assign null artwork (pause/demote SMTC often omits bitmap briefly).
+        if (snapshot.Artwork is not null)
         {
-            Artwork = snapshot.Artwork ?? Artwork;
+            Artwork = snapshot.Artwork;
+        }
+        else if ((fresh || !keepArtwork) &&
+                 Artwork is null &&
+                 _artworkCache.TryGetValue(snapshot.SessionKey, out var cachedArt))
+        {
+            Artwork = cachedArt;
         }
 
         // Last, so the reveal starts with the new frame already bound.

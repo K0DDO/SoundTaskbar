@@ -2092,6 +2092,8 @@ public partial class MainWindow : Window
         WidgetContent.Opacity = 1;
         WidgetContent.RenderTransform = Transform.Identity;
         WidgetContent.IsHitTestVisible = true;
+        // Cube swap can leave ScaleY=0 on art if demote interrupts — force media faces visible.
+        RestoreSwapMediaFaces();
 
         _playPlayClock?.Cancel();
         _playPlayClock = null;
@@ -2138,8 +2140,65 @@ public partial class MainWindow : Window
         }
 
         _playPlayDemoteAnimating = false;
+        RestoreSwapMediaFaces();
         SnapPausePlayVolumeChrome(collapsed: false);
         _taskbarHost?.FlushRegion();
+    }
+
+    /// <summary>
+    /// Undo cube/seek RenderTransforms left on primary + chip media faces after swap/demote.
+    /// </summary>
+    private void RestoreSwapMediaFaces()
+    {
+        PrimaryArtHost.BeginAnimation(UIElement.OpacityProperty, null);
+        PrimaryArtHost.Opacity = 1;
+        PrimaryArtHost.RenderTransformOrigin = new Point(0.5, 0.5);
+        PrimaryArtHost.RenderTransform = _primaryArtShift;
+        PrimaryArtHost.Width = PrimaryArtFullWidth;
+
+        if (!_pausePlayVolumeChromeCollapsed)
+        {
+            PrimaryArtClip.BeginAnimation(WidthProperty, null);
+            PrimaryArtClip.Width = PrimaryArtFullWidth;
+        }
+
+        foreach (var el in new FrameworkElement[]
+                 {
+                     TitleMarquee, PrimaryArtistTextHost, PrimaryArtistRow, PrimaryTimeRow, SourceAppIcon
+                 })
+        {
+            el.BeginAnimation(UIElement.OpacityProperty, null);
+            el.Opacity = 1;
+            el.RenderTransform = Transform.Identity;
+            el.RenderTransformOrigin = new Point(0.5, 0.5);
+        }
+
+        PrimaryMetaHost.RenderTransform = _primaryMetaShift;
+
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject root)
+            {
+                continue;
+            }
+
+            foreach (var name in new[]
+                     {
+                         "ChipExpandedArt", "ChipTitleRow", "ChipArtistTextHost", "ChipAppIcon",
+                         "ChipExpandedPrev", "ChipExpandedNext", "ChipTimeTextHost"
+                     })
+            {
+                if (FindDescendantByName(root, name) is not FrameworkElement el)
+                {
+                    continue;
+                }
+
+                el.BeginAnimation(UIElement.OpacityProperty, null);
+                el.Opacity = 1;
+                el.RenderTransform = Transform.Identity;
+                el.RenderTransformOrigin = new Point(0.5, 0.5);
+            }
+        }
     }
 
     /// <summary>
@@ -2710,8 +2769,7 @@ public partial class MainWindow : Window
             chipTime.ClearValue(WidthProperty);
         }
 
-        PrimaryArtHost.RenderTransform = _primaryArtShift;
-        PrimaryMetaHost.RenderTransform = _primaryMetaShift;
+        RestoreSwapMediaFaces();
 
         if (_swapChip is not null)
         {
