@@ -2148,6 +2148,8 @@ public partial class MainWindow : Window
 
         ResetSwapVisuals();
         _primarySwapAnimating = true;
+        // Match primary art cube: don't let ParkedHost clip the chip live face mid-roll.
+        ParkedHost.ClipToBounds = false;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, bool Cube)>();
@@ -2337,6 +2339,7 @@ public partial class MainWindow : Window
         PrimaryArtistRow.Opacity = 1;
         PrimaryTimeRow.Opacity = 1;
         ParkedHost.Opacity = 1;
+        ParkedHost.ClipToBounds = true;
 
         foreach (var live in _swapLiveFaces)
         {

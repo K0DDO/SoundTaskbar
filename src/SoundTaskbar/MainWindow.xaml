@@ -313,15 +313,30 @@
                                     IsHitTestVisible="False" />
                         </Grid>
 
-                        <Border x:Name="ChipExpandedArt"
-                                Width="28"
-                                Height="28"
-                                CornerRadius="4"
-                                ClipToBounds="True"
-                                Background="#44000000"
-                                VerticalAlignment="Center">
-                            <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                        </Border>
+                        <!-- Same as PrimaryArtClip / PrimaryArtHost — cube scales the border inside a fixed clip. -->
+                        <Grid x:Name="ChipExpandedArtClip"
+                              Width="28"
+                              Height="28"
+                              ClipToBounds="True"
+                              VerticalAlignment="Center">
+                            <Border x:Name="ChipExpandedArt"
+                                    Width="28"
+                                    Height="28"
+                                    HorizontalAlignment="Right"
+                                    CornerRadius="4"
+                                    ClipToBounds="True"
+                                    Background="#44000000">
+                                <Grid>
+                                    <TextBlock Text="♪"
+                                               FontSize="12"
+                                               Foreground="#CCFFFFFF"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                    <Image Source="{Binding Artwork}"
+                                           Stretch="UniformToFill" />
+                                </Grid>
+                            </Border>
+                        </Grid>
 
                         <!-- Same as PrimaryMetaHost: icon in artist row (Auto), text * compresses on volume -->
                         <Grid x:Name="ChipMetaHost"
