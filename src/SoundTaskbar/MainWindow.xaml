@@ -401,7 +401,8 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <ProgressBar Height="2"
+                                <ProgressBar x:Name="ChipProgressBar"
+                                             Height="2"
                                              Minimum="0"
                                              Maximum="1"
                                              Value="{Binding Progress, Mode=OneWay}"

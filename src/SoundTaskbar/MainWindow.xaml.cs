@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -19,7 +20,8 @@ public partial class MainWindow : Window
     {
         Cube,
         Seek,
-        Timeline
+        /// <summary>Duration text: horizontal expand appear (progress bar lerps separately).</summary>
+        Duration
     }
 
     private const double VolumeClosedWidth = 16;
@@ -2159,7 +2161,8 @@ public partial class MainWindow : Window
         ParkedHost.ClipToBounds = false;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        // Cube = art/title/artist/icon; Seek = prev/next; Timeline = progress+duration horizontal shrink/grow.
+        // Cube = art/title/artist/icon; Seek = prev/next; Duration = time text expand-appear.
+        // Progress bars stay put and lerp Value from previous → next (expand/shrink fill).
         var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, SwapFaceKind Kind)>();
 
         Image? SnapshotGhost(FrameworkElement source, Point origin, int z)
@@ -2205,9 +2208,8 @@ public partial class MainWindow : Window
             _swapLiveFaces.Add(live);
         }
 
-        void PrepLiveTimeline(FrameworkElement live, ScaleTransform liveScale)
+        void PrepLiveDuration(FrameworkElement live, ScaleTransform liveScale)
         {
-            // Horizontal expand from center — progress + duration as one strip.
             live.RenderTransformOrigin = new Point(0.5, 0.5);
             live.RenderTransform = liveScale;
             live.Opacity = 0;
@@ -2254,7 +2256,7 @@ public partial class MainWindow : Window
             faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Seek));
         }
 
-        void AddPairedTimeline(FrameworkElement? live)
+        void AddPairedDuration(FrameworkElement? live)
         {
             if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
             {
@@ -2268,21 +2270,37 @@ public partial class MainWindow : Window
             }
 
             var liveScale = new ScaleTransform(0, 1);
-            PrepLiveTimeline(live, liveScale);
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Timeline));
+            PrepLiveDuration(live, liveScale);
+            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Duration));
         }
 
-        // Primary: art/title/artist/icon cube; timeline horizontal; prev/next seek.
+        // Progress fill: keep bar visible, animate Value from current → other side's current.
+        var primaryProgressFrom = ProgressBar.Value;
+        var chipProgressFrom = 0.0;
+        ProgressBar? chipProgressBar = null;
+        var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
+        if (chipItem is not null)
+        {
+            chipProgressFrom = chipItem.Progress;
+        }
+
+        // After swap primary shows former chip, chip shows former primary.
+        var primaryProgressTo = chipProgressFrom;
+        var chipProgressTo = primaryProgressFrom;
+
+        BindingOperations.ClearBinding(ProgressBar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
+        ProgressBar.Value = primaryProgressFrom;
+
+        // Primary: art/title/artist/icon cube; duration expand-appear; progress lerps; prev/next seek.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistTextHost);
         AddPairedCube(SourceAppIcon);
-        AddPairedTimeline(PrimaryTimeRow);
+        AddPairedDuration(TimeTextHost);
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
         // Chip: same pairing. SyncCollection retargets the VM so containers survive.
-        var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
         if (chipItem is not null &&
             ParkedList.ItemContainerGenerator.ContainerFromItem(chipItem) is DependencyObject chipRoot)
         {
@@ -2291,13 +2309,23 @@ public partial class MainWindow : Window
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipAppIcon") as FrameworkElement);
-            AddPairedTimeline(FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
+            AddPairedDuration(FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
+
+            chipProgressBar = FindDescendantByName(chipRoot, "ChipProgressBar") as ProgressBar;
+            if (chipProgressBar is not null)
+            {
+                BindingOperations.ClearBinding(
+                    chipProgressBar,
+                    System.Windows.Controls.Primitives.RangeBase.ValueProperty);
+                chipProgressBar.Value = chipProgressFrom;
+            }
         }
 
         if (faces.Count == 0)
         {
+            RestoreProgressBindings();
             _primarySwapAnimating = false;
             return;
         }
@@ -2329,8 +2357,8 @@ public partial class MainWindow : Window
 
                     break;
 
-                case SwapFaceKind.Timeline:
-                    // Old strip shrinks horizontally; new expands — progress + duration together.
+                case SwapFaceKind.Duration:
+                    // Old duration shrinks away horizontally; new expands in.
                     if (ghostScale is not null && ghost is not null)
                     {
                         ghostScale.ScaleX = 1 - p;
@@ -2370,6 +2398,13 @@ public partial class MainWindow : Window
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
+            var p = t * t * (3 - 2 * t);
+            ProgressBar.Value = primaryProgressFrom + (primaryProgressTo - primaryProgressFrom) * p;
+            if (chipProgressBar is not null)
+            {
+                chipProgressBar.Value = chipProgressFrom + (chipProgressTo - chipProgressFrom) * p;
+            }
+
             for (var i = 0; i < faces.Count; i++)
             {
                 var (ghost, ghostScale, live, liveScale, kind) = faces[i];
@@ -2387,6 +2422,41 @@ public partial class MainWindow : Window
             TimeSpan.FromMilliseconds(PrimarySwapMs),
             null,
             ResetSwapVisuals);
+    }
+
+    private void RestoreProgressBindings()
+    {
+        if (!BindingOperations.IsDataBound(ProgressBar, System.Windows.Controls.Primitives.RangeBase.ValueProperty))
+        {
+            ProgressBar.SetBinding(
+                System.Windows.Controls.Primitives.RangeBase.ValueProperty,
+                new Binding(nameof(MediaViewModel.Progress))
+                {
+                    Source = _viewModel,
+                    Mode = BindingMode.OneWay
+                });
+        }
+
+        foreach (var side in _viewModel.SideSessions)
+        {
+            if (ParkedList.ItemContainerGenerator.ContainerFromItem(side) is not DependencyObject root ||
+                FindDescendantByName(root, "ChipProgressBar") is not ProgressBar bar)
+            {
+                continue;
+            }
+
+            if (BindingOperations.IsDataBound(bar, System.Windows.Controls.Primitives.RangeBase.ValueProperty))
+            {
+                continue;
+            }
+
+            bar.SetBinding(
+                System.Windows.Controls.Primitives.RangeBase.ValueProperty,
+                new Binding(nameof(SideSessionViewModel.Progress))
+                {
+                    Mode = BindingMode.OneWay
+                });
+        }
     }
 
     private void ResetSwapVisuals()
@@ -2413,6 +2483,7 @@ public partial class MainWindow : Window
 
         _swapLiveFaces.Clear();
         SwapOverlay.Children.Clear();
+        RestoreProgressBindings();
 
         PrimaryArtHost.RenderTransform = _primaryArtShift;
         PrimaryMetaHost.RenderTransform = _primaryMetaShift;
