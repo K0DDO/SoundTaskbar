@@ -2069,8 +2069,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: one continuous wipe — old frame rolls right (stays visible),
-    /// pause+play settles underneath and crossfades in from the right (no mid-gap pop).
+    /// play+play → pause+play: snapshot play+play, then after SyncCollection collapses the chip,
+    /// wipe-right while pause+play reveals underneath.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
@@ -2087,20 +2087,25 @@ public partial class MainWindow : Window
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var bitmap = Snapshot(WidgetContent, pixelsPerDip);
+        // Event fires before SyncCollection — wait one tick so ShowExpandedMeta is cleared
+        // before MorphSideChips, otherwise ExpandProgress stays 1 and UI never leaves play+play.
+        _playPlayDemoteAnimating = true;
+        WidgetContent.Opacity = 0;
+        WidgetContent.IsHitTestVisible = false;
+
         if (bitmap is null)
         {
-            _playPlayDemoteAnimating = false;
             Dispatcher.BeginInvoke(
                 () =>
                 {
-                    MorphSideChips(animate: false);
-                    AnimateSourceNameForPair(pair: false, animate: false);
+                    SettlePausePlayUnderDemoteGhost();
+                    WidgetContent.Opacity = 1;
+                    WidgetContent.IsHitTestVisible = true;
+                    _playPlayDemoteAnimating = false;
                 },
                 DispatcherPriority.Loaded);
             return;
         }
-
-        _playPlayDemoteAnimating = true;
 
         var ghostShift = new TranslateTransform();
         var ghost = new Image
@@ -2117,55 +2122,67 @@ public partial class MainWindow : Window
         SwapOverlay.Children.Clear();
         SwapOverlay.Children.Add(ghost);
 
-        // Settle pause+play under the ghost immediately so reveal has real content.
-        WidgetContent.Opacity = 0;
-        WidgetContent.IsHitTestVisible = false;
+        var revealShift = new TranslateTransform { X = PlayPlayDemoteWipeShift };
+        WidgetContent.RenderTransform = revealShift;
+
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (!_playPlayDemoteAnimating)
+                {
+                    return;
+                }
+
+                SettlePausePlayUnderDemoteGhost();
+                WidgetContent.UpdateLayout();
+
+                var clock = new AnimationClockHolder();
+                _demoteClock = clock;
+                clock.ProgressChanged += t =>
+                {
+                    // 0..0.58 — old frame rolls right; fade only at the end of the roll.
+                    var wipeT = Math.Clamp(t / 0.58, 0, 1);
+                    ghostShift.X = PlayPlayDemoteWipeShift * wipeT;
+                    ghost.Opacity = wipeT < 0.62 ? 1 : 1 - (wipeT - 0.62) / 0.38;
+
+                    // 0.38..1 — new pause+play eases in from the right (overlaps wipe, no gap).
+                    var revealT = Math.Clamp((t - 0.38) / 0.62, 0, 1);
+                    var revealEase = revealT * revealT * (3 - 2 * revealT);
+                    WidgetContent.Opacity = revealEase;
+                    revealShift.X = PlayPlayDemoteWipeShift * (1 - revealEase);
+                };
+                clock.Start(
+                    0,
+                    1,
+                    TimeSpan.FromMilliseconds(PlayPlayDemoteMs),
+                    new CubicEase { EasingMode = EasingMode.EaseInOut },
+                    () =>
+                    {
+                        if (!ReferenceEquals(_demoteClock, clock))
+                        {
+                            return;
+                        }
+
+                        _demoteClock = null;
+                        SwapOverlay.Children.Clear();
+                        WidgetContent.Opacity = 1;
+                        WidgetContent.RenderTransform = Transform.Identity;
+                        WidgetContent.IsHitTestVisible = true;
+                        _playPlayDemoteAnimating = false;
+                        SettlePausePlayUnderDemoteGhost();
+                        _taskbarHost?.FlushRegion();
+                    });
+            },
+            DispatcherPriority.Loaded);
+    }
+
+    private void SettlePausePlayUnderDemoteGhost()
+    {
         _playPlayOpen = false;
         SyncParkedListAlignment(playPlay: false);
         MorphSideChips(animate: false);
         SnapPausePlayVolumeChrome(collapsed: false);
         AnimateSourceNameForPair(pair: false, animate: false);
-
-        var revealShift = new TranslateTransform { X = PlayPlayDemoteWipeShift };
-        WidgetContent.RenderTransform = revealShift;
-        WidgetContent.UpdateLayout();
-
-        var clock = new AnimationClockHolder();
-        _demoteClock = clock;
-        clock.ProgressChanged += t =>
-        {
-            // 0..0.58 — old frame rolls right; fade only at the end of the roll.
-            var wipeT = Math.Clamp(t / 0.58, 0, 1);
-            ghostShift.X = PlayPlayDemoteWipeShift * wipeT;
-            ghost.Opacity = wipeT < 0.62 ? 1 : 1 - (wipeT - 0.62) / 0.38;
-
-            // 0.38..1 — new pause+play eases in from the right (overlaps wipe, no gap).
-            var revealT = Math.Clamp((t - 0.38) / 0.62, 0, 1);
-            // Smoothstep so it doesn't pop.
-            var revealEase = revealT * revealT * (3 - 2 * revealT);
-            WidgetContent.Opacity = revealEase;
-            revealShift.X = PlayPlayDemoteWipeShift * (1 - revealEase);
-        };
-        clock.Start(
-            0,
-            1,
-            TimeSpan.FromMilliseconds(PlayPlayDemoteMs),
-            new CubicEase { EasingMode = EasingMode.EaseInOut },
-            () =>
-            {
-                if (!ReferenceEquals(_demoteClock, clock))
-                {
-                    return;
-                }
-
-                _demoteClock = null;
-                SwapOverlay.Children.Clear();
-                WidgetContent.Opacity = 1;
-                WidgetContent.RenderTransform = Transform.Identity;
-                WidgetContent.IsHitTestVisible = true;
-                _playPlayDemoteAnimating = false;
-                _taskbarHost?.FlushRegion();
-            });
     }
 
     /// <summary>
