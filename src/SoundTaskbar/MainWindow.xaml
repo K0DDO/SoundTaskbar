@@ -472,7 +472,8 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" MinWidth="64" />
+                            <!-- No MinWidth: volume grow must shrink meta without overflowing under VU (clips app icon) -->
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
                         <!-- Right-aligned: chip unfolds from the divider toward the left -->
@@ -541,6 +542,7 @@
                                                   Foreground="#F5F5F5"
                                                   Height="14" />
 
+                            <!-- Artist * shrinks; SourceSlot Auto (icon) keeps space — same idea as chip meta -->
                             <Grid Grid.Row="1" Margin="0,1,0,1">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -556,12 +558,10 @@
                                         <DropShadowEffect BlurRadius="3" ShadowDepth="0" Opacity="0.55" Color="#000000" />
                                     </TextBlock.Effect>
                                 </TextBlock>
-                                <!-- Icon always visible (MinWidth); name collapses into it on volume / play+play -->
                                 <StackPanel x:Name="SourceSlot"
                                             Grid.Column="1"
                                             Orientation="Horizontal"
                                             Margin="5,0,0,0"
-                                            MinWidth="8"
                                             VerticalAlignment="Center">
                                     <Image x:Name="SourceAppIcon"
                                            Source="{Binding AppIcon}"
