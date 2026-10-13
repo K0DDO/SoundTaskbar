@@ -462,6 +462,7 @@ public partial class MainWindow : Window
     private void CompleteSideMorphClock()
     {
         _playPlayClock = null;
+        EndPlayPlayDemote();
         if (!_morphAfterClock)
         {
             return;
@@ -2069,8 +2070,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: snapshot play+play, then after SyncCollection collapses the chip,
-    /// wipe-right while pause+play reveals underneath.
+    /// play+play → pause+play: same MorphSideChips reverse as promote (only left chip collapses).
+    /// Full-widget wipe redrawn both blocks — dropped.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
@@ -2079,110 +2080,60 @@ public partial class MainWindow : Window
             return;
         }
 
-        _demoteClock?.Cancel();
         ResetSwapVisuals();
+        SwapOverlay.Children.Clear();
+        WidgetContent.BeginAnimation(UIElement.OpacityProperty, null);
+        WidgetContent.Opacity = 1;
+        WidgetContent.RenderTransform = Transform.Identity;
+        WidgetContent.IsHitTestVisible = true;
+
         _playPlayClock?.Cancel();
         _playPlayClock = null;
         _morphAfterClock = false;
 
-        var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var bitmap = Snapshot(WidgetContent, pixelsPerDip);
-        // Event fires before SyncCollection — wait one tick so ShowExpandedMeta is cleared
-        // before MorphSideChips, otherwise ExpandProgress stays 1 and UI never leaves play+play.
+        // Block ScheduleSideMorph from SyncCollection; keep ExpandProgress=1 until we morph.
         _playPlayDemoteAnimating = true;
-        WidgetContent.Opacity = 0;
-        WidgetContent.IsHitTestVisible = false;
-
-        if (bitmap is null)
-        {
-            Dispatcher.BeginInvoke(
-                () =>
-                {
-                    SettlePausePlayUnderDemoteGhost();
-                    WidgetContent.Opacity = 1;
-                    WidgetContent.IsHitTestVisible = true;
-                    _playPlayDemoteAnimating = false;
-                },
-                DispatcherPriority.Loaded);
-            return;
-        }
-
-        var ghostShift = new TranslateTransform();
-        var ghost = new Image
-        {
-            Source = bitmap,
-            Width = WidgetContent.ActualWidth,
-            Height = WidgetContent.ActualHeight,
-            Stretch = Stretch.Fill,
-            RenderTransform = ghostShift
-        };
-        var origin = WidgetContent.TranslatePoint(new Point(0, 0), SwapOverlay);
-        Canvas.SetLeft(ghost, origin.X);
-        Canvas.SetTop(ghost, origin.Y);
-        SwapOverlay.Children.Clear();
-        SwapOverlay.Children.Add(ghost);
-
-        var revealShift = new TranslateTransform { X = PlayPlayDemoteWipeShift };
-        WidgetContent.RenderTransform = revealShift;
+        _playPlayOpen = true;
 
         Dispatcher.BeginInvoke(
             () =>
             {
-                if (!_playPlayDemoteAnimating)
+                if (!_playPlayDemoteAnimating || !_layoutReady)
                 {
+                    _playPlayDemoteAnimating = false;
                     return;
                 }
 
-                SettlePausePlayUnderDemoteGhost();
-                WidgetContent.UpdateLayout();
-
-                var clock = new AnimationClockHolder();
-                _demoteClock = clock;
-                clock.ProgressChanged += t =>
+                // SyncCollection already cleared ShowExpandedMeta — seed from-state for reverse morph.
+                foreach (var side in _viewModel.SideSessions)
                 {
-                    // 0..0.58 — old frame rolls right; fade only at the end of the roll.
-                    var wipeT = Math.Clamp(t / 0.58, 0, 1);
-                    ghostShift.X = PlayPlayDemoteWipeShift * wipeT;
-                    ghost.Opacity = wipeT < 0.62 ? 1 : 1 - (wipeT - 0.62) / 0.38;
-
-                    // 0.38..1 — new pause+play eases in from the right (overlaps wipe, no gap).
-                    var revealT = Math.Clamp((t - 0.38) / 0.62, 0, 1);
-                    var revealEase = revealT * revealT * (3 - 2 * revealT);
-                    WidgetContent.Opacity = revealEase;
-                    revealShift.X = PlayPlayDemoteWipeShift * (1 - revealEase);
-                };
-                clock.Start(
-                    0,
-                    1,
-                    TimeSpan.FromMilliseconds(PlayPlayDemoteMs),
-                    new CubicEase { EasingMode = EasingMode.EaseInOut },
-                    () =>
+                    if (!side.ShowExpandedMeta && side.ExpandProgress < 0.99)
                     {
-                        if (!ReferenceEquals(_demoteClock, clock))
-                        {
-                            return;
-                        }
+                        side.ExpandProgress = 1;
+                        side.MetaRailWidth = side.MeasuredMetaRailWidth;
+                    }
+                }
 
-                        _demoteClock = null;
-                        SwapOverlay.Children.Clear();
-                        WidgetContent.Opacity = 1;
-                        WidgetContent.RenderTransform = Transform.Identity;
-                        WidgetContent.IsHitTestVisible = true;
-                        _playPlayDemoteAnimating = false;
-                        SettlePausePlayUnderDemoteGhost();
-                        _taskbarHost?.FlushRegion();
-                    });
+                MorphSideChips(animate: true);
+                // Flag cleared in CompleteSideMorphClock when the collapse finishes (or sync Finish).
+                if (_playPlayClock is null)
+                {
+                    EndPlayPlayDemote();
+                }
             },
             DispatcherPriority.Loaded);
     }
 
-    private void SettlePausePlayUnderDemoteGhost()
+    private void EndPlayPlayDemote()
     {
-        _playPlayOpen = false;
-        SyncParkedListAlignment(playPlay: false);
-        MorphSideChips(animate: false);
+        if (!_playPlayDemoteAnimating)
+        {
+            return;
+        }
+
+        _playPlayDemoteAnimating = false;
         SnapPausePlayVolumeChrome(collapsed: false);
-        AnimateSourceNameForPair(pair: false, animate: false);
+        _taskbarHost?.FlushRegion();
     }
 
     /// <summary>
