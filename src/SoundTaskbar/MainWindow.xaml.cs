@@ -359,7 +359,7 @@ public partial class MainWindow : Window
 
         ApplyChipMarqueeScrims();
 
-        if (!_viewModel.ShowParkedRail || !_layoutReady)
+        if (_playPlayDemoteAnimating || !_viewModel.ShowParkedRail || !_layoutReady)
         {
             return;
         }
@@ -462,6 +462,11 @@ public partial class MainWindow : Window
             () =>
             {
                 _morphScheduled = false;
+                if (_playPlayDemoteAnimating || _primarySwapAnimating)
+                {
+                    return;
+                }
+
                 if (_playPlayClock is not null)
                 {
                     _morphAfterClock = true;
@@ -479,7 +484,7 @@ public partial class MainWindow : Window
     private void CompleteSideMorphClock()
     {
         _playPlayClock = null;
-        EndPlayPlayDemote();
+        // Wipe demote owns EndPlayPlayDemote via visibility clock — do not clear mid-hide.
         if (!_morphAfterClock)
         {
             return;
@@ -2095,11 +2100,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: full widget hide (same as no-source wipe), snap pause+play, reopen.
+    /// play+play → pause+play: one hide wipe (old layout frozen), commit pause+play, one reopen.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
-        if (!_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        if (!_layoutReady || _playPlayDemoteAnimating || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
             return;
         }
@@ -2116,8 +2121,9 @@ public partial class MainWindow : Window
         _playPlayClock = null;
         _morphAfterClock = false;
         _morphAfterReveal = false;
+        _morphScheduled = false;
 
-        // Block morph/soft-resize while wipe runs; keep play+play shell during hide.
+        // Block morph/soft-resize; keep play+play shell + bindings during hide.
         _playPlayDemoteAnimating = true;
         _playPlayOpen = true;
 
@@ -2128,9 +2134,12 @@ public partial class MainWindow : Window
                 if (!_playPlayDemoteAnimating || !_layoutReady)
                 {
                     _playPlayDemoteAnimating = false;
+                    _viewModel.CommitDemoteLayout();
                     return;
                 }
 
+                // Hidden: swap to pause+play bindings, then one reopen wipe.
+                _viewModel.CommitDemoteLayout();
                 SnapDemoteToPausePlay();
                 AnimateWidgetVisibility(true, onComplete: EndPlayPlayDemote);
             });

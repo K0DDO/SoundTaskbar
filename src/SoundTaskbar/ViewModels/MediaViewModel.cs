@@ -99,6 +99,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private const int EmptySessionsGraceMs = 900;
     /// <summary>Side rail cap: expanded play chip + small paused chips, separated by dividers.</summary>
     private const int MaxSideChips = 3;
+    /// <summary>Hide wipe in flight — keep old play+play bindings until <see cref="CommitDemoteLayout"/>.</summary>
+    private bool _demoteCommitPending;
+    private MediaSessionSnapshot? _pendingDemotePrimary;
+    private List<MediaSessionSnapshot>? _pendingDemoteParked;
+    private bool _pendingDemoteKeepArtwork;
     private string _displayedPrimaryKey = string.Empty;
     private bool _staleVisuals;
     private BitmapImage? _appIcon;
@@ -762,16 +767,26 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _emptySessionsGraceUntil = null;
 
-        // Mode uses SMTC Playing only — peak must not delay demote after pause.
-        // Peak still helps discover a second audible source when SMTC is late (promote into play+play).
+        // Pair modes trust SMTC only — peak must not delay demote or re-promote after pause.
+        // Peak from solo can still discover a second audible source → play+play.
         var smtcPlaying = enriched.Where(s => s.IsPlaying).ToList();
-        var playing = smtcPlaying.Count >= 2
+        var playing = smtcPlaying.Count >= 2 || IsPlayPlay || ShowParkedRail
             ? smtcPlaying
             : enriched.Where(IsEffectivelyPlaying).ToList();
-        // If SMTC already shows a pause (count dropped), do not keep peak-inflated play+play.
-        if (smtcPlaying.Count < 2 && playing.Count >= 2 && IsPlayPlay)
+
+        // Hide wipe owns UI — refresh only the pending pause+play target, keep old bindings.
+        if (_demoteCommitPending)
         {
-            playing = smtcPlaying;
+            var pendingPrimary = PickPrimary(enriched, playing, _media.FocusedKey);
+            if (pendingPrimary is null || playing.Count >= 2)
+            {
+                return;
+            }
+
+            _pendingDemotePrimary = pendingPrimary;
+            _pendingDemoteParked = BuildSideList(enriched, pendingPrimary.SessionKey, expanded: null);
+            _pendingDemoteKeepArtwork = keepArtwork;
+            return;
         }
 
         var focusedKey = _media.FocusedKey;
@@ -813,15 +828,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 if (demotingPlayPlay)
                 {
-                    // UI: hide like no-source, snap pause+play, reopen.
+                    // Freeze old play+play UI; CommitDemoteLayout after hide wipe.
+                    _demoteCommitPending = true;
+                    _pendingDemotePrimary = primary;
+                    _pendingDemoteParked = parked;
+                    _pendingDemoteKeepArtwork = keepArtwork;
                     PlayPlayDemoting?.Invoke(
                         this,
                         new PlayPlayDemoteEventArgs(_displayedPrimaryKey, primary.SessionKey));
+                    return;
                 }
-                else
-                {
-                    RaiseSwapIfNeeded(primary.SessionKey);
-                }
+
+                RaiseSwapIfNeeded(primary.SessionKey);
 
                 _parkedDismissPending = false;
                 SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
@@ -841,6 +859,37 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
         }
 
+        _primarySessionKey = primary.SessionKey;
+        _media.Focus(primary.SessionKey);
+        ApplyPrimary(primary, keepArtwork);
+    }
+
+    /// <summary>
+    /// Apply deferred pause+play bindings after the hide wipe (old play+play still on screen until then).
+    /// </summary>
+    public void CommitDemoteLayout()
+    {
+        if (!_demoteCommitPending ||
+            _pendingDemotePrimary is null ||
+            _pendingDemoteParked is null)
+        {
+            _demoteCommitPending = false;
+            _pendingDemotePrimary = null;
+            _pendingDemoteParked = null;
+            return;
+        }
+
+        var primary = _pendingDemotePrimary;
+        var parked = _pendingDemoteParked;
+        var keepArtwork = _pendingDemoteKeepArtwork;
+        _demoteCommitPending = false;
+        _pendingDemotePrimary = null;
+        _pendingDemoteParked = null;
+
+        _parkedDismissPending = false;
+        SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
+        ShowParkedRail = true;
+        UpdateParkedWatchdog();
         _primarySessionKey = primary.SessionKey;
         _media.Focus(primary.SessionKey);
         ApplyPrimary(primary, keepArtwork);
@@ -1318,6 +1367,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         DesiredWidgetWidth = SoloWidgetWidth;
         RequestParkedDismiss();
         _kindCache.Clear();
+        _demoteCommitPending = false;
+        _pendingDemotePrimary = null;
+        _pendingDemoteParked = null;
         _emptySessionsGraceUntil = null;
         _primarySessionKey = string.Empty;
         _displayedPrimaryKey = string.Empty;
