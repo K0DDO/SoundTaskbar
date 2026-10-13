@@ -1231,20 +1231,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                     PreviousSideSessionAsync,
                     NextSideSessionAsync);
                 target.Add(existing);
-                existing.SetTransportMode(
-                    snap.CanSkipPrevious,
-                    snap.CanSkipNext,
-                    snap.CanSeek,
-                    lockMode: freezeTransportIcons);
             }
-            else if (!freezeTransportIcons)
-            {
-                existing.SetTransportMode(
-                    snap.CanSkipPrevious,
-                    snap.CanSkipNext,
-                    snap.CanSeek,
-                    lockMode: false);
-            }
+
+            // Retarget unlocks transport; locked chips no-op inside SetTransportMode.
+            // freezeTransportIcons still locks after the first successful apply.
+            existing.SetTransportMode(
+                snap.CanSkipPrevious,
+                snap.CanSkipNext,
+                snap.CanSeek,
+                lockMode: freezeTransportIcons);
 
             var expandedMeta = string.Equals(snap.SessionKey, expandedKey, StringComparison.Ordinal);
             existing.AppId = snap.AppId;

@@ -97,6 +97,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     /// <summary>
     /// Rebind this chip slot to another session without recreating the ItemsControl container.
     /// Keeps ChipExpandedPlay alive across primary↔side swap (same as primary PlayPause).
+    /// Unlocks transport so seek/skip glyphs can match the new session (audio↔video).
     /// </summary>
     public void RetargetSessionKey(string sessionKey)
     {
@@ -107,6 +108,7 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
 
         SessionKey = sessionKey;
+        _transportLocked = false;
     }
 
     public string AppId

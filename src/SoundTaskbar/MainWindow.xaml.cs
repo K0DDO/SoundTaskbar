@@ -19,9 +19,7 @@ public partial class MainWindow : Window
     private enum SwapFaceKind
     {
         Cube,
-        Seek,
-        /// <summary>Duration text: horizontal expand appear (progress bar lerps separately).</summary>
-        Duration
+        Seek
     }
 
     private const double VolumeClosedWidth = 16;
@@ -2161,7 +2159,7 @@ public partial class MainWindow : Window
         ParkedHost.ClipToBounds = false;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        // Cube = art/title/artist/icon; Seek = prev/next; Duration = time text expand-appear.
+        // Cube = art/title/artist/icon; Seek = prev/next + duration text.
         // Progress bars stay put and lerp Value from previous → next (expand/shrink fill).
         var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, SwapFaceKind Kind)>();
 
@@ -2208,15 +2206,6 @@ public partial class MainWindow : Window
             _swapLiveFaces.Add(live);
         }
 
-        void PrepLiveDuration(FrameworkElement live, ScaleTransform liveScale)
-        {
-            live.RenderTransformOrigin = new Point(0.5, 0.5);
-            live.RenderTransform = liveScale;
-            live.Opacity = 0;
-            live.ClipToBounds = true;
-            _swapLiveFaces.Add(live);
-        }
-
         void AddPairedCube(FrameworkElement? live)
         {
             if (live is null ||
@@ -2256,24 +2245,6 @@ public partial class MainWindow : Window
             faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Seek));
         }
 
-        void AddPairedDuration(FrameworkElement? live)
-        {
-            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
-            {
-                return;
-            }
-
-            var ghost = SnapshotGhost(live, new Point(0.5, 0.5), z: 30);
-            if (ghost is null)
-            {
-                return;
-            }
-
-            var liveScale = new ScaleTransform(0, 1);
-            PrepLiveDuration(live, liveScale);
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Duration));
-        }
-
         // Progress fill: keep bar visible, animate Value from current → other side's current.
         var primaryProgressFrom = ProgressBar.Value;
         var chipProgressFrom = 0.0;
@@ -2291,12 +2262,12 @@ public partial class MainWindow : Window
         BindingOperations.ClearBinding(ProgressBar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
         ProgressBar.Value = primaryProgressFrom;
 
-        // Primary: art/title/artist/icon cube; duration expand-appear; progress lerps; prev/next seek.
+        // Primary: art/title/artist/icon cube; duration + prev/next same seek appear; progress lerps.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistTextHost);
         AddPairedCube(SourceAppIcon);
-        AddPairedDuration(TimeTextHost);
+        AddPairedSeek(TimeTextHost);
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
@@ -2309,7 +2280,7 @@ public partial class MainWindow : Window
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipAppIcon") as FrameworkElement);
-            AddPairedDuration(FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement);
+            AddPairedSeek(FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
 
@@ -2340,58 +2311,37 @@ public partial class MainWindow : Window
         {
             var p = t * t * (3 - 2 * t);
 
-            switch (kind)
+            if (kind == SwapFaceKind.Cube)
             {
-                case SwapFaceKind.Cube:
-                    if (ghostScale is not null && ghost is not null)
-                    {
-                        ghostScale.ScaleY = 1 - p;
-                        ghost.Opacity = 1;
-                    }
+                if (ghostScale is not null && ghost is not null)
+                {
+                    ghostScale.ScaleY = 1 - p;
+                    ghost.Opacity = 1;
+                }
 
-                    if (live is not null && liveScale is not null)
-                    {
-                        liveScale.ScaleY = p;
-                        live.Opacity = 1;
-                    }
+                if (live is not null && liveScale is not null)
+                {
+                    liveScale.ScaleY = p;
+                    live.Opacity = 1;
+                }
+            }
+            else
+            {
+                // Seek + duration: same uniform shrink/grow appear.
+                if (ghostScale is not null && ghost is not null)
+                {
+                    var s = 1 - p;
+                    ghostScale.ScaleX = s;
+                    ghostScale.ScaleY = s;
+                    ghost.Opacity = s;
+                }
 
-                    break;
-
-                case SwapFaceKind.Duration:
-                    // Old duration shrinks away horizontally; new expands in.
-                    if (ghostScale is not null && ghost is not null)
-                    {
-                        ghostScale.ScaleX = 1 - p;
-                        ghostScale.ScaleY = 1;
-                        ghost.Opacity = 1;
-                    }
-
-                    if (live is not null && liveScale is not null)
-                    {
-                        liveScale.ScaleX = p;
-                        liveScale.ScaleY = 1;
-                        live.Opacity = p > 0.01 ? 1 : 0;
-                    }
-
-                    break;
-
-                default:
-                    if (ghostScale is not null && ghost is not null)
-                    {
-                        var s = 1 - p;
-                        ghostScale.ScaleX = s;
-                        ghostScale.ScaleY = s;
-                        ghost.Opacity = s;
-                    }
-
-                    if (live is not null && liveScale is not null)
-                    {
-                        liveScale.ScaleX = p;
-                        liveScale.ScaleY = p;
-                        live.Opacity = p > 0.01 ? 1 : 0;
-                    }
-
-                    break;
+                if (live is not null && liveScale is not null)
+                {
+                    liveScale.ScaleX = p;
+                    liveScale.ScaleY = p;
+                    live.Opacity = p > 0.01 ? 1 : 0;
+                }
             }
         }
 
