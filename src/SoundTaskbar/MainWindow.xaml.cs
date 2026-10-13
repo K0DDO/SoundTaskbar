@@ -2354,26 +2354,26 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Local 0..1 for duration relative to whether this side's fill shrinks or expands.
-        static double DurationLocalT(double easeT, double progressFrom, double progressTo)
+        // Fill shrinks → numbers pushed out with the timeline (same clock).
+        // Fill grows → numbers wait, then appear and squeeze/release the gray track (Width).
+        static double DurationLocalT(double linearT, double progressFrom, double progressTo)
         {
             const double eps = 0.02;
             if (progressTo < progressFrom - eps)
             {
-                // Shrink: duration emerges while the fill pulls back (full window).
-                return easeT;
+                return linearT;
             }
 
             if (progressTo > progressFrom + eps)
             {
-                // Expand: wait until timeline has mostly grown, then appear.
                 const double start = 0.55;
-                return easeT <= start ? 0 : Math.Clamp((easeT - start) / (1 - start), 0, 1);
+                return linearT <= start ? 0 : Math.Clamp((linearT - start) / (1 - start), 0, 1);
             }
 
-            // Same fill level — appear in the second half.
-            return easeT < 0.45 ? 0 : Math.Clamp((easeT - 0.45) / 0.55, 0, 1);
+            return linearT < 0.45 ? 0 : Math.Clamp((linearT - 0.45) / 0.55, 0, 1);
         }
+
+        static double Ease(double x) => x * x * (3 - 2 * x);
 
         void ApplyFace(
             Image? ghost,
@@ -2405,10 +2405,8 @@ public partial class MainWindow : Window
 
             if (kind == SwapFaceKind.Duration)
             {
-                // Map on linear clock, then ease the local window once.
-                var d = DurationLocalT(linearT, progressFrom, progressTo);
-                var de = d * d * (3 - 2 * d);
-                // Old text collapses into the bar; new text grows out of it.
+                var de = Ease(DurationLocalT(linearT, progressFrom, progressTo));
+                // Old text collapses into the bar; new text is pushed out of it.
                 if (ghostScale is not null && ghost is not null)
                 {
                     var s = 1 - de;
@@ -2444,9 +2442,8 @@ public partial class MainWindow : Window
             }
         }
 
-        void ApplyProgress(double easeT)
+        void ApplyProgress(double linearT, double easeT)
         {
-            // Re-freeze every frame — SyncCollection/ApplyTimeline must not snap either bar.
             FreezeProgressBar(
                 ProgressBar,
                 primaryProgressFrom + (primaryProgressTo - primaryProgressFrom) * easeT);
@@ -2464,9 +2461,11 @@ public partial class MainWindow : Window
                     chipProgressFrom + (chipProgressTo - chipProgressFrom) * easeT);
             }
 
-            // Lerp duration column Width → gray track (*) expands/shrinks smoothly with it.
+            // Width shares duration timing: numbers push out / squeeze the gray track together.
+            var primaryDur = Ease(DurationLocalT(linearT, primaryProgressFrom, primaryProgressTo));
             TimeTextHost.BeginAnimation(WidthProperty, null);
-            TimeTextHost.Width = primaryTimeWidthFrom + (primaryTimeWidthTo - primaryTimeWidthFrom) * easeT;
+            TimeTextHost.Width = primaryTimeWidthFrom + (primaryTimeWidthTo - primaryTimeWidthFrom) * primaryDur;
+
             if (chipTimeHost is null &&
                 _swapChip is not null &&
                 FindDescendantByName(_swapChip, "ChipTimeTextHost") is FrameworkElement chipTime)
@@ -2476,16 +2475,17 @@ public partial class MainWindow : Window
 
             if (chipTimeHost is not null)
             {
+                var chipDur = Ease(DurationLocalT(linearT, chipProgressFrom, chipProgressTo));
                 chipTimeHost.BeginAnimation(WidthProperty, null);
-                chipTimeHost.Width = chipTimeWidthFrom + (chipTimeWidthTo - chipTimeWidthFrom) * easeT;
+                chipTimeHost.Width = chipTimeWidthFrom + (chipTimeWidthTo - chipTimeWidthFrom) * chipDur;
             }
         }
 
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
-            var easeT = t * t * (3 - 2 * t);
-            ApplyProgress(easeT);
+            var easeT = Ease(t);
+            ApplyProgress(t, easeT);
 
             for (var i = 0; i < faces.Count; i++)
             {
@@ -2494,15 +2494,39 @@ public partial class MainWindow : Window
             }
         }
 
-        static double MeasureNaturalWidth(FrameworkElement host)
+        // Measure text only — never Clear Width / UpdateLayout (that flashed the target track).
+        static double PeekTimeColumnWidth(FrameworkElement host)
         {
-            host.BeginAnimation(WidthProperty, null);
-            var pinned = host.Width;
-            host.Width = double.NaN;
-            host.UpdateLayout();
-            var w = host.ActualWidth > 1 ? host.ActualWidth : host.DesiredSize.Width;
-            host.Width = pinned;
-            return Math.Max(w, 1);
+            TextBlock? text = null;
+            void Walk(DependencyObject node)
+            {
+                if (text is not null)
+                {
+                    return;
+                }
+
+                if (node is TextBlock tb)
+                {
+                    text = tb;
+                    return;
+                }
+
+                var n = VisualTreeHelper.GetChildrenCount(node);
+                for (var i = 0; i < n; i++)
+                {
+                    Walk(VisualTreeHelper.GetChild(node, i));
+                }
+            }
+
+            Walk(host);
+            if (text is null)
+            {
+                return Math.Max(host.ActualWidth, 1);
+            }
+
+            text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var m = text.Margin;
+            return Math.Max(text.DesiredSize.Width + m.Left + m.Right, 1);
         }
 
         ApplyFrame(0);
@@ -2516,7 +2540,7 @@ public partial class MainWindow : Window
             null,
             ResetSwapVisuals);
 
-        // After SyncCollection: re-freeze progress + measure new duration widths for track lerp.
+        // After SyncCollection updates TimeText — peek target width without touching layout.
         Dispatcher.BeginInvoke(
             () =>
             {
@@ -2525,15 +2549,13 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                primaryTimeWidthTo = MeasureNaturalWidth(TimeTextHost);
-                TimeTextHost.Width = primaryTimeWidthFrom;
+                primaryTimeWidthTo = PeekTimeColumnWidth(TimeTextHost);
                 if (chipTimeHost is not null)
                 {
-                    chipTimeWidthTo = MeasureNaturalWidth(chipTimeHost);
-                    chipTimeHost.Width = chipTimeWidthFrom;
+                    chipTimeWidthTo = PeekTimeColumnWidth(chipTimeHost);
                 }
 
-                ApplyProgress(0);
+                ApplyProgress(0, 0);
             },
             DispatcherPriority.Loaded);
     }
