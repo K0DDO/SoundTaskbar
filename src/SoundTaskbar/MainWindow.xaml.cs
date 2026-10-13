@@ -1,5 +1,6 @@
 ﻿using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Globalization;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,9 +20,7 @@ public partial class MainWindow : Window
     private enum SwapFaceKind
     {
         Cube,
-        Seek,
-        /// <summary>Duration text: timed to progress shrink/expand, emerges from the bar.</summary>
-        Duration
+        Seek
     }
 
     private const double VolumeClosedWidth = 16;
@@ -2208,16 +2207,6 @@ public partial class MainWindow : Window
             _swapLiveFaces.Add(live);
         }
 
-        void PrepLiveDuration(FrameworkElement live, ScaleTransform liveScale)
-        {
-            // Grow out of the progress bar (left edge).
-            live.RenderTransformOrigin = new Point(0, 0.5);
-            live.RenderTransform = liveScale;
-            live.Opacity = 0;
-            live.ClipToBounds = true;
-            _swapLiveFaces.Add(live);
-        }
-
         void AddPairedCube(FrameworkElement? live)
         {
             if (live is null ||
@@ -2257,48 +2246,38 @@ public partial class MainWindow : Window
             faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Seek, 0, 0));
         }
 
-        void AddPairedDuration(FrameworkElement? live, double progressFrom, double progressTo)
-        {
-            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
-            {
-                return;
-            }
-
-            // Ghost collapses back into the bar (left); live emerges from the bar.
-            var ghost = SnapshotGhost(live, new Point(0, 0.5), z: 30);
-            if (ghost is null)
-            {
-                return;
-            }
-
-            var liveScale = new ScaleTransform(0, 0);
-            PrepLiveDuration(live, liveScale);
-            faces.Add(
-                (ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Duration, progressFrom, progressTo));
-        }
-
-        // Progress fill Value + gray track width (via duration column Width) both lerp.
+        // Progress fill Value + time text morph: "1:00 / 2:00" → "/" → "2:00 / 3:00".
         var primaryProgressFrom = ProgressBar.Value;
         var chipProgressFrom = 0.0;
         ProgressBar? chipProgressBar = null;
         FrameworkElement? chipTimeHost = null;
+        TextBlock? chipTimeText = null;
         var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
         if (chipItem is not null)
         {
             chipProgressFrom = chipItem.Progress;
         }
 
-        // After swap primary shows former chip, chip shows former primary.
         var primaryProgressTo = chipProgressFrom;
         var chipProgressTo = primaryProgressFrom;
 
-        // Pin duration column widths so the * progress track cannot snap when TimeText changes.
+        var primaryTimeFrom = TimeText.Text ?? string.Empty;
+        var primaryTimeTo = primaryTimeFrom;
+        var chipTimeFrom = string.Empty;
+        var chipTimeTo = string.Empty;
+
         var primaryTimeWidthFrom = Math.Max(TimeTextHost.ActualWidth, 1);
         var primaryTimeWidthTo = primaryTimeWidthFrom;
         var chipTimeWidthFrom = 1.0;
         var chipTimeWidthTo = 1.0;
+        var slashWidth = MeasureTimeStringWidth(TimeText, "/");
+
         TimeTextHost.BeginAnimation(WidthProperty, null);
         TimeTextHost.Width = primaryTimeWidthFrom;
+        TimeTextHost.RenderTransformOrigin = new Point(0.5, 0.5);
+        BindingOperations.ClearBinding(TimeText, TextBlock.TextProperty);
+        TimeText.Text = primaryTimeFrom;
+        _swapLiveFaces.Add(TimeTextHost);
 
         void FreezeProgressBar(ProgressBar bar, double value)
         {
@@ -2309,16 +2288,13 @@ public partial class MainWindow : Window
 
         FreezeProgressBar(ProgressBar, primaryProgressFrom);
 
-        // Primary: art/title/artist/icon cube; duration timed to progress; prev/next seek.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistTextHost);
         AddPairedCube(SourceAppIcon);
-        AddPairedDuration(TimeTextHost, primaryProgressFrom, primaryProgressTo);
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
-        // Chip: same pairing. SyncCollection retargets the VM so containers survive.
         if (chipItem is not null &&
             ParkedList.ItemContainerGenerator.ContainerFromItem(chipItem) is DependencyObject chipRoot)
         {
@@ -2327,18 +2303,24 @@ public partial class MainWindow : Window
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipAppIcon") as FrameworkElement);
+            AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
+            AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
+
             chipTimeHost = FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement;
-            if (chipTimeHost is not null)
+            chipTimeText = FindDescendantByName(chipRoot, "ChipTimeText") as TextBlock;
+            if (chipTimeHost is not null && chipTimeText is not null)
             {
+                chipTimeFrom = chipTimeText.Text ?? string.Empty;
+                chipTimeTo = chipTimeFrom;
                 chipTimeWidthFrom = Math.Max(chipTimeHost.ActualWidth, 1);
                 chipTimeWidthTo = chipTimeWidthFrom;
                 chipTimeHost.BeginAnimation(WidthProperty, null);
                 chipTimeHost.Width = chipTimeWidthFrom;
+                chipTimeHost.RenderTransformOrigin = new Point(0.5, 0.5);
+                BindingOperations.ClearBinding(chipTimeText, TextBlock.TextProperty);
+                chipTimeText.Text = chipTimeFrom;
+                _swapLiveFaces.Add(chipTimeHost);
             }
-
-            AddPairedDuration(chipTimeHost, chipProgressFrom, chipProgressTo);
-            AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
-            AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
 
             chipProgressBar = FindDescendantByName(chipRoot, "ChipProgressBar") as ProgressBar;
             if (chipProgressBar is not null)
@@ -2350,12 +2332,11 @@ public partial class MainWindow : Window
         if (faces.Count == 0)
         {
             RestoreProgressBindings();
+            RestoreTimeTextBindings();
             _primarySwapAnimating = false;
             return;
         }
 
-        // Fill shrinks → numbers pushed out with the timeline (same clock).
-        // Fill grows → numbers wait, then appear and squeeze/release the gray track (Width).
         static double DurationLocalT(double linearT, double progressFrom, double progressTo)
         {
             const double eps = 0.02;
@@ -2381,9 +2362,6 @@ public partial class MainWindow : Window
             FrameworkElement? live,
             ScaleTransform? liveScale,
             SwapFaceKind kind,
-            double progressFrom,
-            double progressTo,
-            double linearT,
             double easeT)
         {
             if (kind == SwapFaceKind.Cube)
@@ -2403,29 +2381,6 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (kind == SwapFaceKind.Duration)
-            {
-                var de = Ease(DurationLocalT(linearT, progressFrom, progressTo));
-                // Old text collapses into the bar; new text is pushed out of it.
-                if (ghostScale is not null && ghost is not null)
-                {
-                    var s = 1 - de;
-                    ghostScale.ScaleX = s;
-                    ghostScale.ScaleY = s;
-                    ghost.Opacity = s;
-                }
-
-                if (live is not null && liveScale is not null)
-                {
-                    liveScale.ScaleX = de;
-                    liveScale.ScaleY = de;
-                    live.Opacity = de > 0.01 ? 1 : 0;
-                }
-
-                return;
-            }
-
-            // Seek prev/next.
             if (ghostScale is not null && ghost is not null)
             {
                 var s = 1 - easeT;
@@ -2442,6 +2397,43 @@ public partial class MainWindow : Window
             }
         }
 
+        // "1:00 / 2:00" → collapse to "/" → expand to "2:00 / 3:00"
+        void ApplySlashTimeMorph(
+            TextBlock text,
+            FrameworkElement host,
+            string fromText,
+            string toText,
+            double widthFrom,
+            double widthTo,
+            double midSlashWidth,
+            double linearT,
+            double progressFrom,
+            double progressTo)
+        {
+            var d = Ease(DurationLocalT(linearT, progressFrom, progressTo));
+            host.BeginAnimation(WidthProperty, null);
+            host.RenderTransformOrigin = new Point(0.5, 0.5);
+
+            if (d <= 0.5)
+            {
+                var p = Ease(d / 0.5);
+                text.Text = p < 0.72 ? fromText : "/";
+                var s = p < 0.72 ? 1 - p / 0.72 : 0.35 + 0.65 * ((p - 0.72) / 0.28);
+                host.RenderTransform = new ScaleTransform(s, s);
+                host.Opacity = 1;
+                host.Width = widthFrom + (midSlashWidth - widthFrom) * p;
+            }
+            else
+            {
+                var p = Ease((d - 0.5) / 0.5);
+                text.Text = p < 0.28 ? "/" : toText;
+                var s = p < 0.28 ? 1 - 0.65 * (p / 0.28) : (p - 0.28) / 0.72;
+                host.RenderTransform = new ScaleTransform(Math.Clamp(s, 0.2, 1), Math.Clamp(s, 0.2, 1));
+                host.Opacity = 1;
+                host.Width = midSlashWidth + (widthTo - midSlashWidth) * p;
+            }
+        }
+
         void ApplyProgress(double linearT, double easeT)
         {
             FreezeProgressBar(
@@ -2449,9 +2441,9 @@ public partial class MainWindow : Window
                 primaryProgressFrom + (primaryProgressTo - primaryProgressFrom) * easeT);
             if (chipProgressBar is null &&
                 _swapChip is not null &&
-                FindDescendantByName(_swapChip, "ChipProgressBar") is ProgressBar found)
+                FindDescendantByName(_swapChip, "ChipProgressBar") is ProgressBar foundBar)
             {
-                chipProgressBar = found;
+                chipProgressBar = foundBar;
             }
 
             if (chipProgressBar is not null)
@@ -2461,23 +2453,39 @@ public partial class MainWindow : Window
                     chipProgressFrom + (chipProgressTo - chipProgressFrom) * easeT);
             }
 
-            // Width shares duration timing: numbers push out / squeeze the gray track together.
-            var primaryDur = Ease(DurationLocalT(linearT, primaryProgressFrom, primaryProgressTo));
-            TimeTextHost.BeginAnimation(WidthProperty, null);
-            TimeTextHost.Width = primaryTimeWidthFrom + (primaryTimeWidthTo - primaryTimeWidthFrom) * primaryDur;
+            ApplySlashTimeMorph(
+                TimeText,
+                TimeTextHost,
+                primaryTimeFrom,
+                primaryTimeTo,
+                primaryTimeWidthFrom,
+                primaryTimeWidthTo,
+                slashWidth,
+                linearT,
+                primaryProgressFrom,
+                primaryProgressTo);
 
             if (chipTimeHost is null &&
                 _swapChip is not null &&
                 FindDescendantByName(_swapChip, "ChipTimeTextHost") is FrameworkElement chipTime)
             {
                 chipTimeHost = chipTime;
+                chipTimeText ??= FindDescendantByName(_swapChip, "ChipTimeText") as TextBlock;
             }
 
-            if (chipTimeHost is not null)
+            if (chipTimeHost is not null && chipTimeText is not null)
             {
-                var chipDur = Ease(DurationLocalT(linearT, chipProgressFrom, chipProgressTo));
-                chipTimeHost.BeginAnimation(WidthProperty, null);
-                chipTimeHost.Width = chipTimeWidthFrom + (chipTimeWidthTo - chipTimeWidthFrom) * chipDur;
+                ApplySlashTimeMorph(
+                    chipTimeText,
+                    chipTimeHost,
+                    chipTimeFrom,
+                    chipTimeTo,
+                    chipTimeWidthFrom,
+                    chipTimeWidthTo,
+                    slashWidth,
+                    linearT,
+                    chipProgressFrom,
+                    chipProgressTo);
             }
         }
 
@@ -2489,44 +2497,9 @@ public partial class MainWindow : Window
 
             for (var i = 0; i < faces.Count; i++)
             {
-                var (ghost, ghostScale, live, liveScale, kind, progressFrom, progressTo) = faces[i];
-                ApplyFace(ghost, ghostScale, live, liveScale, kind, progressFrom, progressTo, t, easeT);
+                var (ghost, ghostScale, live, liveScale, kind, _, _) = faces[i];
+                ApplyFace(ghost, ghostScale, live, liveScale, kind, easeT);
             }
-        }
-
-        // Measure text only — never Clear Width / UpdateLayout (that flashed the target track).
-        static double PeekTimeColumnWidth(FrameworkElement host)
-        {
-            TextBlock? text = null;
-            void Walk(DependencyObject node)
-            {
-                if (text is not null)
-                {
-                    return;
-                }
-
-                if (node is TextBlock tb)
-                {
-                    text = tb;
-                    return;
-                }
-
-                var n = VisualTreeHelper.GetChildrenCount(node);
-                for (var i = 0; i < n; i++)
-                {
-                    Walk(VisualTreeHelper.GetChild(node, i));
-                }
-            }
-
-            Walk(host);
-            if (text is null)
-            {
-                return Math.Max(host.ActualWidth, 1);
-            }
-
-            text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var m = text.Margin;
-            return Math.Max(text.DesiredSize.Width + m.Left + m.Right, 1);
         }
 
         ApplyFrame(0);
@@ -2540,7 +2513,6 @@ public partial class MainWindow : Window
             null,
             ResetSwapVisuals);
 
-        // After SyncCollection updates TimeText — peek target width without touching layout.
         Dispatcher.BeginInvoke(
             () =>
             {
@@ -2549,15 +2521,90 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                primaryTimeWidthTo = PeekTimeColumnWidth(TimeTextHost);
-                if (chipTimeHost is not null)
+                primaryTimeTo = _viewModel.TimeText ?? primaryTimeTo;
+                primaryTimeWidthTo = MeasureTimeStringWidth(TimeText, primaryTimeTo);
+                if (chipItem is not null)
                 {
-                    chipTimeWidthTo = PeekTimeColumnWidth(chipTimeHost);
+                    var side = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.FromKey)
+                               ?? _viewModel.SideSessions.FirstOrDefault(s => s.ShowExpandedMeta);
+                    if (side is not null)
+                    {
+                        chipTimeTo = side.TimeText ?? chipTimeTo;
+                    }
+
+                    if (chipTimeText is not null)
+                    {
+                        chipTimeWidthTo = MeasureTimeStringWidth(chipTimeText, chipTimeTo);
+                    }
                 }
 
                 ApplyProgress(0, 0);
             },
             DispatcherPriority.Loaded);
+    }
+
+    private static double MeasureTimeStringWidth(TextBlock prototype, string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 1;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(prototype).PixelsPerDip;
+        var ft = new FormattedText(
+            text,
+            CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface(
+                prototype.FontFamily,
+                prototype.FontStyle,
+                prototype.FontWeight,
+                prototype.FontStretch),
+            prototype.FontSize,
+            prototype.Foreground ?? Brushes.White,
+            dpi);
+        var m = prototype.Margin;
+        return Math.Max(ft.WidthIncludingTrailingWhitespace + m.Left + m.Right, 1);
+    }
+
+    private void RestoreTimeTextBindings()
+    {
+        if (!BindingOperations.IsDataBound(TimeText, TextBlock.TextProperty))
+        {
+            TimeText.SetBinding(
+                TextBlock.TextProperty,
+                new Binding(nameof(MediaViewModel.TimeText))
+                {
+                    Source = _viewModel,
+                    Mode = BindingMode.OneWay
+                });
+        }
+
+        TimeTextHost.RenderTransform = Transform.Identity;
+
+        foreach (var side in _viewModel.SideSessions)
+        {
+            if (ParkedList.ItemContainerGenerator.ContainerFromItem(side) is not DependencyObject root ||
+                FindDescendantByName(root, "ChipTimeText") is not TextBlock text)
+            {
+                continue;
+            }
+
+            if (!BindingOperations.IsDataBound(text, TextBlock.TextProperty))
+            {
+                text.SetBinding(
+                    TextBlock.TextProperty,
+                    new Binding(nameof(SideSessionViewModel.TimeText))
+                    {
+                        Mode = BindingMode.OneWay
+                    });
+            }
+
+            if (FindDescendantByName(root, "ChipTimeTextHost") is FrameworkElement host)
+            {
+                host.RenderTransform = Transform.Identity;
+            }
+        }
     }
 
     private void RestoreProgressBindings()
@@ -2620,6 +2667,7 @@ public partial class MainWindow : Window
         _swapLiveFaces.Clear();
         SwapOverlay.Children.Clear();
         RestoreProgressBindings();
+        RestoreTimeTextBindings();
 
         TimeTextHost.BeginAnimation(WidthProperty, null);
         TimeTextHost.ClearValue(WidthProperty);
