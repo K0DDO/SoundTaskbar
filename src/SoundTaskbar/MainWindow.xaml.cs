@@ -15,6 +15,13 @@ namespace SoundTaskbar;
 
 public partial class MainWindow : Window
 {
+    private enum SwapFaceKind
+    {
+        Cube,
+        Seek,
+        Timeline
+    }
+
     private const double VolumeClosedWidth = 16;
     private const double VolumeOpenWidth = 74;
     private const double VolumeButtonWidth = 16;
@@ -2152,9 +2159,10 @@ public partial class MainWindow : Window
         ParkedHost.ClipToBounds = false;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, bool Cube)>();
+        // Cube = art/title/artist/icon; Seek = prev/next; Timeline = progress+duration horizontal shrink/grow.
+        var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, SwapFaceKind Kind)>();
 
-        Image? SnapshotGhost(FrameworkElement source, bool cubeOriginBottom)
+        Image? SnapshotGhost(FrameworkElement source, Point origin, int z)
         {
             var bitmap = Snapshot(source, pixelsPerDip);
             if (bitmap is null)
@@ -2169,13 +2177,13 @@ public partial class MainWindow : Window
                 Width = source.ActualWidth,
                 Height = source.ActualHeight,
                 Stretch = Stretch.Fill,
-                RenderTransformOrigin = cubeOriginBottom ? new Point(0.5, 1) : new Point(0.5, 0.5),
+                RenderTransformOrigin = origin,
                 RenderTransform = ghostScale
             };
             var pos = source.TranslatePoint(new Point(0, 0), SwapOverlay);
             Canvas.SetLeft(ghost, pos.X);
             Canvas.SetTop(ghost, pos.Y);
-            Panel.SetZIndex(ghost, cubeOriginBottom ? 40 : 25);
+            Panel.SetZIndex(ghost, z);
             SwapOverlay.Children.Add(ghost);
             return ghost;
         }
@@ -2197,14 +2205,27 @@ public partial class MainWindow : Window
             _swapLiveFaces.Add(live);
         }
 
+        void PrepLiveTimeline(FrameworkElement live, ScaleTransform liveScale)
+        {
+            // Horizontal expand from center — progress + duration as one strip.
+            live.RenderTransformOrigin = new Point(0.5, 0.5);
+            live.RenderTransform = liveScale;
+            live.Opacity = 0;
+            live.ClipToBounds = true;
+            _swapLiveFaces.Add(live);
+        }
+
         void AddPairedCube(FrameworkElement? live)
         {
-            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
+            if (live is null ||
+                live.Visibility != Visibility.Visible ||
+                live.ActualWidth < 1 ||
+                live.ActualHeight < 1)
             {
                 return;
             }
 
-            var ghost = SnapshotGhost(live, cubeOriginBottom: true);
+            var ghost = SnapshotGhost(live, new Point(0.5, 1), z: 40);
             if (ghost is null)
             {
                 return;
@@ -2212,7 +2233,7 @@ public partial class MainWindow : Window
 
             var liveScale = new ScaleTransform(1, 0);
             PrepLiveCube(live, liveScale);
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, true));
+            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Cube));
         }
 
         void AddPairedSeek(FrameworkElement? live)
@@ -2222,7 +2243,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var ghost = SnapshotGhost(live, cubeOriginBottom: false);
+            var ghost = SnapshotGhost(live, new Point(0.5, 0.5), z: 25);
             if (ghost is null)
             {
                 return;
@@ -2230,18 +2251,37 @@ public partial class MainWindow : Window
 
             var liveScale = new ScaleTransform(0, 0);
             PrepLiveSeek(live, liveScale);
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, false));
+            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Seek));
         }
 
-        // Primary: media cube; title/artist/duration text like TitleMarquee; icon/progress stay put.
+        void AddPairedTimeline(FrameworkElement? live)
+        {
+            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
+            {
+                return;
+            }
+
+            var ghost = SnapshotGhost(live, new Point(0.5, 0.5), z: 30);
+            if (ghost is null)
+            {
+                return;
+            }
+
+            var liveScale = new ScaleTransform(0, 1);
+            PrepLiveTimeline(live, liveScale);
+            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Timeline));
+        }
+
+        // Primary: art/title/artist/icon cube; timeline horizontal; prev/next seek.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistTextHost);
-        AddPairedCube(TimeTextHost);
+        AddPairedCube(SourceAppIcon);
+        AddPairedTimeline(PrimaryTimeRow);
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
-        // Chip: same text-only pairing. SyncCollection retargets the VM so containers survive.
+        // Chip: same pairing. SyncCollection retargets the VM so containers survive.
         var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
         if (chipItem is not null &&
             ParkedList.ItemContainerGenerator.ContainerFromItem(chipItem) is DependencyObject chipRoot)
@@ -2250,7 +2290,8 @@ public partial class MainWindow : Window
             AddPairedCube(FindDescendantByName(chipRoot, "ChipExpandedArt") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
-            AddPairedCube(FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement);
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipAppIcon") as FrameworkElement);
+            AddPairedTimeline(FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
         }
@@ -2266,41 +2307,63 @@ public partial class MainWindow : Window
             ScaleTransform? ghostScale,
             FrameworkElement? live,
             ScaleTransform? liveScale,
-            bool cube,
+            SwapFaceKind kind,
             double t)
         {
             var p = t * t * (3 - 2 * t);
 
-            if (cube)
+            switch (kind)
             {
-                if (ghostScale is not null && ghost is not null)
-                {
-                    ghostScale.ScaleY = 1 - p;
-                    ghost.Opacity = 1;
-                }
+                case SwapFaceKind.Cube:
+                    if (ghostScale is not null && ghost is not null)
+                    {
+                        ghostScale.ScaleY = 1 - p;
+                        ghost.Opacity = 1;
+                    }
 
-                if (live is not null && liveScale is not null)
-                {
-                    liveScale.ScaleY = p;
-                    live.Opacity = 1;
-                }
-            }
-            else
-            {
-                if (ghostScale is not null && ghost is not null)
-                {
-                    var s = 1 - p;
-                    ghostScale.ScaleX = s;
-                    ghostScale.ScaleY = s;
-                    ghost.Opacity = s;
-                }
+                    if (live is not null && liveScale is not null)
+                    {
+                        liveScale.ScaleY = p;
+                        live.Opacity = 1;
+                    }
 
-                if (live is not null && liveScale is not null)
-                {
-                    liveScale.ScaleX = p;
-                    liveScale.ScaleY = p;
-                    live.Opacity = p > 0.01 ? 1 : 0;
-                }
+                    break;
+
+                case SwapFaceKind.Timeline:
+                    // Old strip shrinks horizontally; new expands — progress + duration together.
+                    if (ghostScale is not null && ghost is not null)
+                    {
+                        ghostScale.ScaleX = 1 - p;
+                        ghostScale.ScaleY = 1;
+                        ghost.Opacity = 1;
+                    }
+
+                    if (live is not null && liveScale is not null)
+                    {
+                        liveScale.ScaleX = p;
+                        liveScale.ScaleY = 1;
+                        live.Opacity = p > 0.01 ? 1 : 0;
+                    }
+
+                    break;
+
+                default:
+                    if (ghostScale is not null && ghost is not null)
+                    {
+                        var s = 1 - p;
+                        ghostScale.ScaleX = s;
+                        ghostScale.ScaleY = s;
+                        ghost.Opacity = s;
+                    }
+
+                    if (live is not null && liveScale is not null)
+                    {
+                        liveScale.ScaleX = p;
+                        liveScale.ScaleY = p;
+                        live.Opacity = p > 0.01 ? 1 : 0;
+                    }
+
+                    break;
             }
         }
 
@@ -2309,8 +2372,8 @@ public partial class MainWindow : Window
             t = Math.Clamp(t, 0, 1);
             for (var i = 0; i < faces.Count; i++)
             {
-                var (ghost, ghostScale, live, liveScale, cube) = faces[i];
-                ApplyFace(ghost, ghostScale, live, liveScale, cube, t);
+                var (ghost, ghostScale, live, liveScale, kind) = faces[i];
+                ApplyFace(ghost, ghostScale, live, liveScale, kind, t);
             }
         }
 

@@ -363,7 +363,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <!-- Text-only cube target (like ChipTitleRow) — icon stays put. -->
+                                <!-- Text-only cube target (like ChipTitleRow). -->
                                 <Grid x:Name="ChipArtistTextHost"
                                       Height="12"
                                       ClipToBounds="True"
@@ -375,18 +375,25 @@
                                                TextTrimming="CharacterEllipsis"
                                                VerticalAlignment="Center" />
                                 </Grid>
-                                <Image Grid.Column="1"
-                                       Source="{Binding AppIcon}"
-                                       Width="8"
-                                       Height="8"
-                                       Margin="5,0,0,0"
-                                       MinWidth="8"
-                                       Stretch="Uniform"
-                                       Opacity="0.9"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding AppIconVisibility}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                <!-- Same cube clip as ChipExpandedArt / PrimaryArtClip. -->
+                                <Grid x:Name="ChipAppIconClip"
+                                      Grid.Column="1"
+                                      Width="8"
+                                      Height="8"
+                                      Margin="5,0,0,0"
+                                      ClipToBounds="True"
+                                      VerticalAlignment="Center"
+                                      Visibility="{Binding AppIconVisibility}">
+                                    <Image x:Name="ChipAppIcon"
+                                           Source="{Binding AppIcon}"
+                                           Width="8"
+                                           Height="8"
+                                           Stretch="Uniform"
+                                           Opacity="0.9"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
                             </Grid>
+                            <!-- Whole row: horizontal shrink/grow on swap (not cube). -->
                             <Grid x:Name="ChipTimeRow"
                                   Grid.Row="2"
                                   ClipToBounds="True">
@@ -402,7 +409,6 @@
                                              Background="{DynamicResource ProgressTrackBrush}"
                                              BorderThickness="0"
                                              VerticalAlignment="Center" />
-                                <!-- Duration text cube target (progress bar stays put). -->
                                 <Grid x:Name="ChipTimeTextHost"
                                       Grid.Column="1"
                                       Height="10"
@@ -585,7 +591,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <!-- Text-only cube target (like TitleMarquee) — icon/source stay put. -->
+                                <!-- Text-only cube target (like TitleMarquee). -->
                                 <Grid x:Name="PrimaryArtistTextHost"
                                       Height="12"
                                       ClipToBounds="True"
@@ -606,15 +612,21 @@
                                             Orientation="Horizontal"
                                             Margin="5,0,0,0"
                                             VerticalAlignment="Center">
-                                    <Image x:Name="SourceAppIcon"
-                                           Source="{Binding AppIcon}"
-                                           Width="8"
-                                           Height="8"
-                                           Stretch="Uniform"
-                                           Opacity="0.9"
-                                           VerticalAlignment="Center"
-                                           Visibility="{Binding AppIconVisibility}"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <!-- Same cube clip as PrimaryArtClip. -->
+                                    <Grid x:Name="SourceAppIconClip"
+                                          Width="8"
+                                          Height="8"
+                                          ClipToBounds="True"
+                                          VerticalAlignment="Center"
+                                          Visibility="{Binding AppIconVisibility}">
+                                        <Image x:Name="SourceAppIcon"
+                                               Source="{Binding AppIcon}"
+                                               Width="8"
+                                               Height="8"
+                                               Stretch="Uniform"
+                                               Opacity="0.9"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                    </Grid>
                                     <Grid x:Name="SourceNameHost"
                                           ClipToBounds="True"
                                           VerticalAlignment="Center">
@@ -633,6 +645,7 @@
                                 </StackPanel>
                             </Grid>
 
+                            <!-- Whole row: horizontal shrink/grow on swap (not cube). -->
                             <Grid x:Name="PrimaryTimeRow"
                                   Grid.Row="2"
                                   ClipToBounds="True">
@@ -649,7 +662,6 @@
                                              Background="{DynamicResource ProgressTrackBrush}"
                                              BorderThickness="0"
                                              VerticalAlignment="Center" />
-                                <!-- Duration text cube target (progress bar stays put). Width/opacity for volume. -->
                                 <Grid x:Name="TimeTextHost"
                                       Grid.Column="1"
                                       Height="10"
