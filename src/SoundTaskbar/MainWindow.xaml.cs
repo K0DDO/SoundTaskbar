@@ -59,11 +59,12 @@ public partial class MainWindow : Window
 
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
-    private const int PlayPlayMorphMs = 340;
+    /// <summary>Total morph time; split into shrink-primary then expand-chip (or reverse).</summary>
+    private const int PlayPlayMorphMs = 520;
     private const int WidgetRevealMs = 480;
     /// <summary>Hide/show slides the content toward the tray by this much.</summary>
     private const double WidgetRevealShift = 10;
-    private const int PrimarySwapMs = 420;
+    private const int PrimarySwapMs = 520;
 
     private double ParkedReveal
     {
@@ -433,24 +434,105 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Midpoint: primary already trimmed (ExtraTrim), chip still compact — boundary sits here
+        // between the two sequential phases.
+        var compactChip = expand ? parkedFrom : chipTo;
+        var midShell = _viewModel.ComputePlayPlayCompositeWidth(compactChip);
+
         var clock = new AnimationClockHolder();
         clock.ProgressChanged += t =>
         {
-            var chip = parkedFrom + (chipTo - parkedFrom) * t;
-            var shell = shellFrom + (shellTo - shellFrom) * t;
-            ApplySideFrame(sides, progressFrom, progressTo, metaTargets, t, chip, shell);
+            MapPlayPlayPhases(
+                t,
+                expand,
+                parkedFrom,
+                chipTo,
+                shellFrom,
+                midShell,
+                shellTo,
+                out var progressT,
+                out var chip,
+                out var shell);
+            ApplySideFrame(sides, progressFrom, progressTo, metaTargets, progressT, chip, shell);
         };
         _playPlayClock = clock;
+        // Linear outer clock — easing lives inside each phase so the hold at midShell is crisp.
         clock.Start(
             0,
             1,
             TimeSpan.FromMilliseconds(PlayPlayMorphMs),
-            new CubicEase { EasingMode = EasingMode.EaseInOut },
+            ease: null,
             Finish);
 
         if (expand != wasExpanded)
         {
-            AnimateSourceNameForPair(expand, animate: true);
+            // Name collapses with primary shrink (phase 1); restores with primary grow (phase 2).
+            AnimateSourceNameForPair(
+                expand,
+                animate: true,
+                phaseDurationMs: PlayPlayMorphMs / 2,
+                beginMs: expand ? 0 : PlayPlayMorphMs / 2);
+        }
+    }
+
+    /// <summary>
+    /// Sequential play+play morph:
+    /// expand — phase1 primary shrinks (divider moves), phase2 chip grows;
+    /// collapse — phase1 chip shrinks, phase2 primary grows back.
+    /// </summary>
+    private static void MapPlayPlayPhases(
+        double t,
+        bool expand,
+        double chipFrom,
+        double chipTo,
+        double shellFrom,
+        double midShell,
+        double shellTo,
+        out double progressT,
+        out double chip,
+        out double shell)
+    {
+        t = Math.Clamp(t, 0, 1);
+        // Smooth each half independently (hold at the boundary between phases).
+        static double EaseHalf(double u)
+        {
+            u = Math.Clamp(u, 0, 1);
+            // Cubic ease-in-out
+            return u < 0.5
+                ? 4 * u * u * u
+                : 1 - Math.Pow(-2 * u + 2, 3) / 2;
+        }
+
+        if (expand)
+        {
+            if (t <= 0.5)
+            {
+                var u = EaseHalf(t / 0.5);
+                progressT = 0;
+                chip = chipFrom;
+                shell = shellFrom + (midShell - shellFrom) * u;
+            }
+            else
+            {
+                var u = EaseHalf((t - 0.5) / 0.5);
+                progressT = u;
+                chip = chipFrom + (chipTo - chipFrom) * u;
+                shell = midShell + (shellTo - midShell) * u;
+            }
+        }
+        else if (t <= 0.5)
+        {
+            var u = EaseHalf(t / 0.5);
+            progressT = u;
+            chip = chipFrom + (chipTo - chipFrom) * u;
+            shell = shellFrom + (midShell - shellFrom) * u;
+        }
+        else
+        {
+            var u = EaseHalf((t - 0.5) / 0.5);
+            progressT = 1;
+            chip = chipTo;
+            shell = midShell + (shellTo - midShell) * u;
         }
     }
 
@@ -912,8 +994,9 @@ public partial class MainWindow : Window
             BeginAnimation(ValueProperty, null);
         }
 
-        public void Start(double from, double to, Duration duration, IEasingFunction ease, Action? onDone)
+        public void Start(double from, double to, Duration duration, IEasingFunction? ease, Action? onDone)
         {
+            _cancelled = false;
             BeginAnimation(ValueProperty, null);
             Value = from;
             var anim = new DoubleAnimation
@@ -1164,7 +1247,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>play+play: collapse app name into icon; reverse when leaving pair.</summary>
-    private void AnimateSourceNameForPair(bool pair, bool animate)
+    private void AnimateSourceNameForPair(
+        bool pair,
+        bool animate,
+        int? phaseDurationMs = null,
+        int beginMs = 0)
     {
         if (_viewModel.IsVolumeEditorOpen && !pair)
         {
@@ -1177,9 +1264,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var duration = TimeSpan.FromMilliseconds(PlayPlayMorphMs);
+        var duration = TimeSpan.FromMilliseconds(phaseDurationMs ?? PlayPlayMorphMs);
         var ease = new CubicEase { EasingMode = pair ? EasingMode.EaseOut : EasingMode.EaseIn };
-        AnimateSourceNameWidth(collapse: pair, animate, duration, ease);
+        AnimateSourceNameWidth(
+            collapse: pair,
+            animate,
+            duration,
+            ease,
+            beginTime: TimeSpan.FromMilliseconds(Math.Max(0, beginMs)));
         _pairNameCollapsed = pair;
     }
 
@@ -1187,7 +1279,8 @@ public partial class MainWindow : Window
         bool collapse,
         bool animate,
         Duration duration,
-        IEasingFunction ease)
+        IEasingFunction ease,
+        TimeSpan? beginTime = null)
     {
         SourceText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var full = Math.Max(1, Math.Ceiling(SourceText.DesiredSize.Width + SourceText.Margin.Left));
@@ -1227,6 +1320,7 @@ public partial class MainWindow : Window
             From = from,
             To = to,
             Duration = duration,
+            BeginTime = beginTime ?? TimeSpan.Zero,
             EasingFunction = ease,
             FillBehavior = FillBehavior.HoldEnd
         };
@@ -1412,16 +1506,37 @@ public partial class MainWindow : Window
 
         void ApplyFrame(double t)
         {
-            var fadeOut = Math.Max(0, 1 - t * 1.6);
+            t = Math.Clamp(t, 0, 1);
+            // Phase 1: old side shrinks away (ghosts). Phase 2: new side grows in.
+            double fadeOut;
+            double travelOut;
+            double fadeIn;
+            double travelIn;
+            if (t <= 0.5)
+            {
+                var u = t / 0.5;
+                fadeOut = 1 - u;
+                travelOut = u;
+                fadeIn = 0;
+                travelIn = 1;
+            }
+            else
+            {
+                var u = (t - 0.5) / 0.5;
+                fadeOut = 0;
+                travelOut = 1;
+                fadeIn = u;
+                travelIn = 1 - u;
+            }
+
             foreach (var (ghost, shift, direction) in ghosts)
             {
                 ghost.Opacity = fadeOut;
-                shift.X = direction * dx * t;
+                shift.X = direction * dx * travelOut;
             }
 
-            var fadeIn = Math.Clamp((t - 0.1) * 1.4, 0, 1);
-            _primaryArtShift.X = -dx * (1 - t);
-            _primaryMetaShift.X = -dx * (1 - t);
+            _primaryArtShift.X = -dx * travelIn;
+            _primaryMetaShift.X = -dx * travelIn;
             PrimaryArtHost.Opacity = fadeIn;
             PrimaryMetaHost.Opacity = fadeIn;
 
@@ -1439,7 +1554,7 @@ public partial class MainWindow : Window
 
             if (_swapChip?.RenderTransform is TranslateTransform chipShift)
             {
-                chipShift.X = dx * (1 - t);
+                chipShift.X = dx * travelIn;
                 _swapChip.Opacity = fadeIn;
             }
         }
@@ -1452,7 +1567,7 @@ public partial class MainWindow : Window
             0,
             1,
             TimeSpan.FromMilliseconds(PrimarySwapMs),
-            new CubicEase { EasingMode = EasingMode.EaseOut },
+            ease: null,
             ResetSwapVisuals);
     }
 
