@@ -2281,6 +2281,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnTrackSkipping(object? sender, TrackSkipEventArgs e)
     {
+        // Must be synchronous on the UI thread *before* ApplyPrimary binds the new title/art.
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => OnTrackSkipping(sender, e));
+            return;
+        }
+
         if (_layoutRestarting || _chipDemoteAnimating || _primarySwapAnimating ||
             !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
@@ -2323,12 +2330,13 @@ public partial class MainWindow : Window
                 Height = live.ActualHeight,
                 Stretch = Stretch.Fill,
                 RenderTransformOrigin = ghostOrigin,
-                RenderTransform = ghostScale
+                RenderTransform = ghostScale,
+                ClipToBounds = true
             };
             var pos = live.TranslatePoint(new Point(0, 0), SwapOverlay);
             Canvas.SetLeft(ghost, pos.X);
             Canvas.SetTop(ghost, pos.Y);
-            Panel.SetZIndex(ghost, 40);
+            Panel.SetZIndex(ghost, 50);
             SwapOverlay.Children.Add(ghost);
 
             var liveScale = new ScaleTransform(0, 1);
@@ -2340,8 +2348,6 @@ public partial class MainWindow : Window
             faces.Add((ghost, ghostScale, live, liveScale));
         }
 
-        // Ensure layout is current so Snapshot gets real pixel sizes (Spotify skip can
-        // fire mid-measure after a busy refresh).
         PrimaryArtHost.UpdateLayout();
         TitleMarquee.UpdateLayout();
         PrimaryArtistTextHost.UpdateLayout();
@@ -2349,7 +2355,6 @@ public partial class MainWindow : Window
         AddHorizontalCube(PrimaryArtHost);
         AddHorizontalCube(TitleMarquee);
         AddHorizontalCube(PrimaryArtistTextHost);
-        // Artist row as fallback when the text host is collapsed/zero-width.
         if (faces.Count == 0)
         {
             AddHorizontalCube(PrimaryArtistRow);
@@ -2361,6 +2366,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Same cadence as vertical divider cube: roll finishes in the first half.
         static double Ease(double x) => x * x * (3 - 2 * x);
 
         void ApplyFrame(double t)

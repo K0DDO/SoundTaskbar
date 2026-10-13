@@ -768,7 +768,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 var snapshots = useFull
                     ? await _media.CaptureAllFullAsync()
                     : _media.CaptureAll();
-                ApplyAll(snapshots, keepArtwork: !useFull);
+                // Capture may resume on a thread-pool thread after await — ApplyAll (and the
+                // track-skip cube) must run on the WPF dispatcher or the animation is a no-op.
+                await ApplyAllOnUiAsync(snapshots, keepArtwork: !useFull);
                 full = false;
             }
             while (_refreshNeedsFull && !_disposed);
@@ -777,6 +779,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             _refreshLock.Release();
         }
+    }
+
+    private Task ApplyAllOnUiAsync(IReadOnlyList<MediaSessionSnapshot> snapshots, bool keepArtwork)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            ApplyAll(snapshots, keepArtwork);
+            return Task.CompletedTask;
+        }
+
+        return dispatcher.InvokeAsync(() => ApplyAll(snapshots, keepArtwork)).Task;
     }
 
     private void ApplyAll(IReadOnlyList<MediaSessionSnapshot> snapshots, bool keepArtwork)
@@ -1743,8 +1757,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        // Video / seek-only sources keep the existing seek glyph morph — no track cube.
-        if (snapshot.IsVideo)
+        // Video keeps seek glyph morph. Known music apps (Spotify etc.) always get the cube
+        // even if SMTC PlaybackType flaps to video.
+        if (snapshot.IsVideo && !MediaKindHelper.IsKnownMusicAppId(snapshot.AppId))
         {
             _pendingTrackSkipDir = null;
             _pendingTrackSkipUntil = null;
