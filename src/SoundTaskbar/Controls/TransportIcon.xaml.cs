@@ -134,11 +134,10 @@ public partial class TransportIcon : UserControl
         {
             SkipPath.Opacity = 0;
             SeekRoot.Opacity = 1;
-            var flip = kind == TransportIconKind.SeekBack ? -1 : 1;
-            SeekFlip.ScaleX = flip;
-            TipFlip.ScaleX = flip;
-            // Tip path is drawn for forward (top-right); flip mirrors for back.
-            SeekTip.Margin = flip < 0 ? new Thickness(0.2, 0, 0, 0) : new Thickness(0);
+            // Mirrored path data instead of ScaleX=-1 — parent appear-scale stays centered like next.
+            SeekArc.Data = GeometryForSeekArc(kind);
+            SeekTip.Data = GeometryForSeekTip(kind);
+            SeekTip.Margin = new Thickness(0);
         }
         else
         {
@@ -151,10 +150,23 @@ public partial class TransportIcon : UserControl
     private static bool IsSeek(TransportIconKind kind) =>
         kind is TransportIconKind.SeekBack or TransportIconKind.SeekForward;
 
+    /// <summary>Skip next mirrored — same visual center so prev/next appear-scale match.</summary>
     private static Geometry GeometryForSkip(TransportIconKind kind) =>
         kind switch
         {
-            TransportIconKind.SkipPrevious => Geometry.Parse("M1,2 L1,12 L2.2,12 L2.2,2 Z M12.5,2 L12.5,12 L4.5,7 Z"),
-            _ => Geometry.Parse("M1.5,2 L9.5,7 L1.5,12 Z M11.3,2 L12.5,2 L12.5,12 L11.3,12 Z")
+            TransportIconKind.SkipPrevious =>
+                Geometry.Parse("M12.5,2 L4.5,7 L12.5,12 Z M1.5,2 L2.7,2 L2.7,12 L1.5,12 Z"),
+            _ =>
+                Geometry.Parse("M1.5,2 L9.5,7 L1.5,12 Z M11.3,2 L12.5,2 L12.5,12 L11.3,12 Z")
         };
+
+    private static Geometry GeometryForSeekArc(TransportIconKind kind) =>
+        kind == TransportIconKind.SeekBack
+            ? Geometry.Parse("M 2,7 A 5,5 0 1 0 7,2")
+            : Geometry.Parse("M 12,7 A 5,5 0 1 1 7,2");
+
+    private static Geometry GeometryForSeekTip(TransportIconKind kind) =>
+        kind == TransportIconKind.SeekBack
+            ? Geometry.Parse("M 7.65,0.85 L 4.45,2.05 L 7.85,3.35 Z")
+            : Geometry.Parse("M 6.35,0.85 L 9.55,2.05 L 6.15,3.35 Z");
 }

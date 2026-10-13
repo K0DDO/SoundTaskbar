@@ -2277,7 +2277,7 @@ public partial class MainWindow : Window
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistRow);
         AddPairedCube(PrimaryTimeRow);
-        // Scale the fixed clip hosts (not bare buttons) so prev matches next — no upward drift.
+        // Same clip-host scale appear for prev and next (icon geometry is mirrored, not ScaleX-flipped).
         AddPairedSeek(PreviousTransportClip);
         AddPairedSeek(NextTransportClip);
 

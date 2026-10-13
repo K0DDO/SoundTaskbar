@@ -11,7 +11,7 @@
               Data="M0,0 L0,1 L1,0.5 Z"
               Opacity="1" />
 
-        <!-- Seek ±N: circular arrow + seconds -->
+        <!-- Seek ±N: circular arrow + seconds (no ScaleX flip — keeps appear/scale anim centered) -->
         <Grid x:Name="SeekRoot" Opacity="0" IsHitTestVisible="False">
             <Path x:Name="SeekArc"
                   Stretch="Uniform"
@@ -21,21 +21,11 @@
                   StrokeEndLineCap="Flat"
                   Fill="Transparent"
                   Margin="0.4"
-                  Data="M 12,7 A 5,5 0 1 1 7,2"
-                  RenderTransformOrigin="0.5,0.5">
-                <Path.RenderTransform>
-                    <ScaleTransform x:Name="SeekFlip" ScaleX="1" />
-                </Path.RenderTransform>
-            </Path>
+                  Data="M 12,7 A 5,5 0 1 1 7,2" />
             <Path x:Name="SeekTip"
                   Stretch="None"
                   Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                  Data="M 6.35,0.85 L 9.55,2.05 L 6.15,3.35 Z"
-                  RenderTransformOrigin="0.5,0.5">
-                <Path.RenderTransform>
-                    <ScaleTransform x:Name="TipFlip" ScaleX="1" />
-                </Path.RenderTransform>
-            </Path>
+                  Data="M 6.35,0.85 L 9.55,2.05 L 6.15,3.35 Z" />
             <TextBlock x:Name="SeekLabel"
                        Text="10"
                        FontSize="5.5"
