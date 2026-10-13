@@ -2270,11 +2270,19 @@ public partial class MainWindow : Window
         var primaryTimeWidthTo = primaryTimeWidthFrom;
         var chipTimeWidthFrom = 1.0;
         var chipTimeWidthTo = 1.0;
-        var slashWidth = MeasureTimeStringWidth(TimeText, "/");
+        var slashWidth = Math.Max(MeasureTimeStringWidth(TimeText, "/"), 8);
+        var primaryRowWidth = Math.Max(PrimaryTimeRow.ActualWidth, primaryTimeWidthFrom + ProgressBar.ActualWidth);
+        var chipRowWidth = primaryRowWidth;
+        // Orange fill in pixels — lerps to future place, independent of gray track width.
+        var primaryOrangeFromPx = primaryProgressFrom * Math.Max(ProgressBar.ActualWidth, 1);
+        var primaryOrangeToPx = primaryOrangeFromPx;
+        var chipOrangeFromPx = 0.0;
+        var chipOrangeToPx = 0.0;
 
         TimeTextHost.BeginAnimation(WidthProperty, null);
         TimeTextHost.Width = primaryTimeWidthFrom;
-        TimeTextHost.RenderTransformOrigin = new Point(0.5, 0.5);
+        TimeTextHost.RenderTransformOrigin = new Point(1, 0.5);
+        TimeText.HorizontalAlignment = HorizontalAlignment.Right;
         BindingOperations.ClearBinding(TimeText, TextBlock.TextProperty);
         TimeText.Text = primaryTimeFrom;
         _swapLiveFaces.Add(TimeTextHost);
@@ -2283,7 +2291,7 @@ public partial class MainWindow : Window
         {
             BindingOperations.ClearBinding(bar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
             bar.BeginAnimation(System.Windows.Controls.Primitives.RangeBase.ValueProperty, null);
-            bar.Value = value;
+            bar.Value = Math.Clamp(value, 0, 1);
         }
 
         FreezeProgressBar(ProgressBar, primaryProgressFrom);
@@ -2308,6 +2316,8 @@ public partial class MainWindow : Window
 
             chipTimeHost = FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement;
             chipTimeText = FindDescendantByName(chipRoot, "ChipTimeText") as TextBlock;
+            var chipTimeRow = FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement;
+            chipProgressBar = FindDescendantByName(chipRoot, "ChipProgressBar") as ProgressBar;
             if (chipTimeHost is not null && chipTimeText is not null)
             {
                 chipTimeFrom = chipTimeText.Text ?? string.Empty;
@@ -2316,15 +2326,22 @@ public partial class MainWindow : Window
                 chipTimeWidthTo = chipTimeWidthFrom;
                 chipTimeHost.BeginAnimation(WidthProperty, null);
                 chipTimeHost.Width = chipTimeWidthFrom;
-                chipTimeHost.RenderTransformOrigin = new Point(0.5, 0.5);
+                chipTimeHost.RenderTransformOrigin = new Point(1, 0.5);
+                chipTimeText.HorizontalAlignment = HorizontalAlignment.Right;
                 BindingOperations.ClearBinding(chipTimeText, TextBlock.TextProperty);
                 chipTimeText.Text = chipTimeFrom;
                 _swapLiveFaces.Add(chipTimeHost);
             }
 
-            chipProgressBar = FindDescendantByName(chipRoot, "ChipProgressBar") as ProgressBar;
+            if (chipTimeRow is not null)
+            {
+                chipRowWidth = Math.Max(chipTimeRow.ActualWidth, chipTimeWidthFrom + (chipProgressBar?.ActualWidth ?? 0));
+            }
+
             if (chipProgressBar is not null)
             {
+                chipOrangeFromPx = chipProgressFrom * Math.Max(chipProgressBar.ActualWidth, 1);
+                chipOrangeToPx = chipOrangeFromPx;
                 FreezeProgressBar(chipProgressBar, chipProgressFrom);
             }
         }
@@ -2380,23 +2397,24 @@ public partial class MainWindow : Window
             }
         }
 
-        // Independent of progress: "1:00 / 2:00" → "/" (hold) → "2:00 / 3:00" from t=0.
-        // Host Width stays at final size so the gray track / orange fill do not bounce.
+        // Numbers press to the right → "/" (hold) → new text. Gray track width rides with them.
         void ApplySlashTimeMorph(
             TextBlock text,
             FrameworkElement host,
             string fromText,
             string toText,
+            double widthFrom,
             double widthTo,
+            double midSlashWidth,
             double linearT)
         {
             var d = Math.Clamp(linearT, 0, 1);
             host.BeginAnimation(WidthProperty, null);
-            host.Width = widthTo;
-            host.RenderTransformOrigin = new Point(0.5, 0.5);
+            host.RenderTransformOrigin = new Point(1, 0.5);
+            text.HorizontalAlignment = HorizontalAlignment.Right;
             host.Opacity = 1;
 
-            // 0..0.32 collapse · 0.32..0.68 hold "/" · 0.68..1 expand
+            // 0..0.32 collapse to right · 0.32..0.68 hold "/" · 0.68..1 expand from right
             const double holdStart = 0.32;
             const double holdEnd = 0.68;
 
@@ -2406,11 +2424,13 @@ public partial class MainWindow : Window
                 text.Text = p < 0.85 ? fromText : "/";
                 var s = p < 0.85 ? 1 - p / 0.85 : 1;
                 host.RenderTransform = new ScaleTransform(s, s);
+                host.Width = widthFrom + (midSlashWidth - widthFrom) * p;
             }
             else if (d <= holdEnd)
             {
                 text.Text = "/";
                 host.RenderTransform = Transform.Identity;
+                host.Width = midSlashWidth;
             }
             else
             {
@@ -2418,32 +2438,36 @@ public partial class MainWindow : Window
                 text.Text = p < 0.15 ? "/" : toText;
                 var s = p < 0.15 ? 1 : (p - 0.15) / 0.85;
                 host.RenderTransform = new ScaleTransform(Math.Clamp(s, 0.2, 1), Math.Clamp(s, 0.2, 1));
+                host.Width = midSlashWidth + (widthTo - midSlashWidth) * p;
             }
         }
 
-        void ApplyProgress(double linearT)
+        void SetOrangeByPixels(ProgressBar bar, double rowWidth, double timeWidth, double orangePx)
         {
-            // Orange fill snaps to final — never lerps with the gray track / slash morph.
-            FreezeProgressBar(ProgressBar, primaryProgressTo);
+            var barW = Math.Max(rowWidth - timeWidth, 1);
+            FreezeProgressBar(bar, orangePx / barW);
+        }
+
+        void ApplyProgress(double linearT, double easeT)
+        {
+            var timeW = ApplySlashTimeMorphReturnWidth(
+                TimeText,
+                TimeTextHost,
+                primaryTimeFrom,
+                primaryTimeTo,
+                primaryTimeWidthFrom,
+                primaryTimeWidthTo,
+                slashWidth,
+                linearT);
+            var orangePx = primaryOrangeFromPx + (primaryOrangeToPx - primaryOrangeFromPx) * easeT;
+            SetOrangeByPixels(ProgressBar, primaryRowWidth, timeW, orangePx);
+
             if (chipProgressBar is null &&
                 _swapChip is not null &&
                 FindDescendantByName(_swapChip, "ChipProgressBar") is ProgressBar foundBar)
             {
                 chipProgressBar = foundBar;
             }
-
-            if (chipProgressBar is not null)
-            {
-                FreezeProgressBar(chipProgressBar, chipProgressTo);
-            }
-
-            ApplySlashTimeMorph(
-                TimeText,
-                TimeTextHost,
-                primaryTimeFrom,
-                primaryTimeTo,
-                primaryTimeWidthTo,
-                linearT);
 
             if (chipTimeHost is null &&
                 _swapChip is not null &&
@@ -2453,23 +2477,41 @@ public partial class MainWindow : Window
                 chipTimeText ??= FindDescendantByName(_swapChip, "ChipTimeText") as TextBlock;
             }
 
-            if (chipTimeHost is not null && chipTimeText is not null)
+            if (chipTimeHost is not null && chipTimeText is not null && chipProgressBar is not null)
             {
-                ApplySlashTimeMorph(
+                var chipTimeW = ApplySlashTimeMorphReturnWidth(
                     chipTimeText,
                     chipTimeHost,
                     chipTimeFrom,
                     chipTimeTo,
+                    chipTimeWidthFrom,
                     chipTimeWidthTo,
+                    slashWidth,
                     linearT);
+                var chipOrangePx = chipOrangeFromPx + (chipOrangeToPx - chipOrangeFromPx) * easeT;
+                SetOrangeByPixels(chipProgressBar, chipRowWidth, chipTimeW, chipOrangePx);
             }
+        }
+
+        double ApplySlashTimeMorphReturnWidth(
+            TextBlock text,
+            FrameworkElement host,
+            string fromText,
+            string toText,
+            double widthFrom,
+            double widthTo,
+            double midSlashWidth,
+            double linearT)
+        {
+            ApplySlashTimeMorph(text, host, fromText, toText, widthFrom, widthTo, midSlashWidth, linearT);
+            return host.Width;
         }
 
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
             var easeT = Ease(t);
-            ApplyProgress(t);
+            ApplyProgress(t, easeT);
 
             for (var i = 0; i < faces.Count; i++)
             {
@@ -2478,9 +2520,6 @@ public partial class MainWindow : Window
             }
         }
 
-        // Orange already at destination from the first frame.
-        FreezeProgressBar(ProgressBar, primaryProgressTo);
-        TimeTextHost.Width = primaryTimeWidthTo;
         ApplyFrame(0);
         var clock = new AnimationClockHolder();
         clock.ProgressChanged += ApplyFrame;
@@ -2502,8 +2541,7 @@ public partial class MainWindow : Window
 
                 primaryTimeTo = _viewModel.TimeText ?? primaryTimeTo;
                 primaryTimeWidthTo = MeasureTimeStringWidth(TimeText, primaryTimeTo);
-                TimeTextHost.Width = primaryTimeWidthTo;
-                FreezeProgressBar(ProgressBar, primaryProgressTo);
+                primaryOrangeToPx = primaryProgressTo * Math.Max(primaryRowWidth - primaryTimeWidthTo, 1);
 
                 if (chipItem is not null)
                 {
@@ -2519,18 +2557,10 @@ public partial class MainWindow : Window
                         chipTimeWidthTo = MeasureTimeStringWidth(chipTimeText, chipTimeTo);
                     }
 
-                    if (chipTimeHost is not null)
-                    {
-                        chipTimeHost.Width = chipTimeWidthTo;
-                    }
-
-                    if (chipProgressBar is not null)
-                    {
-                        FreezeProgressBar(chipProgressBar, chipProgressTo);
-                    }
+                    chipOrangeToPx = chipProgressTo * Math.Max(chipRowWidth - chipTimeWidthTo, 1);
                 }
 
-                ApplyProgress(0);
+                ApplyProgress(0, 0);
             },
             DispatcherPriority.Loaded);
     }
@@ -2572,6 +2602,7 @@ public partial class MainWindow : Window
                 });
         }
 
+        TimeText.ClearValue(HorizontalAlignmentProperty);
         TimeTextHost.RenderTransform = Transform.Identity;
 
         foreach (var side in _viewModel.SideSessions)
@@ -2592,6 +2623,7 @@ public partial class MainWindow : Window
                     });
             }
 
+            text.ClearValue(HorizontalAlignmentProperty);
             if (FindDescendantByName(root, "ChipTimeTextHost") is FrameworkElement host)
             {
                 host.RenderTransform = Transform.Identity;
