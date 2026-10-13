@@ -81,7 +81,7 @@ dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTask
 - **3+ источника**: `MaxSideChips=5`; лишние — маленькие paused-чипы слева, разделители между чипами; expanded play-чип всегда последний. Те же demote-правила, что для двух. `MorphSideChips` — прогресс на каждый чип
 - **Нет источника** → `HasSession=false` → morph в pill-иконку справа (обложка/♪) + wipe к трею (`RevealFraction`). Grace пустых сессий 900ms + tick refresh (баг: раньше grace истекал без refresh). Только `IsParkable` + running app; Stopped/Closed/мёртвый процесс → collapse. `_staleVisuals` держит последний трек на время анимации
 - **Смена доминирующего** / divider swap: cube (art/title/artist/app-icon); progress Value lerp на обеих сторонах (freeze binding); duration выходит из бара (shrink) или после роста fill (expand); prev/next = seek; pause/volume/VU не трогаем. Retarget unlocks chip transport. На swap `ParkedHost.ClipToBounds=false`
-- **Audio next/prev**: горизонтальный cube-roll на primary и на side-чипе (expanded или compact art), если трек сменился; video/seek-only без этого
+- **Audio next/prev**: art — горизонтальный cube-roll; title/artist — горизонтальный slide (съезд); primary и side-чип (expanded / compact art); video/seek-only без этого
 - Хост: таймер 800ms делает attach (стили пишутся только при изменении); анимации ширины/reveal идут через лёгкий `UpdateRegion` (только геометрия + регион). Win+D-защиты сейчас нет (откат в d7fc9cf)
 - empty SMTC grace 900ms (Win+D blip); pair-exit grace убран — demote play+play→pause+play сразу
 - Title fade: edge-scrim from tray sample; ресурсные кисти не мутировать (frozen) — только заменять

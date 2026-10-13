@@ -74,8 +74,23 @@ public partial class MainWindow : Window
     private readonly List<FrameworkElement> _swapLiveFaces = new();
     /// <summary>Suppress chip morph while cube-swap runs so left rail does not redraw via pause+play.</summary>
     private bool _primarySwapAnimating;
+    private enum TrackSkipFaceKind
+    {
+        /// <summary>Art: horizontal ScaleX cube-roll.</summary>
+        Cube,
+        /// <summary>Title/artist: horizontal translate slide.</summary>
+        Slide
+    }
+
     /// <summary>Ghosts captured on next/prev click, waiting for the new track to bind.</summary>
-    private readonly List<(Image Ghost, ScaleTransform GhostScale, FrameworkElement Live, ScaleTransform LiveScale)> _trackSkipFaces = new();
+    private readonly List<(
+        FrameworkElement GhostRoot,
+        Transform GhostTransform,
+        FrameworkElement Live,
+        Transform LiveTransform,
+        TrackSkipFaceKind Kind,
+        double Width)> _trackSkipFaces = new();
+    private readonly List<FrameworkElement> _trackSkipClipParents = new();
     private int _trackSkipDirection;
     private DispatcherTimer? _trackSkipTimer;
     private DateTime _trackSkipAnimStart;
@@ -2314,7 +2329,18 @@ public partial class MainWindow : Window
         var liveOrigin = next ? new Point(1, 0.5) : new Point(0, 0.5);
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
-        void Prep(FrameworkElement? live)
+        void EnsureClipParent(FrameworkElement? parent)
+        {
+            if (parent is null || parent.ClipToBounds)
+            {
+                return;
+            }
+
+            parent.ClipToBounds = true;
+            _trackSkipClipParents.Add(parent);
+        }
+
+        void PrepCube(FrameworkElement? live)
         {
             if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
             {
@@ -2338,14 +2364,13 @@ public partial class MainWindow : Window
                 RenderTransformOrigin = ghostOrigin,
                 RenderTransform = ghostScale,
                 ClipToBounds = true,
-                IsHitTestVisible = false
+                IsHitTestVisible = false,
+                Opacity = 0
             };
             var pos = live.TranslatePoint(new Point(0, 0), SwapOverlay);
             Canvas.SetLeft(ghost, pos.X);
             Canvas.SetTop(ghost, pos.Y);
             Panel.SetZIndex(ghost, 50);
-            // Keep ghost hidden until commit — otherwise it covers the still-old live face.
-            ghost.Opacity = 0;
             SwapOverlay.Children.Add(ghost);
 
             var liveScale = new ScaleTransform(1, 1);
@@ -2353,17 +2378,65 @@ public partial class MainWindow : Window
             live.RenderTransform = liveScale;
             live.ClipToBounds = true;
             _swapLiveFaces.Add(live);
-            _trackSkipFaces.Add((ghost, ghostScale, live, liveScale));
+            _trackSkipFaces.Add((ghost, ghostScale, live, liveScale, TrackSkipFaceKind.Cube, live.ActualWidth));
+        }
+
+        void PrepSlide(FrameworkElement? live, FrameworkElement? clipParent = null)
+        {
+            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
+            {
+                return;
+            }
+
+            live.UpdateLayout();
+            var bitmap = Snapshot(live, pixelsPerDip);
+            if (bitmap is null)
+            {
+                return;
+            }
+
+            EnsureClipParent(clipParent ?? live.Parent as FrameworkElement);
+
+            var ghostShift = new TranslateTransform();
+            var ghostImage = new Image
+            {
+                Source = bitmap,
+                Width = live.ActualWidth,
+                Height = live.ActualHeight,
+                Stretch = Stretch.Fill,
+                RenderTransform = ghostShift,
+                IsHitTestVisible = false
+            };
+            var clipHost = new Border
+            {
+                Width = live.ActualWidth,
+                Height = live.ActualHeight,
+                ClipToBounds = true,
+                IsHitTestVisible = false,
+                Opacity = 0,
+                Child = ghostImage
+            };
+            var pos = live.TranslatePoint(new Point(0, 0), SwapOverlay);
+            Canvas.SetLeft(clipHost, pos.X);
+            Canvas.SetTop(clipHost, pos.Y);
+            Panel.SetZIndex(clipHost, 50);
+            SwapOverlay.Children.Add(clipHost);
+
+            var liveShift = new TranslateTransform();
+            live.RenderTransformOrigin = new Point(0.5, 0.5);
+            live.RenderTransform = liveShift;
+            _swapLiveFaces.Add(live);
+            _trackSkipFaces.Add((clipHost, ghostShift, live, liveShift, TrackSkipFaceKind.Slide, live.ActualWidth));
         }
 
         if (e.IsPrimary)
         {
-            Prep(PrimaryArtHost);
-            Prep(TitleMarquee);
-            Prep(PrimaryArtistTextHost);
+            PrepCube(PrimaryArtHost);
+            PrepSlide(TitleMarquee, PrimaryMetaHost);
+            PrepSlide(PrimaryArtistTextHost, PrimaryArtistRow);
             if (_trackSkipFaces.Count == 0)
             {
-                Prep(PrimaryArtistRow);
+                PrepSlide(PrimaryArtistRow, PrimaryMetaHost);
             }
         }
         else
@@ -2376,13 +2449,17 @@ public partial class MainWindow : Window
                 var expanded = side.ShowExpandedMeta || side.ExpandProgress > 0.5;
                 if (expanded)
                 {
-                    Prep(FindDescendantByName(root, "ChipExpandedArt") as FrameworkElement);
-                    Prep(FindDescendantByName(root, "ChipTitleRow") as FrameworkElement);
-                    Prep(FindDescendantByName(root, "ChipArtistTextHost") as FrameworkElement);
+                    PrepCube(FindDescendantByName(root, "ChipExpandedArt") as FrameworkElement);
+                    PrepSlide(
+                        FindDescendantByName(root, "ChipTitleRow") as FrameworkElement,
+                        FindDescendantByName(root, "ChipMetaHost") as FrameworkElement);
+                    PrepSlide(
+                        FindDescendantByName(root, "ChipArtistTextHost") as FrameworkElement,
+                        FindDescendantByName(root, "ChipArtistRow") as FrameworkElement);
                 }
                 else
                 {
-                    Prep(FindDescendantByName(root, "ChipCompactArtClip") as FrameworkElement);
+                    PrepCube(FindDescendantByName(root, "ChipCompactArtClip") as FrameworkElement);
                 }
             }
         }
@@ -2392,7 +2469,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// New track about to bind: show ghosts, flatten live, then DispatcherTimer cube-roll.
+    /// New track about to bind: show ghosts, then art cube + text slide.
     /// </summary>
     private void OnTrackSkipping(object? sender, TrackSkipEventArgs e)
     {
@@ -2416,12 +2493,26 @@ public partial class MainWindow : Window
         }
 
         _primarySwapAnimating = true;
-        foreach (var (ghost, ghostScale, live, liveScale) in _trackSkipFaces)
+        var next = e.Direction >= 0;
+        foreach (var (ghostRoot, ghostTransform, live, liveTransform, kind, width) in _trackSkipFaces)
         {
-            ghost.Opacity = 1;
-            ghostScale.ScaleX = 1;
-            liveScale.ScaleX = 0;
+            ghostRoot.Opacity = 1;
             live.Opacity = 1;
+            if (kind == TrackSkipFaceKind.Cube &&
+                ghostTransform is ScaleTransform ghostScale &&
+                liveTransform is ScaleTransform liveScale)
+            {
+                ghostScale.ScaleX = 1;
+                liveScale.ScaleX = 0;
+            }
+            else if (kind == TrackSkipFaceKind.Slide &&
+                     ghostTransform is TranslateTransform ghostShift &&
+                     liveTransform is TranslateTransform liveShift)
+            {
+                ghostShift.X = 0;
+                // New text starts off-screen opposite the exit direction.
+                liveShift.X = next ? width : -width;
+            }
         }
 
         LogTrackSkip($"commit dir={e.Direction} faces={_trackSkipFaces.Count}");
@@ -2455,16 +2546,31 @@ public partial class MainWindow : Window
     {
         var ms = PrimarySwapMs;
         var t = Math.Clamp((DateTime.UtcNow - _trackSkipAnimStart).TotalMilliseconds / ms, 0, 1);
-        // Ease in-out; finish roll in first ~half like divider cube.
+        // Ease in-out; finish in first ~half like divider cube.
         var u = Math.Clamp(t * 2, 0, 1);
-        var cube = u * u * (3 - 2 * u);
+        var ease = u * u * (3 - 2 * u);
+        var next = _trackSkipDirection >= 0;
 
-        foreach (var (ghost, ghostScale, live, liveScale) in _trackSkipFaces)
+        foreach (var (ghostRoot, ghostTransform, live, liveTransform, kind, width) in _trackSkipFaces)
         {
-            ghostScale.ScaleX = 1 - cube;
-            ghost.Opacity = 1;
-            liveScale.ScaleX = cube;
+            ghostRoot.Opacity = 1;
             live.Opacity = 1;
+            if (kind == TrackSkipFaceKind.Cube &&
+                ghostTransform is ScaleTransform ghostScale &&
+                liveTransform is ScaleTransform liveScale)
+            {
+                ghostScale.ScaleX = 1 - ease;
+                liveScale.ScaleX = ease;
+            }
+            else if (kind == TrackSkipFaceKind.Slide &&
+                     ghostTransform is TranslateTransform ghostShift &&
+                     liveTransform is TranslateTransform liveShift)
+            {
+                var exit = next ? -width : width;
+                var enter = next ? width : -width;
+                ghostShift.X = exit * ease;
+                liveShift.X = enter * (1 - ease);
+            }
         }
 
         if (t < 1)
@@ -2494,9 +2600,9 @@ public partial class MainWindow : Window
 
     private void DiscardTrackSkipFaces(bool removeGhostsOnly = false)
     {
-        foreach (var (ghost, _, live, _) in _trackSkipFaces)
+        foreach (var (ghostRoot, _, live, _, _, _) in _trackSkipFaces)
         {
-            SwapOverlay.Children.Remove(ghost);
+            SwapOverlay.Children.Remove(ghostRoot);
             if (!removeGhostsOnly)
             {
                 live.RenderTransform = Transform.Identity;
@@ -2504,6 +2610,13 @@ public partial class MainWindow : Window
         }
 
         _trackSkipFaces.Clear();
+
+        foreach (var parent in _trackSkipClipParents)
+        {
+            parent.ClipToBounds = false;
+        }
+
+        _trackSkipClipParents.Clear();
     }
 
     private static void LogTrackSkip(string message)
