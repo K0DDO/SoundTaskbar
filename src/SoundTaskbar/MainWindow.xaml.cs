@@ -2292,6 +2292,19 @@ public partial class MainWindow : Window
             AddChipCubeGhost("ChipTimeRow", FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
             AddChipSeekGhost("ChipExpandedPrev", FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddChipSeekGhost("ChipExpandedNext", FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
+            // Static hold — pause/play state does not change on swap; keep a pinned ghost so it never blinks
+            // when ParkedHost is hidden / container is recreated (primary pause never blinks for the same reason).
+            if (FindDescendantByName(chipRoot, "ChipExpandedPlay") is FrameworkElement oldPlay)
+            {
+                var hold = SnapshotGhost(oldPlay, cubeOriginBottom: false);
+                if (hold is not null)
+                {
+                    hold.RenderTransformOrigin = new Point(0.5, 0.5);
+                    hold.RenderTransform = Transform.Identity;
+                    hold.Opacity = 1;
+                    Panel.SetZIndex(hold, 50);
+                }
+            }
         }
 
         // Hide live chip under SwapOverlay ghosts until lives are prepped.
@@ -2410,11 +2423,15 @@ public partial class MainWindow : Window
             AttachSeek("ChipExpandedPrev");
             AttachSeek("ChipExpandedNext");
 
-            // Pause stays put — same play/pause state, no animation.
+            // Keep live pause hidden — overlay hold ghost covers the slot until ResetSwapVisuals.
             if (FindDescendantByName(newChip, "ChipExpandedPlay") is FrameworkElement play)
             {
-                play.Opacity = 1;
+                play.Opacity = 0;
                 play.RenderTransform = Transform.Identity;
+                if (!_swapLiveFaces.Contains(play))
+                {
+                    _swapLiveFaces.Add(play);
+                }
             }
 
             chipHostReady = chipCubeSlots.Count == 0 ||
@@ -2526,7 +2543,6 @@ public partial class MainWindow : Window
     {
         _swapClock?.Cancel();
         _swapClock = null;
-        SwapOverlay.Children.Clear();
         _primaryArtShift.X = 0;
         _primaryMetaShift.X = 0;
         PrimaryArtHost.Opacity = 1;
@@ -2536,6 +2552,7 @@ public partial class MainWindow : Window
         PrimaryTimeRow.Opacity = 1;
         ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
 
+        // Restore lives before clearing overlay ghosts — otherwise chip pause blinks for a frame.
         foreach (var live in _swapLiveFaces)
         {
             live.BeginAnimation(UIElement.OpacityProperty, null);
@@ -2545,6 +2562,7 @@ public partial class MainWindow : Window
         }
 
         _swapLiveFaces.Clear();
+        SwapOverlay.Children.Clear();
 
         PrimaryArtHost.RenderTransform = _primaryArtShift;
         PrimaryMetaHost.RenderTransform = _primaryMetaShift;
