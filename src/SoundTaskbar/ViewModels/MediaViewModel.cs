@@ -99,7 +99,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private const int EmptySessionsGraceMs = 900;
     /// <summary>Side rail cap: expanded play chip + small paused chips, separated by dividers.</summary>
     private const int MaxSideChips = 3;
-    /// <summary>Hide wipe in flight — keep old play+play bindings until <see cref="CommitDemoteLayout"/>.</summary>
+    /// <summary>Layout restart hide in flight — pause+play data waits for <see cref="CommitDemoteLayout"/>.</summary>
     private bool _demoteCommitPending;
     private MediaSessionSnapshot? _pendingDemotePrimary;
     private List<MediaSessionSnapshot>? _pendingDemoteParked;
@@ -195,7 +195,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public event EventHandler<PrimarySwapEventArgs>? PrimarySwapping;
 
     /// <summary>
-    /// play+play → pause+play before SyncCollection/ApplyPrimary (UI: full hide then reopen).
+    /// play+play → pause+play: UI restarts layout (hide → commit → show like cold start).
     /// </summary>
     public event EventHandler<PlayPlayDemoteEventArgs>? PlayPlayDemoting;
 
@@ -828,7 +828,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 if (demotingPlayPlay)
                 {
-                    // Freeze old play+play UI; CommitDemoteLayout after hide wipe.
+                    // Defer bindings so hide still shows old play+play; UI commits while hidden.
                     _demoteCommitPending = true;
                     _pendingDemotePrimary = primary;
                     _pendingDemoteParked = parked;

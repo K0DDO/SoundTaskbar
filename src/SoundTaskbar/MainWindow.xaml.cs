@@ -63,8 +63,8 @@ public partial class MainWindow : Window
     /// <summary>Bumps on each pause+play volume chrome tween — stale Completed handlers no-op.</summary>
     private int _volumeChromeAnimId;
     private bool _pausePlayVolumeChromeCollapsed;
-    /// <summary>Blocks SoftResize/morph while play+play wipe-right demote runs.</summary>
-    private bool _playPlayDemoteAnimating;
+    /// <summary>play+play→pause+play restart: hide → settle → show. Blocks morph/resize/HasSession.</summary>
+    private bool _layoutRestarting;
     private FrameworkElement? _swapChip;
     private readonly List<FrameworkElement> _swapLiveFaces = new();
     /// <summary>Suppress chip morph while cube-swap runs so left rail does not redraw via pause+play.</summary>
@@ -293,8 +293,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.ShowPairAppIcon))
         {
-            // Demote wipe owns layout until reopen — do not expand the name mid-hide.
-            if (_playPlayDemoteAnimating)
+            if (_layoutRestarting)
             {
                 return;
             }
@@ -307,7 +306,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.IsPlayPlay))
         {
-            if (_playPlayDemoteAnimating)
+            if (_layoutRestarting)
             {
                 return;
             }
@@ -325,7 +324,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.HasSession))
         {
-            if (_layoutReady && _taskbarHost is not null && !_playPlayDemoteAnimating)
+            if (_layoutReady && _taskbarHost is not null && !_layoutRestarting)
             {
                 AnimateWidgetVisibility(_viewModel.HasSession);
             }
@@ -359,7 +358,7 @@ public partial class MainWindow : Window
 
         ApplyChipMarqueeScrims();
 
-        if (_playPlayDemoteAnimating || !_viewModel.ShowParkedRail || !_layoutReady)
+        if (_layoutRestarting || !_viewModel.ShowParkedRail || !_layoutReady)
         {
             return;
         }
@@ -404,7 +403,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_playPlayDemoteAnimating || _primarySwapAnimating)
+        if (_layoutRestarting || _primarySwapAnimating)
         {
             return;
         }
@@ -433,7 +432,7 @@ public partial class MainWindow : Window
     /// <summary>Coalesce side-rail changes (SyncCollection fires many) into one morph after layout.</summary>
     private void ScheduleSideMorph()
     {
-        if (_playPlayDemoteAnimating || _primarySwapAnimating)
+        if (_layoutRestarting || _primarySwapAnimating)
         {
             return;
         }
@@ -462,7 +461,7 @@ public partial class MainWindow : Window
             () =>
             {
                 _morphScheduled = false;
-                if (_playPlayDemoteAnimating || _primarySwapAnimating)
+                if (_layoutRestarting || _primarySwapAnimating)
                 {
                     return;
                 }
@@ -484,7 +483,6 @@ public partial class MainWindow : Window
     private void CompleteSideMorphClock()
     {
         _playPlayClock = null;
-        // Wipe demote owns EndPlayPlayDemote via visibility clock — do not clear mid-hide.
         if (!_morphAfterClock)
         {
             return;
@@ -2090,7 +2088,7 @@ public partial class MainWindow : Window
 
     private void OnParkedDividerClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (!_layoutReady || _playPlayDemoteAnimating || !_viewModel.ShowParkedRail)
+        if (!_layoutReady || _layoutRestarting || !_viewModel.ShowParkedRail)
         {
             return;
         }
@@ -2100,15 +2098,62 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: one hide wipe (old layout frozen), commit pause+play, one reopen.
+    /// play+play → pause+play: same as closing the app and cold-starting — hide, settle, show.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
-        if (!_layoutReady || _playPlayDemoteAnimating || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        if (!_layoutReady || _layoutRestarting || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
             return;
         }
 
+        _layoutRestarting = true;
+        StopTransientLayoutClocks();
+
+        // Hide with the current play+play frame still bound (VM defers pause+play until Commit).
+        AnimateWidgetVisibility(false, onComplete: () =>
+        {
+            if (!_layoutRestarting)
+            {
+                return;
+            }
+
+            if (!_layoutReady)
+            {
+                _viewModel.CommitDemoteLayout();
+                _layoutRestarting = false;
+                return;
+            }
+
+            // Fully hidden: apply pause+play data and snap exactly like app restart.
+            _viewModel.CommitDemoteLayout();
+            ResetSwapVisuals();
+            SwapOverlay.Children.Clear();
+            RestoreSwapMediaFaces();
+            SettleColdStartLayout();
+
+            AnimateWidgetVisibility(true, onComplete: () =>
+            {
+                SettleColdStartLayout();
+                _layoutRestarting = false;
+                _taskbarHost?.FlushRegion();
+            });
+        });
+    }
+
+    /// <summary>Cancel morph / swap / parked-reveal clocks so a layout restart starts clean.</summary>
+    private void StopTransientLayoutClocks()
+    {
+        _playPlayClock?.Cancel();
+        _playPlayClock = null;
+        _swapClock?.Cancel();
+        _swapClock = null;
+        _morphAfterClock = false;
+        _morphAfterReveal = false;
+        _morphScheduled = false;
+        _revealAnimating = false;
+        _primarySwapAnimating = false;
+        BeginAnimation(ParkedRevealProperty, null);
         ResetSwapVisuals();
         SwapOverlay.Children.Clear();
         WidgetContent.BeginAnimation(UIElement.OpacityProperty, null);
@@ -2116,94 +2161,6 @@ public partial class MainWindow : Window
         WidgetContent.RenderTransform = Transform.Identity;
         WidgetContent.IsHitTestVisible = true;
         RestoreSwapMediaFaces();
-
-        _playPlayClock?.Cancel();
-        _playPlayClock = null;
-        _morphAfterClock = false;
-        _morphAfterReveal = false;
-        _morphScheduled = false;
-
-        // Block morph/soft-resize; keep play+play shell + bindings during hide.
-        _playPlayDemoteAnimating = true;
-        _playPlayOpen = true;
-
-        AnimateWidgetVisibility(
-            false,
-            onComplete: () =>
-            {
-                if (!_playPlayDemoteAnimating || !_layoutReady)
-                {
-                    _playPlayDemoteAnimating = false;
-                    _viewModel.CommitDemoteLayout();
-                    return;
-                }
-
-                // Hidden: swap to pause+play bindings, then one reopen wipe.
-                _viewModel.CommitDemoteLayout();
-                SnapDemoteToPausePlay();
-                AnimateWidgetVisibility(true, onComplete: EndPlayPlayDemote);
-            });
-    }
-
-    /// <summary>While fully hidden: collapse chip to pause+play geometry for the reopen wipe.</summary>
-    private void SnapDemoteToPausePlay()
-    {
-        _playPlayOpen = false;
-        SyncParkedListAlignment(playPlay: false);
-        AnimateSourceNameForPair(pair: false, animate: false);
-
-        foreach (var side in _viewModel.SideSessions)
-        {
-            side.ExpandProgress = 0;
-            side.MetaRailWidth = 0;
-        }
-
-        SnapChipVolumeHosts();
-        SyncChipMetaWidths(animate: false);
-        PushChipMetaHostWidths();
-
-        ParkedHost.BeginAnimation(WidthProperty, null);
-        ParkedHost.Width = double.NaN;
-        ParkedHost.Opacity = 1;
-        ParkedHost.UpdateLayout();
-        ParkedList.UpdateLayout();
-
-        var chip = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
-        if (chip < 8)
-        {
-            chip = 72;
-        }
-
-        _parkedChipTarget = chip;
-        _parkedOpen = true;
-        ParkedHost.IsHitTestVisible = true;
-        SealParkedReveal(1);
-        ParkedHost.Width = chip;
-        ParkedDivider.Width = ParkedDividerWidth;
-        ParkedDivider.Margin = new Thickness(0);
-        ParkedDivider.Opacity = 1;
-        _viewModel.ApplyParkedCompositeWidth(chip);
-        SnapPausePlayVolumeChrome(collapsed: _viewModel.IsVolumeEditorOpen);
-        RestoreSwapMediaFaces();
-        ApplyChipMarqueeScrims();
-
-        if (_taskbarHost is not null)
-        {
-            _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
-        }
-    }
-
-    private void EndPlayPlayDemote()
-    {
-        if (!_playPlayDemoteAnimating)
-        {
-            return;
-        }
-
-        _playPlayDemoteAnimating = false;
-        RestoreSwapMediaFaces();
-        SnapPausePlayVolumeChrome(collapsed: _viewModel.IsVolumeEditorOpen);
-        _taskbarHost?.FlushRegion();
     }
 
     /// <summary>
@@ -2269,7 +2226,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnPrimarySwapping(object? sender, PrimarySwapEventArgs e)
     {
-        if (_playPlayDemoteAnimating || !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        if (_layoutRestarting || !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
             return;
         }
