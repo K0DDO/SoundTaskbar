@@ -46,6 +46,7 @@ public partial class MainWindow : Window
     private AnimationClockHolder? _playPlayClock;
     private AnimationClockHolder? _visibilityClock;
     private AnimationClockHolder? _swapClock;
+    private AnimationClockHolder? _volumeShellClock;
     private FrameworkElement? _swapChip;
     private bool _widgetShown;
     private bool _revealAnimating;
@@ -105,8 +106,6 @@ public partial class MainWindow : Window
         VolumeHost.Width = VolumeClosedWidth;
         VolumeSlider.Opacity = 0;
         VolumeSlider.IsHitTestVisible = false;
-        MuteButton.Opacity = 0;
-        MuteButton.IsHitTestVisible = false;
 
         SingleHost.Opacity = 1;
         SingleHost.IsHitTestVisible = true;
@@ -286,7 +285,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.DesiredWidgetWidth))
         {
-            if (_taskbarHost is not null && _playPlayClock is null)
+            if (_taskbarHost is not null && _playPlayClock is null && _volumeShellClock is null)
             {
                 _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
             }
@@ -1016,17 +1015,6 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Input);
     }
 
-    private void OnVolumeClick(object sender, RoutedEventArgs e)
-    {
-        _viewModel.RefreshVolume();
-        if (!_viewModel.CanControlVolume)
-        {
-            return;
-        }
-
-        _viewModel.IsVolumeEditorOpen = !_viewModel.IsVolumeEditorOpen;
-    }
-
     private void AnimateParkedHost(bool open, bool animate)
     {
         if (!open && !_parkedOpen)
@@ -1360,7 +1348,8 @@ public partial class MainWindow : Window
 
     private void AnimateVolumeEditor(bool open)
     {
-        // One shared clock so volume grow and source-name collapse stay in lockstep.
+        // Speaker stays put → becomes mute; slider opens to its left. Shell grows in pause+play
+        // so art / next are not crushed into the tray clip.
         var duration = TimeSpan.FromMilliseconds(260);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
@@ -1382,39 +1371,85 @@ public partial class MainWindow : Window
                 EasingFunction = ease
             });
 
-        VolumeButton.BeginAnimation(
-            OpacityProperty,
-            new DoubleAnimation
-            {
-                To = open ? 0 : 1,
-                Duration = duration,
-                EasingFunction = ease
-            });
-
-        VolumeButton.BeginAnimation(
-            WidthProperty,
-            new DoubleAnimation
-            {
-                To = open ? 0 : VolumeButtonWidth,
-                Duration = duration,
-                EasingFunction = ease
-            });
-
-        MuteButton.BeginAnimation(
-            OpacityProperty,
-            new DoubleAnimation
-            {
-                To = open ? 1 : 0,
-                Duration = duration,
-                EasingFunction = ease
-            });
-
         VolumeSlider.IsHitTestVisible = open;
-        MuteButton.IsHitTestVisible = open;
-        VolumeButton.IsHitTestVisible = !open;
+        VolumeButton.BeginAnimation(WidthProperty, null);
+        VolumeButton.Width = VolumeButtonWidth;
+        VolumeButton.BeginAnimation(OpacityProperty, null);
+        VolumeButton.Opacity = 1;
+        VolumeButton.IsHitTestVisible = true;
+
+        if (_parkedOpen)
+        {
+            AnimatePrimaryVolumeShell(open, duration, ease);
+        }
 
         AnimateSourceNameForVolume(open, duration, ease);
         AnimateTimeTextForVolume(open, duration, ease);
+    }
+
+    /// <summary>
+    /// pause+play / play+play: grow shell with the volume host so Col0 (art+meta) and transport stay.
+    /// </summary>
+    private void AnimatePrimaryVolumeShell(bool open, Duration duration, IEasingFunction ease)
+    {
+        if (_taskbarHost is null)
+        {
+            return;
+        }
+
+        var parked = Math.Max(1, _parkedChipTarget);
+        var to = _playPlayOpen
+            ? _viewModel.ComputePlayPlayCompositeWidth(parked)
+            : _viewModel.ComputeParkedCompositeWidth(parked);
+        // IsVolumeEditorOpen already flipped — Compute* includes/excludes PrimaryVolumeOpenExtra.
+        var from = _taskbarHost.DesiredWidgetWidthDip;
+        if (Math.Abs(to - from) < 0.5)
+        {
+            _taskbarHost.DesiredWidgetWidthDip = to;
+            if (_playPlayOpen)
+            {
+                _viewModel.ApplyPlayPlayCompositeWidth(parked);
+            }
+            else
+            {
+                _viewModel.ApplyParkedCompositeWidth(parked);
+            }
+
+            return;
+        }
+
+        _volumeShellClock?.Cancel();
+        var holder = new AnimationClockHolder();
+        _volumeShellClock = holder;
+        holder.ProgressChanged += t =>
+        {
+            _taskbarHost.DesiredWidgetWidthDip = from + (to - from) * t;
+        };
+        holder.Start(
+            0,
+            1,
+            duration.TimeSpan,
+            ease,
+            () =>
+            {
+                if (!ReferenceEquals(_volumeShellClock, holder))
+                {
+                    return;
+                }
+
+                _volumeShellClock = null;
+                _taskbarHost.DesiredWidgetWidthDip = to;
+                if (_playPlayOpen)
+                {
+                    _viewModel.ApplyPlayPlayCompositeWidth(parked);
+                }
+                else
+                {
+                    _viewModel.ApplyParkedCompositeWidth(parked);
+                }
+
+                _taskbarHost.FlushRegion();
+            });
     }
 
     /// <summary>Solo: collapse app name into the mono icon in sync with the volume host width.</summary>

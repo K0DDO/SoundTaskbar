@@ -646,7 +646,7 @@
                             IsHitTestVisible="False" />
                 </Grid>
 
-                <!-- Volume for focused/primary source -->
+                <!-- Volume: slider opens LEFT of speaker; mute replaces speaker in place (like chip) -->
                 <Grid x:Name="VolumeHost"
                       Grid.Column="2"
                       Width="16"
@@ -658,25 +658,6 @@
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center">
-                        <Button x:Name="MuteButton"
-                                Content="{Binding MuteGlyph}"
-                                FontFamily="Segoe MDL2 Assets"
-                                FontSize="10"
-                                Command="{Binding ToggleMuteCommand}"
-                                Opacity="0"
-                                IsHitTestVisible="False"
-                                Margin="0,0,2,0">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
-                                    <Setter Property="Foreground" Value="#F2F4F7" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsEffectivelyMuted}" Value="True">
-                                            <Setter Property="Foreground" Value="#EF4444" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
                         <Slider x:Name="VolumeSlider"
                                 Width="54"
                                 Margin="0,0,2,0"
@@ -684,10 +665,37 @@
                                 IsEnabled="{Binding CanControlVolume}"
                                 Value="{Binding Volume, Mode=TwoWay}" />
                         <Button x:Name="VolumeButton"
-                                Content="{Binding VolumeGlyph}"
-                                Style="{StaticResource CompactMediaButton}"
-                                IsEnabled="{Binding CanControlVolume}"
-                                Click="OnVolumeClick" />
+                                Width="16"
+                                Height="16"
+                                Padding="0"
+                                IsEnabled="{Binding CanControlVolume}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
+                                    <Setter Property="Width" Value="16" />
+                                    <Setter Property="Height" Value="16" />
+                                    <Setter Property="FontSize" Value="10" />
+                                    <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+                                    <Setter Property="Content" Value="{Binding VolumeGlyph}" />
+                                    <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
+                                    <Setter Property="Foreground" Value="#F2F4F7" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
+                                            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                                            <Setter Property="FontSize" Value="10" />
+                                            <Setter Property="Content" Value="{Binding MuteGlyph}" />
+                                            <Setter Property="Command" Value="{Binding ToggleMuteCommand}" />
+                                        </DataTrigger>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsVolumeEditorOpen}" Value="True" />
+                                                <Condition Binding="{Binding IsEffectivelyMuted}" Value="True" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Foreground" Value="#EF4444" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                     </StackPanel>
                 </Grid>
 

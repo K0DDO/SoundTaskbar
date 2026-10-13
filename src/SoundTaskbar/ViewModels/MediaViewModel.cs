@@ -78,6 +78,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>ParkedDivider width 2.5 + margins 8+6.</summary>
     public const double PausePlayDividerChrome = 16.5;
 
+    /// <summary>
+    /// Primary volume host grow (74−16). Added to pause+play / play+play shell so art/transport stay put.
+    /// </summary>
+    public const double PrimaryVolumeOpenExtra = 58;
+
     private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
@@ -140,6 +145,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 ToggleMute();
             },
             _ => CanControlVolume);
+        ToggleVolumeCommand = new RelayCommand(
+            _ =>
+            {
+                RefreshVolume();
+                if (!CanControlVolume)
+                {
+                    return;
+                }
+
+                IsVolumeEditorOpen = !IsVolumeEditorOpen;
+            },
+            _ => CanControlVolume);
 
         // SMTC position updates sparsely — interpolate locally for a smooth progress bar.
         _uiTicker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -176,6 +193,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand PlayPauseCommand { get; }
     public RelayCommand NextCommand { get; }
     public RelayCommand ToggleMuteCommand { get; }
+    public RelayCommand ToggleVolumeCommand { get; }
 
     public ObservableCollection<SideSessionViewModel> SideSessions { get; } = new();
 
@@ -208,12 +226,26 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return SoloWidgetWidth;
         }
 
-        return SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
+        var w = SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
+        if (IsVolumeEditorOpen)
+        {
+            w += PrimaryVolumeOpenExtra;
+        }
+
+        return w;
     }
 
     /// <summary>play+play: tighter primary + measured expanded chip + divider.</summary>
-    public double ComputePlayPlayCompositeWidth(double parkedMeasuredWidth) =>
-        SoloWidgetWidth - PausePlayTrim - PlayPlayExtraTrim + parkedMeasuredWidth + PausePlayDividerChrome;
+    public double ComputePlayPlayCompositeWidth(double parkedMeasuredWidth)
+    {
+        var w = SoloWidgetWidth - PausePlayTrim - PlayPlayExtraTrim + parkedMeasuredWidth + PausePlayDividerChrome;
+        if (IsVolumeEditorOpen)
+        {
+            w += PrimaryVolumeOpenExtra;
+        }
+
+        return w;
+    }
 
     /// <summary>
     /// pause+play only. play+play width is driven by MainWindow morph (measured).
