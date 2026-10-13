@@ -94,6 +94,20 @@ public partial class MainWindow : Window
     private int _trackSkipDirection;
     private DispatcherTimer? _trackSkipTimer;
     private DateTime _trackSkipAnimStart;
+    /// <summary>Progress/time morph during track-skip (same slash + orange lerp as chip swap).</summary>
+    private bool _trackSkipTimelineActive;
+    private string _trackSkipTimeFrom = string.Empty;
+    private string _trackSkipTimeTo = string.Empty;
+    private double _trackSkipTimeWidthFrom = 1;
+    private double _trackSkipTimeWidthTo = 1;
+    private double _trackSkipSlashWidth = 8;
+    private double _trackSkipRowWidth = 1;
+    private double _trackSkipOrangeFromPx;
+    private double _trackSkipOrangeToPx;
+    private ProgressBar? _trackSkipProgressBar;
+    private FrameworkElement? _trackSkipTimeHost;
+    private TextBlock? _trackSkipTimeText;
+    private string? _trackSkipTimelineSessionKey;
     private bool _widgetShown;
     private bool _revealAnimating;
     private bool _morphAfterReveal;
@@ -2312,6 +2326,7 @@ public partial class MainWindow : Window
         }
 
         DiscardTrackSkipFaces();
+        FinishTrackSkipTimeline();
         if (_layoutRestarting || !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
             return;
@@ -2515,6 +2530,8 @@ public partial class MainWindow : Window
             }
         }
 
+        ArmTrackSkipTimeline(e);
+
         LogTrackSkip($"commit dir={e.Direction} faces={_trackSkipFaces.Count}");
 
         StopTrackSkipTimer();
@@ -2522,6 +2539,172 @@ public partial class MainWindow : Window
         _trackSkipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _trackSkipTimer.Tick += OnTrackSkipTimerTick;
         _trackSkipTimer.Start();
+    }
+
+    /// <summary>
+    /// Freeze old progress/time, then pick up new values after ViewModel SyncTimeline.
+    /// Morph matches chip-swap: "1:00 / 2:00" → "/" → new, orange fill lerps in pixels.
+    /// </summary>
+    private void ArmTrackSkipTimeline(TrackSkipEventArgs e)
+    {
+        ClearTrackSkipTimelineState();
+        _trackSkipTimelineSessionKey = e.SessionKey;
+
+        ProgressBar? bar = null;
+        FrameworkElement? timeHost = null;
+        TextBlock? timeText = null;
+        FrameworkElement? timeRow = null;
+
+        if (e.IsPrimary)
+        {
+            bar = ProgressBar;
+            timeHost = TimeTextHost;
+            timeText = TimeText;
+            timeRow = PrimaryTimeRow;
+        }
+        else
+        {
+            var side = _viewModel.SideSessions.FirstOrDefault(s =>
+                string.Equals(s.SessionKey, e.SessionKey, StringComparison.Ordinal));
+            if (side is null ||
+                !(side.ShowExpandedMeta || side.ExpandProgress > 0.5) ||
+                ParkedList.ItemContainerGenerator.ContainerFromItem(side) is not DependencyObject root)
+            {
+                return;
+            }
+
+            bar = FindDescendantByName(root, "ChipProgressBar") as ProgressBar;
+            timeHost = FindDescendantByName(root, "ChipTimeTextHost") as FrameworkElement;
+            timeText = FindDescendantByName(root, "ChipTimeText") as TextBlock;
+            timeRow = FindDescendantByName(root, "ChipTimeRow") as FrameworkElement;
+        }
+
+        if (bar is null || timeHost is null || timeText is null)
+        {
+            return;
+        }
+
+        var progressFrom = Math.Clamp(bar.Value, 0, 1);
+        var timeFrom = timeText.Text ?? string.Empty;
+        var timeWidthFrom = Math.Max(timeHost.ActualWidth, 1);
+        var slashWidth = Math.Max(MeasureTimeStringWidth(timeText, "/"), 8);
+        var rowWidth = Math.Max(
+            timeRow?.ActualWidth ?? (timeWidthFrom + bar.ActualWidth),
+            timeWidthFrom + bar.ActualWidth);
+        var orangeFromPx = progressFrom * Math.Max(bar.ActualWidth, 1);
+
+        BindingOperations.ClearBinding(bar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
+        bar.BeginAnimation(System.Windows.Controls.Primitives.RangeBase.ValueProperty, null);
+        bar.Value = progressFrom;
+
+        BindingOperations.ClearBinding(timeText, TextBlock.TextProperty);
+        timeHost.BeginAnimation(WidthProperty, null);
+        timeHost.Width = timeWidthFrom;
+        timeHost.RenderTransformOrigin = new Point(1, 0.5);
+        timeText.HorizontalAlignment = HorizontalAlignment.Right;
+        timeText.Text = timeFrom;
+        _swapLiveFaces.Add(timeHost);
+
+        _trackSkipProgressBar = bar;
+        _trackSkipTimeHost = timeHost;
+        _trackSkipTimeText = timeText;
+        _trackSkipTimeFrom = timeFrom;
+        _trackSkipTimeTo = timeFrom;
+        _trackSkipTimeWidthFrom = timeWidthFrom;
+        _trackSkipTimeWidthTo = timeWidthFrom;
+        _trackSkipSlashWidth = slashWidth;
+        _trackSkipRowWidth = rowWidth;
+        _trackSkipOrangeFromPx = orangeFromPx;
+        _trackSkipOrangeToPx = orangeFromPx;
+        _trackSkipTimelineActive = true;
+
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (!_trackSkipTimelineActive || !_primarySwapAnimating)
+                {
+                    return;
+                }
+
+                if (e.IsPrimary)
+                {
+                    _trackSkipTimeTo = _viewModel.TimeText ?? _trackSkipTimeFrom;
+                    var progressTo = Math.Clamp(_viewModel.Progress, 0, 1);
+                    _trackSkipTimeWidthTo = MeasureTimeStringWidth(TimeText, _trackSkipTimeTo);
+                    _trackSkipOrangeToPx = progressTo * Math.Max(_trackSkipRowWidth - _trackSkipTimeWidthTo, 1);
+                }
+                else
+                {
+                    var side = _viewModel.SideSessions.FirstOrDefault(s =>
+                        string.Equals(s.SessionKey, _trackSkipTimelineSessionKey, StringComparison.Ordinal));
+                    if (side is null || _trackSkipTimeText is null)
+                    {
+                        return;
+                    }
+
+                    _trackSkipTimeTo = side.TimeText ?? _trackSkipTimeFrom;
+                    var progressTo = Math.Clamp(side.Progress, 0, 1);
+                    _trackSkipTimeWidthTo = MeasureTimeStringWidth(_trackSkipTimeText, _trackSkipTimeTo);
+                    _trackSkipOrangeToPx = progressTo * Math.Max(_trackSkipRowWidth - _trackSkipTimeWidthTo, 1);
+                }
+
+                ApplyTrackSkipTimeline(0, 0);
+            },
+            DispatcherPriority.Loaded);
+    }
+
+    private void ApplyTrackSkipTimeline(double linearT, double easeT)
+    {
+        if (!_trackSkipTimelineActive ||
+            _trackSkipProgressBar is null ||
+            _trackSkipTimeHost is null ||
+            _trackSkipTimeText is null)
+        {
+            return;
+        }
+
+        var timeW = ApplySlashTimeMorph(
+            _trackSkipTimeText,
+            _trackSkipTimeHost,
+            _trackSkipTimeFrom,
+            _trackSkipTimeTo,
+            _trackSkipTimeWidthFrom,
+            _trackSkipTimeWidthTo,
+            _trackSkipSlashWidth,
+            linearT);
+        var orangePx = _trackSkipOrangeFromPx + (_trackSkipOrangeToPx - _trackSkipOrangeFromPx) * easeT;
+        SetOrangeFillByPixels(_trackSkipProgressBar, _trackSkipRowWidth, timeW, orangePx);
+    }
+
+    private void FinishTrackSkipTimeline()
+    {
+        if (!_trackSkipTimelineActive && _trackSkipProgressBar is null && _trackSkipTimeHost is null)
+        {
+            ClearTrackSkipTimelineState();
+            return;
+        }
+
+        if (_trackSkipTimeHost is not null)
+        {
+            _trackSkipTimeHost.BeginAnimation(WidthProperty, null);
+            _trackSkipTimeHost.ClearValue(WidthProperty);
+            _trackSkipTimeHost.RenderTransform = Transform.Identity;
+        }
+
+        RestoreProgressBindings();
+        RestoreTimeTextBindings();
+        ClearTrackSkipTimelineState();
+    }
+
+    private void ClearTrackSkipTimelineState()
+    {
+        _trackSkipTimelineActive = false;
+        _trackSkipProgressBar = null;
+        _trackSkipTimeHost = null;
+        _trackSkipTimeText = null;
+        _trackSkipTimelineSessionKey = null;
+        _trackSkipTimeFrom = string.Empty;
+        _trackSkipTimeTo = string.Empty;
     }
 
     private void OnTrackSkipCancelled(object? sender, EventArgs e)
@@ -2535,6 +2718,7 @@ public partial class MainWindow : Window
         LogTrackSkip("cancelled");
         StopTrackSkipTimer();
         DiscardTrackSkipFaces();
+        FinishTrackSkipTimeline();
         ParkedHost.ClipToBounds = true;
         if (!_primarySwapAnimating)
         {
@@ -2546,9 +2730,10 @@ public partial class MainWindow : Window
     {
         var ms = PrimarySwapMs;
         var t = Math.Clamp((DateTime.UtcNow - _trackSkipAnimStart).TotalMilliseconds / ms, 0, 1);
-        // Ease in-out; finish in first ~half like divider cube.
+        // Ease in-out; faces finish in first ~half like divider cube; timeline uses full t.
         var u = Math.Clamp(t * 2, 0, 1);
-        var ease = u * u * (3 - 2 * u);
+        var faceEase = u * u * (3 - 2 * u);
+        var timelineEase = t * t * (3 - 2 * t);
         var next = _trackSkipDirection >= 0;
 
         foreach (var (ghostRoot, ghostTransform, live, liveTransform, kind, width) in _trackSkipFaces)
@@ -2559,8 +2744,8 @@ public partial class MainWindow : Window
                 ghostTransform is ScaleTransform ghostScale &&
                 liveTransform is ScaleTransform liveScale)
             {
-                ghostScale.ScaleX = 1 - ease;
-                liveScale.ScaleX = ease;
+                ghostScale.ScaleX = 1 - faceEase;
+                liveScale.ScaleX = faceEase;
             }
             else if (kind == TrackSkipFaceKind.Slide &&
                      ghostTransform is TranslateTransform ghostShift &&
@@ -2568,10 +2753,12 @@ public partial class MainWindow : Window
             {
                 var exit = next ? -width : width;
                 var enter = next ? width : -width;
-                ghostShift.X = exit * ease;
-                liveShift.X = enter * (1 - ease);
+                ghostShift.X = exit * faceEase;
+                liveShift.X = enter * (1 - faceEase);
             }
         }
+
+        ApplyTrackSkipTimeline(t, timelineEase);
 
         if (t < 1)
         {
@@ -2580,6 +2767,7 @@ public partial class MainWindow : Window
 
         StopTrackSkipTimer();
         DiscardTrackSkipFaces(removeGhostsOnly: true);
+        FinishTrackSkipTimeline();
         _primarySwapAnimating = false;
         ParkedHost.ClipToBounds = true;
         RestoreSwapMediaFaces();
@@ -3108,6 +3296,73 @@ public partial class MainWindow : Window
             dpi);
         var m = prototype.Margin;
         return Math.Max(ft.WidthIncludingTrailingWhitespace + m.Left + m.Right, 1);
+    }
+
+    private static double Smoothstep(double x)
+    {
+        x = Math.Clamp(x, 0, 1);
+        return x * x * (3 - 2 * x);
+    }
+
+    /// <summary>
+    /// Numbers press to the right → "/" (hold) → new text. Returns host width after morph.
+    /// </summary>
+    private static double ApplySlashTimeMorph(
+        TextBlock text,
+        FrameworkElement host,
+        string fromText,
+        string toText,
+        double widthFrom,
+        double widthTo,
+        double midSlashWidth,
+        double linearT)
+    {
+        var d = Math.Clamp(linearT, 0, 1);
+        host.BeginAnimation(WidthProperty, null);
+        host.RenderTransformOrigin = new Point(1, 0.5);
+        text.HorizontalAlignment = HorizontalAlignment.Right;
+        host.Opacity = 1;
+
+        // 0..0.32 collapse to right · 0.32..0.68 hold "/" · 0.68..1 expand from right
+        const double holdStart = 0.32;
+        const double holdEnd = 0.68;
+
+        if (d < holdStart)
+        {
+            var p = Smoothstep(d / holdStart);
+            text.Text = p < 0.85 ? fromText : "/";
+            var s = p < 0.85 ? 1 - p / 0.85 : 1;
+            host.RenderTransform = new ScaleTransform(s, s);
+            host.Width = widthFrom + (midSlashWidth - widthFrom) * p;
+        }
+        else if (d <= holdEnd)
+        {
+            text.Text = "/";
+            host.RenderTransform = Transform.Identity;
+            host.Width = midSlashWidth;
+        }
+        else
+        {
+            var p = Smoothstep((d - holdEnd) / (1 - holdEnd));
+            text.Text = p < 0.15 ? "/" : toText;
+            var s = p < 0.15 ? 1 : (p - 0.15) / 0.85;
+            host.RenderTransform = new ScaleTransform(Math.Clamp(s, 0.2, 1), Math.Clamp(s, 0.2, 1));
+            host.Width = midSlashWidth + (widthTo - midSlashWidth) * p;
+        }
+
+        return host.Width;
+    }
+
+    private static void SetOrangeFillByPixels(
+        ProgressBar bar,
+        double rowWidth,
+        double timeWidth,
+        double orangePx)
+    {
+        var barW = Math.Max(rowWidth - timeWidth, 1);
+        BindingOperations.ClearBinding(bar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
+        bar.BeginAnimation(System.Windows.Controls.Primitives.RangeBase.ValueProperty, null);
+        bar.Value = Math.Clamp(orangePx / barW, 0, 1);
     }
 
     private void RestoreTimeTextBindings()
