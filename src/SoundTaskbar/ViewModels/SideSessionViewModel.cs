@@ -368,8 +368,9 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
             OnPropertyChanged(nameof(EffectiveMetaRailWidth));
 
-            // Compact pause chip: soft-resize host. play+play expanded: MainWindow grows
-            // chip left + dissolves time (solo-style) — do not remorph ExpandProgress.
+            // Compact pause chip: soft-resize host.
+            // play+play: shell stays fixed (tray-anchored growth would shove transport left);
+            // volume steals meta width so art shifts right — MainWindow animates that.
             if (!ShowExpandedMeta)
             {
                 _onChipLayoutChanged?.Invoke();
@@ -377,10 +378,24 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Meta rail width pushed to ChipMetaHost (volume no longer steals from it).</summary>
-    public double EffectiveMetaRailWidth => MetaRailWidth;
+    /// <summary>
+    /// play+play volume open: steal from meta (not shell) so art moves right toward the divider
+    /// while transport+speaker stay put on screen.
+    /// </summary>
+    public double EffectiveMetaRailWidth
+    {
+        get
+        {
+            var baseWidth = MetaRailWidth;
+            if (ShowExpandedMeta && IsVolumeEditorOpen && ExpandProgress > 0.5)
+            {
+                baseWidth = Math.Max(0, baseWidth - ChipVolumeOpenExtra);
+            }
 
-    /// <summary>Extra chip/shell width when the expanded play+play volume slider is open.</summary>
+            return baseWidth;
+        }
+    }
+
     public const double ChipVolumeOpenExtra = 50;
 
     public double PeakLevel

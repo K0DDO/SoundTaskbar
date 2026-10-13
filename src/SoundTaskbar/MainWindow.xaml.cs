@@ -770,8 +770,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Left chip volume: pin transport + speaker; slider opens to the RIGHT of the speaker
-    /// and pushes VU/art/meta right; artist + duration dissolve like solo.
+    /// Left chip volume (shell width FIXED — tray-anchored grow shoves transport left):
+    /// speaker stays; slider opens right; meta shrinks so art/text shift right; time/artist dissolve.
     /// </summary>
     private void AnimatePlayPlaySideVolume(SideSessionViewModel side)
     {
@@ -791,68 +791,36 @@ public partial class MainWindow : Window
             var duration = TimeSpan.FromMilliseconds(260);
             var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
-            // Force left anchor every time — Right would pin art and shove transport left.
             SyncParkedListAlignment(playPlay: true);
-            ParkedList.UpdateLayout();
 
-            if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
+            if (FindDescendantByName(container, "ChipMetaHost") is not FrameworkElement metaHost)
             {
-                metaHost.BeginAnimation(WidthProperty, null);
-                metaHost.Width = side.EffectiveMetaRailWidth;
+                return;
             }
 
-            var chipFrom = !double.IsNaN(ParkedHost.Width) && ParkedHost.Width > 1
-                ? ParkedHost.Width
-                : ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
+            // Meta full when closed; stolen width when open — art moves right, shell stays put.
+            var metaTo = side.EffectiveMetaRailWidth;
+            var metaFrom = metaHost.ActualWidth > 0.5
+                ? metaHost.ActualWidth
+                : (!double.IsNaN(metaHost.Width) && metaHost.Width > 0
+                    ? metaHost.Width
+                    : (open ? metaTo + SideSessionViewModel.ChipVolumeOpenExtra : metaTo));
 
-            // End-state for measure: speaker stays 14px, host 64, text collapsed.
-            ApplyChipVolumeOpen(container, open, animate: false);
-            SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", open);
-            SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", open);
-            ParkedHost.BeginAnimation(WidthProperty, null);
-            ParkedHost.Width = double.NaN;
-            ParkedHost.UpdateLayout();
-            ParkedList.UpdateLayout();
-            var chipTo = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
-            ParkedHost.Width = chipFrom;
-
-            // Start frame, then animate host/slider + dissolves + chip push in sync.
-            ApplyChipVolumeOpen(container, !open, animate: false);
-            SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", !open);
-            SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", !open);
             ApplyChipVolumeOpen(container, open, animate: true, duration, ease);
             AnimateChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", open, duration, ease);
             AnimateChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", open, duration, ease);
 
-            _parkedChipTarget = chipTo;
-            if (Math.Abs(chipTo - chipFrom) < 0.5)
-            {
-                _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
-                return;
-            }
-
-            var shellFrom = _taskbarHost?.DesiredWidgetWidthDip
-                            ?? _viewModel.ComputePlayPlayCompositeWidth(chipFrom);
-            var shellTo = _viewModel.ComputePlayPlayCompositeWidth(chipTo);
-            var holder = new AnimationClockHolder();
-            holder.ProgressChanged += t =>
-            {
-                ParkedHost.Width = chipFrom + (chipTo - chipFrom) * t;
-                if (_taskbarHost is not null)
+            metaHost.BeginAnimation(WidthProperty, null);
+            metaHost.Width = metaFrom;
+            metaHost.BeginAnimation(
+                WidthProperty,
+                new DoubleAnimation
                 {
-                    _taskbarHost.DesiredWidgetWidthDip = shellFrom + (shellTo - shellFrom) * t;
-                }
-            };
-            holder.Start(
-                0,
-                1,
-                duration,
-                ease,
-                () =>
-                {
-                    ParkedHost.Width = chipTo;
-                    _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
-                    _taskbarHost?.FlushRegion();
+                    From = metaFrom,
+                    To = metaTo,
+                    Duration = duration,
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.HoldEnd
                 });
             return;
         }
