@@ -671,11 +671,10 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Transport: pause+play volume keeps only Previous; play/next collapse right -->
+                <!-- Transport: no ClipToBounds here — seek glyphs overflow 16px hitboxes. Steal via clip hosts. -->
                 <StackPanel x:Name="TransportHost"
                             Grid.Column="3"
                             Orientation="Horizontal"
-                            ClipToBounds="True"
                             VerticalAlignment="Center">
                     <Button x:Name="PreviousButton"
                             Style="{StaticResource CompactMediaButton}"
@@ -685,19 +684,29 @@
                                                   Seconds="{Binding SeekSeconds}"
                                                   Foreground="#F2F4F7" />
                     </Button>
-                    <Button x:Name="PlayPauseTransportButton"
-                            Content="{Binding PlayPauseLabel}"
-                            Style="{StaticResource PlayPauseButton}"
-                            Command="{Binding PlayPauseCommand}"
-                            Margin="2,0" />
-                    <Button x:Name="NextTransportButton"
-                            Style="{StaticResource CompactMediaButton}"
-                            Command="{Binding NextCommand}">
-                        <controls:TransportIcon x:Name="NextIcon"
-                                                  Kind="{Binding NextIconKind}"
-                                                  Seconds="{Binding SeekSeconds}"
-                                                  Foreground="#F2F4F7" />
-                    </Button>
+                    <Grid x:Name="PlayPauseTransportClip"
+                          Margin="2,0,0,0"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <Button x:Name="PlayPauseTransportButton"
+                                Content="{Binding PlayPauseLabel}"
+                                Style="{StaticResource PlayPauseButton}"
+                                Command="{Binding PlayPauseCommand}"
+                                HorizontalAlignment="Right" />
+                    </Grid>
+                    <Grid x:Name="NextTransportClip"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <Button x:Name="NextTransportButton"
+                                Style="{StaticResource CompactMediaButton}"
+                                Command="{Binding NextCommand}"
+                                HorizontalAlignment="Right">
+                            <controls:TransportIcon x:Name="NextIcon"
+                                                      Kind="{Binding NextIconKind}"
+                                                      Seconds="{Binding SeekSeconds}"
+                                                      Foreground="#F2F4F7" />
+                        </Button>
+                    </Grid>
                 </StackPanel>
             </Grid>
             <!-- Primary swap: snapshots of the old frame fly out here -->

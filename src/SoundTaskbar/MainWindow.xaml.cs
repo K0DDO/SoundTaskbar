@@ -19,8 +19,8 @@ public partial class MainWindow : Window
     private const double VolumeOpenWidth = 74;
     private const double VolumeButtonWidth = 16;
     private const double PrimaryArtFullWidth = 28;
-    /// <summary>PlayPauseButton style width 28 (margin animated separately).</summary>
-    private const double PlayTransportFullWidth = 28;
+    /// <summary>PlayPauseButton style width 28 + clip margin 2.</summary>
+    private const double PlayTransportFullWidth = 30;
     /// <summary>CompactMediaButton style width.</summary>
     private const double NextTransportFullWidth = 16;
     private const double ParkedDividerWidth = 2.5;
@@ -1589,13 +1589,14 @@ public partial class MainWindow : Window
             duration,
             ease);
 
-        PlayPauseTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
-        PlayPauseTransportButton.Opacity = 1;
-        NextTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
-        NextTransportButton.Opacity = 1;
+        // Buttons keep style sizes; only clip hosts shrink (avoids sticky Width + clipped seek glyphs).
+        PlayPauseTransportButton.BeginAnimation(WidthProperty, null);
+        PlayPauseTransportButton.ClearValue(WidthProperty);
+        NextTransportButton.BeginAnimation(WidthProperty, null);
+        NextTransportButton.ClearValue(WidthProperty);
 
         AnimateChromeWidth(
-            PlayPauseTransportButton,
+            PlayPauseTransportClip,
             PlayTransportFullWidth,
             collapse: open,
             restoreNaN: true,
@@ -1603,7 +1604,7 @@ public partial class MainWindow : Window
             duration,
             ease);
         AnimateChromeWidth(
-            NextTransportButton,
+            NextTransportClip,
             NextTransportFullWidth,
             collapse: open,
             restoreNaN: true,
@@ -1611,8 +1612,6 @@ public partial class MainWindow : Window
             duration,
             ease);
 
-        // Collapse play margin with the button so leftover 2px does not jitter layout.
-        PlayPauseTransportButton.Margin = open ? new Thickness(0) : new Thickness(2, 0, 0, 0);
         PlayPauseTransportButton.IsHitTestVisible = !open;
         NextTransportButton.IsHitTestVisible = !open;
     }
@@ -1631,22 +1630,21 @@ public partial class MainWindow : Window
         PrimaryArtHost.Opacity = 1;
 
         PlayPauseTransportButton.BeginAnimation(WidthProperty, null);
-        PlayPauseTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
+        PlayPauseTransportButton.ClearValue(WidthProperty);
         NextTransportButton.BeginAnimation(WidthProperty, null);
-        NextTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
-        PlayPauseTransportButton.Opacity = 1;
-        NextTransportButton.Opacity = 1;
+        NextTransportButton.ClearValue(WidthProperty);
+
+        PlayPauseTransportClip.BeginAnimation(WidthProperty, null);
+        NextTransportClip.BeginAnimation(WidthProperty, null);
         if (collapsed)
         {
-            PlayPauseTransportButton.Width = 0;
-            NextTransportButton.Width = 0;
-            PlayPauseTransportButton.Margin = new Thickness(0);
+            PlayPauseTransportClip.Width = 0;
+            NextTransportClip.Width = 0;
         }
         else
         {
-            PlayPauseTransportButton.Width = double.NaN;
-            NextTransportButton.Width = double.NaN;
-            PlayPauseTransportButton.Margin = new Thickness(2, 0, 0, 0);
+            PlayPauseTransportClip.Width = double.NaN;
+            NextTransportClip.Width = double.NaN;
         }
 
         PlayPauseTransportButton.IsHitTestVisible = !collapsed;
