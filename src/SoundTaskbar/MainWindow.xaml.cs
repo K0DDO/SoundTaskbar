@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private bool _widgetShown;
     private bool _revealAnimating;
     private bool _morphAfterReveal;
+    /// <summary>ShowExpandedMeta flipped while a morph clock was running — rerun after Finish.</summary>
+    private bool _morphAfterClock;
     private bool _morphScheduled;
     private bool _appearanceIsLight;
     private Color? _traySample;
@@ -406,8 +408,10 @@ public partial class MainWindow : Window
         }
 
         // Never cancel an in-flight morph — that left play+play stuck mid phase-1 (chip never grew).
+        // Queue a follow-up so pause+play → play+play (YouTube starts while chip still morphing) is not dropped.
         if (_playPlayClock is not null)
         {
+            _morphAfterClock = true;
             return;
         }
 
@@ -423,6 +427,7 @@ public partial class MainWindow : Window
                 _morphScheduled = false;
                 if (_playPlayClock is not null)
                 {
+                    _morphAfterClock = true;
                     return;
                 }
 
@@ -432,6 +437,18 @@ public partial class MainWindow : Window
                 }
             },
             DispatcherPriority.Loaded);
+    }
+
+    private void CompleteSideMorphClock()
+    {
+        _playPlayClock = null;
+        if (!_morphAfterClock)
+        {
+            return;
+        }
+
+        _morphAfterClock = false;
+        ScheduleSideMorph();
     }
 
     private async Task RemeasureParkedAfterSettleAsync(CancellationToken token)
@@ -534,8 +551,12 @@ public partial class MainWindow : Window
 
         void Finish()
         {
-            ApplySideFrame(sides, progressFrom, progressTo, metaTargets, 1, chipTo, shellTo);
-            if (expand)
+            // Re-read targets — ShowExpandedMeta may have flipped during the clock.
+            var finalTo = sides.Select(s => s.ShowExpandedMeta ? 1.0 : 0.0).ToArray();
+            var finalExpand = finalTo.Any(p => p > 0.5);
+            ApplySideFrame(sides, progressFrom, finalTo, metaTargets, 1, chipTo, shellTo);
+            _playPlayOpen = finalExpand;
+            if (finalExpand)
             {
                 _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
             }
@@ -546,7 +567,7 @@ public partial class MainWindow : Window
 
             _taskbarHost?.FlushRegion();
             ApplyChipMarqueeScrims();
-            _playPlayClock = null;
+            CompleteSideMorphClock();
         }
 
         var progressSettled = progressFrom.Zip(progressTo).All(p => Math.Abs(p.First - p.Second) < 0.01);

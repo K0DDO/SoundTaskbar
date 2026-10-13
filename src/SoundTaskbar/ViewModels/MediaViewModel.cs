@@ -751,7 +751,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _emptySessionsGraceUntil = null;
 
-        var playing = enriched.Where(s => s.IsPlaying).ToList();
+        // SMTC sometimes lags (music still audible but status Paused when YouTube starts) —
+        // treat Core Audio peak as playing so we enter play+play instead of pause+play.
+        var playing = enriched.Where(IsEffectivelyPlaying).ToList();
         var focusedKey = _media.FocusedKey;
         var primary = PickPrimary(enriched, playing, focusedKey);
         if (primary is null)
@@ -979,6 +981,28 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                ?? enriched.FirstOrDefault(s => _volume.IsAppRunning(s.AppId));
     }
 
+    /// <summary>
+    /// SMTC Playing, or parkable session still producing audible peak (SMTC pause blip / dual play).
+    /// </summary>
+    private bool IsEffectivelyPlaying(MediaSessionSnapshot snap)
+    {
+        if (snap.IsPlaying)
+        {
+            return true;
+        }
+
+        if (!snap.IsParkable || string.IsNullOrWhiteSpace(snap.AppId))
+        {
+            return false;
+        }
+
+        var state = _volume.GetState(snap.AppId);
+        return state.Found &&
+               !state.IsMuted &&
+               state.Volume > 0.001f &&
+               state.Peak > 0.02f;
+    }
+
     private MediaSessionSnapshot Enrich(MediaSessionSnapshot snap)
     {
         _artworkCache.TryGetValue(snap.SessionKey, out var art);
@@ -1098,9 +1122,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
 
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
-            existing.IsPlaying = snap.IsPlaying;
+            var effectivelyPlaying = IsEffectivelyPlaying(snap);
+            existing.IsPlaying = effectivelyPlaying;
             existing.IsVideo = snap.IsVideo;
-            existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
+            existing.CanToggle = effectivelyPlaying ? snap.CanPause : snap.CanPlay;
             existing.ShowExpandedMeta = expandedMeta;
             existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
