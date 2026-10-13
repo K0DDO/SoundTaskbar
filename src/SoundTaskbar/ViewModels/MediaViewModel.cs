@@ -89,24 +89,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public const double PausePlayDividerChrome = 16.5;
 
     private double _desiredWidgetWidth = SoloWidgetWidth;
-    private string? _pairPrimaryKey;
-    private string? _pairSideKey;
     /// <summary>Next plan should keep this key on the side (divider swap).</summary>
     private string? _forceParkedSideKey;
     /// <summary>Next plan should use this primary even if paused (divider swap).</summary>
     private string? _forcePrimaryKey;
-    private DateTimeOffset? _pairExitAfter;
     private DateTimeOffset? _emptySessionsGraceUntil;
     private long _lastPrimaryAliveCheckMs;
-    /// <summary>Hold pair UI across Win+D / minimize-all SMTC blips.</summary>
-    private const int PairExitGraceMs = 2500;
     /// <summary>Brief hold for Win+D SMTC blips; tab/app close still collapses after this.</summary>
     private const int EmptySessionsGraceMs = 900;
-    /// <summary>Our own play/pause click is not an SMTC blip — skip the pair hold.</summary>
-    private const int UserToggleGraceSkipMs = 1500;
     /// <summary>Side rail cap: expanded play chip + small paused chips, separated by dividers.</summary>
     private const int MaxSideChips = 3;
-    private DateTimeOffset _skipPairGraceUntil;
     private string _displayedPrimaryKey = string.Empty;
     private bool _staleVisuals;
     private BitmapImage? _appIcon;
@@ -140,7 +132,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
                 }
 
                 CloseSideVolumeEditors();
-                _skipPairGraceUntil = DateTimeOffset.UtcNow.AddMilliseconds(UserToggleGraceSkipMs);
                 await _media.TogglePlayPauseAsync(_primarySessionKey);
             },
             _ => CanTogglePlayback);
@@ -798,7 +789,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (playing.Count >= 2)
         {
-            _pairExitAfter = null;
             // Keep the chip that started playing on the side so pause+play → play+play morphs in place.
             var forceSticky = !string.IsNullOrEmpty(_forcePrimaryKey) ||
                              !string.IsNullOrEmpty(_forceParkedSideKey);
@@ -812,14 +802,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             RaiseSwapIfNeeded(plan.Primary.SessionKey);
             primary = ApplyPairPlan(plan, enriched);
         }
-        else if (TryHoldPairGrace(enriched, playing, out var heldPrimary))
-        {
-            primary = heldPrimary;
-        }
         else
         {
+            // Demote immediately when one side pauses — no pair-exit grace delay.
             var demotingPlayPlay = IsPlayPlay;
-            ClearPairHold();
 
             var parked = BuildSideList(enriched, primary.SessionKey, expanded: null);
 
@@ -869,58 +855,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _emptySessionsGraceUntil ??= DateTimeOffset.UtcNow.AddMilliseconds(EmptySessionsGraceMs);
         return DateTimeOffset.UtcNow < _emptySessionsGraceUntil.Value;
-    }
-
-    /// <summary>
-    /// Keep play+play / pair UI briefly when SMTC flickers (Win+D, minimize-all, pause blip).
-    /// </summary>
-    private bool TryHoldPairGrace(
-        List<MediaSessionSnapshot> enriched,
-        List<MediaSessionSnapshot> playing,
-        out MediaSessionSnapshot primary)
-    {
-        primary = default!;
-        if (string.IsNullOrEmpty(_pairPrimaryKey) || string.IsNullOrEmpty(_pairSideKey))
-        {
-            return false;
-        }
-
-        var left = enriched.FirstOrDefault(s => s.SessionKey == _pairSideKey);
-        var right = enriched.FirstOrDefault(s => s.SessionKey == _pairPrimaryKey);
-        if (left is null || right is null || !left.IsParkable || !right.IsParkable)
-        {
-            return false;
-        }
-
-        // Still two playing — planner should have handled; do not hold.
-        if (playing.Count >= 2 || DateTimeOffset.UtcNow < _skipPairGraceUntil)
-        {
-            return false;
-        }
-
-        // Primary paused/stopped: demote immediately (no 2.5s hold).
-        if (playing.All(s => s.SessionKey != _pairPrimaryKey))
-        {
-            return false;
-        }
-
-        _pairExitAfter ??= DateTimeOffset.UtcNow.AddMilliseconds(PairExitGraceMs);
-        if (DateTimeOffset.UtcNow >= _pairExitAfter.Value)
-        {
-            return false;
-        }
-
-        // Hold play+play chrome through the blip (do not morph down then up).
-        _parkedDismissPending = false;
-        SyncCollection(
-            SideSessions,
-            BuildSideList(enriched, right.SessionKey, left),
-            freezeTransportIcons: true,
-            expandedKey: left.SessionKey);
-        ShowParkedRail = true;
-        UpdateParkedWatchdog();
-        primary = right;
-        return true;
     }
 
     /// <summary>Extra sources as small chips (left), the expanded play chip last (next to primary).</summary>
@@ -996,7 +930,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             IsVolumeEditorOpen = false;
         }
 
-        _skipPairGraceUntil = DateTimeOffset.UtcNow.AddMilliseconds(UserToggleGraceSkipMs);
         _forceParkedSideKey = _primarySessionKey;
         _forcePrimaryKey = side.SessionKey;
         _media.Focus(side.SessionKey);
@@ -1017,13 +950,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         PrimarySwapping?.Invoke(this, new PrimarySwapEventArgs(_displayedPrimaryKey, nextPrimaryKey));
     }
 
-    private void ClearPairHold()
-    {
-        _pairPrimaryKey = null;
-        _pairSideKey = null;
-        _pairExitAfter = null;
-    }
-
     private MediaSessionSnapshot ApplyPairPlan(PairPlan plan, List<MediaSessionSnapshot> enriched)
     {
         switch (plan.Kind)
@@ -1031,21 +957,17 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             case PairKind.PlayPlay:
                 // SingleHost + expanded side chip; shell width from MainWindow measure.
                 _parkedDismissPending = false;
-                _pairPrimaryKey = plan.Primary.SessionKey;
                 var expanded = plan.SideSessions.Count > 0 ? plan.SideSessions[0] : null;
-                _pairSideKey = expanded?.SessionKey;
-                _pairExitAfter = null;
                 SyncCollection(
                     SideSessions,
                     BuildSideList(enriched, plan.Primary.SessionKey, expanded),
                     freezeTransportIcons: true,
-                    expandedKey: _pairSideKey);
+                    expandedKey: expanded?.SessionKey);
                 ShowParkedRail = true;
                 UpdateParkedWatchdog();
                 return plan.Primary;
 
             default:
-                ClearPairHold();
                 DesiredWidgetWidth = SoloWidgetWidth;
                 RequestParkedDismiss();
                 return plan.Primary;
@@ -1308,7 +1230,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _primarySessionKey = sessionKey;
-        _skipPairGraceUntil = DateTimeOffset.UtcNow.AddMilliseconds(UserToggleGraceSkipMs);
         _media.Focus(sessionKey);
         await _media.TogglePlayPauseAsync(sessionKey);
         await RefreshAsync(full: true);
@@ -1397,7 +1318,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         DesiredWidgetWidth = SoloWidgetWidth;
         RequestParkedDismiss();
         _kindCache.Clear();
-        ClearPairHold();
         _emptySessionsGraceUntil = null;
         _primarySessionKey = string.Empty;
         _displayedPrimaryKey = string.Empty;
@@ -1650,11 +1570,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void TickProgress()
     {
-        if (_pairExitAfter is not null && DateTimeOffset.UtcNow >= _pairExitAfter.Value)
-        {
-            _ = RefreshAsync(full: false);
-        }
-
         // Empty-session grace used to expire with no follow-up refresh → widget stuck forever.
         if (_emptySessionsGraceUntil is not null &&
             DateTimeOffset.UtcNow >= _emptySessionsGraceUntil.Value)
