@@ -2277,10 +2277,11 @@ public partial class MainWindow : Window
                 (ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Duration, progressFrom, progressTo));
         }
 
-        // Progress fill: keep bar visible, animate Value from current → other side's current.
+        // Progress fill Value + gray track width (via duration column Width) both lerp.
         var primaryProgressFrom = ProgressBar.Value;
         var chipProgressFrom = 0.0;
         ProgressBar? chipProgressBar = null;
+        FrameworkElement? chipTimeHost = null;
         var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
         if (chipItem is not null)
         {
@@ -2290,6 +2291,14 @@ public partial class MainWindow : Window
         // After swap primary shows former chip, chip shows former primary.
         var primaryProgressTo = chipProgressFrom;
         var chipProgressTo = primaryProgressFrom;
+
+        // Pin duration column widths so the * progress track cannot snap when TimeText changes.
+        var primaryTimeWidthFrom = Math.Max(TimeTextHost.ActualWidth, 1);
+        var primaryTimeWidthTo = primaryTimeWidthFrom;
+        var chipTimeWidthFrom = 1.0;
+        var chipTimeWidthTo = 1.0;
+        TimeTextHost.BeginAnimation(WidthProperty, null);
+        TimeTextHost.Width = primaryTimeWidthFrom;
 
         void FreezeProgressBar(ProgressBar bar, double value)
         {
@@ -2318,10 +2327,16 @@ public partial class MainWindow : Window
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipAppIcon") as FrameworkElement);
-            AddPairedDuration(
-                FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement,
-                chipProgressFrom,
-                chipProgressTo);
+            chipTimeHost = FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement;
+            if (chipTimeHost is not null)
+            {
+                chipTimeWidthFrom = Math.Max(chipTimeHost.ActualWidth, 1);
+                chipTimeWidthTo = chipTimeWidthFrom;
+                chipTimeHost.BeginAnimation(WidthProperty, null);
+                chipTimeHost.Width = chipTimeWidthFrom;
+            }
+
+            AddPairedDuration(chipTimeHost, chipProgressFrom, chipProgressTo);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
 
@@ -2448,6 +2463,22 @@ public partial class MainWindow : Window
                     chipProgressBar,
                     chipProgressFrom + (chipProgressTo - chipProgressFrom) * easeT);
             }
+
+            // Lerp duration column Width → gray track (*) expands/shrinks smoothly with it.
+            TimeTextHost.BeginAnimation(WidthProperty, null);
+            TimeTextHost.Width = primaryTimeWidthFrom + (primaryTimeWidthTo - primaryTimeWidthFrom) * easeT;
+            if (chipTimeHost is null &&
+                _swapChip is not null &&
+                FindDescendantByName(_swapChip, "ChipTimeTextHost") is FrameworkElement chipTime)
+            {
+                chipTimeHost = chipTime;
+            }
+
+            if (chipTimeHost is not null)
+            {
+                chipTimeHost.BeginAnimation(WidthProperty, null);
+                chipTimeHost.Width = chipTimeWidthFrom + (chipTimeWidthTo - chipTimeWidthFrom) * easeT;
+            }
         }
 
         void ApplyFrame(double t)
@@ -2463,6 +2494,17 @@ public partial class MainWindow : Window
             }
         }
 
+        static double MeasureNaturalWidth(FrameworkElement host)
+        {
+            host.BeginAnimation(WidthProperty, null);
+            var pinned = host.Width;
+            host.Width = double.NaN;
+            host.UpdateLayout();
+            var w = host.ActualWidth > 1 ? host.ActualWidth : host.DesiredSize.Width;
+            host.Width = pinned;
+            return Math.Max(w, 1);
+        }
+
         ApplyFrame(0);
         var clock = new AnimationClockHolder();
         clock.ProgressChanged += ApplyFrame;
@@ -2474,13 +2516,21 @@ public partial class MainWindow : Window
             null,
             ResetSwapVisuals);
 
-        // After SyncCollection rebinds Progress, freeze again on the next layout pass.
+        // After SyncCollection: re-freeze progress + measure new duration widths for track lerp.
         Dispatcher.BeginInvoke(
             () =>
             {
                 if (!_primarySwapAnimating)
                 {
                     return;
+                }
+
+                primaryTimeWidthTo = MeasureNaturalWidth(TimeTextHost);
+                TimeTextHost.Width = primaryTimeWidthFrom;
+                if (chipTimeHost is not null)
+                {
+                    chipTimeWidthTo = MeasureNaturalWidth(chipTimeHost);
+                    chipTimeHost.Width = chipTimeWidthFrom;
                 }
 
                 ApplyProgress(0);
@@ -2548,6 +2598,15 @@ public partial class MainWindow : Window
         _swapLiveFaces.Clear();
         SwapOverlay.Children.Clear();
         RestoreProgressBindings();
+
+        TimeTextHost.BeginAnimation(WidthProperty, null);
+        TimeTextHost.ClearValue(WidthProperty);
+        if (_swapChip is not null &&
+            FindDescendantByName(_swapChip, "ChipTimeTextHost") is FrameworkElement chipTime)
+        {
+            chipTime.BeginAnimation(WidthProperty, null);
+            chipTime.ClearValue(WidthProperty);
+        }
 
         PrimaryArtHost.RenderTransform = _primaryArtShift;
         PrimaryMetaHost.RenderTransform = _primaryMetaShift;
