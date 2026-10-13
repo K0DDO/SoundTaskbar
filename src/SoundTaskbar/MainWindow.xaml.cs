@@ -293,6 +293,12 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.ShowPairAppIcon))
         {
+            // Demote wipe owns layout until reopen — do not expand the name mid-hide.
+            if (_playPlayDemoteAnimating)
+            {
+                return;
+            }
+
             SyncParkedListAlignment(playPlay: _viewModel.ShowPairAppIcon || _viewModel.IsPlayPlay);
             if (_viewModel.ShowPairAppIcon != _pairNameCollapsed)
             {
@@ -301,6 +307,11 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.IsPlayPlay))
         {
+            if (_playPlayDemoteAnimating)
+            {
+                return;
+            }
+
             SyncParkedListAlignment(playPlay: _viewModel.IsPlayPlay);
             if (_viewModel.IsPlayPlay)
             {
@@ -314,7 +325,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.HasSession))
         {
-            if (_layoutReady && _taskbarHost is not null)
+            if (_layoutReady && _taskbarHost is not null && !_playPlayDemoteAnimating)
             {
                 AnimateWidgetVisibility(_viewModel.HasSession);
             }
@@ -1952,10 +1963,17 @@ public partial class MainWindow : Window
     /// No source: morph into a tray-side pill icon, wipe right into it, then vanish.
     /// Source back: icon blooms and content expands left from the tray.
     /// </summary>
-    private void AnimateWidgetVisibility(bool show)
+    private void AnimateWidgetVisibility(bool show, Action? onComplete = null)
     {
-        if (_taskbarHost is null || show == _widgetShown)
+        if (_taskbarHost is null)
         {
+            onComplete?.Invoke();
+            return;
+        }
+
+        if (show == _widgetShown)
+        {
+            onComplete?.Invoke();
             return;
         }
 
@@ -1983,6 +2001,7 @@ public partial class MainWindow : Window
                 }
 
                 _visibilityClock = null;
+                onComplete?.Invoke();
             });
     }
 
@@ -2076,8 +2095,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: same MorphSideChips reverse as promote (only left chip collapses).
-    /// Full-widget wipe redrawn both blocks — dropped.
+    /// play+play → pause+play: full widget hide (same as no-source wipe), snap pause+play, reopen.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
@@ -2092,19 +2110,20 @@ public partial class MainWindow : Window
         WidgetContent.Opacity = 1;
         WidgetContent.RenderTransform = Transform.Identity;
         WidgetContent.IsHitTestVisible = true;
-        // Cube swap can leave ScaleY=0 on art if demote interrupts — force media faces visible.
         RestoreSwapMediaFaces();
 
         _playPlayClock?.Cancel();
         _playPlayClock = null;
         _morphAfterClock = false;
+        _morphAfterReveal = false;
 
-        // Block ScheduleSideMorph from SyncCollection; keep ExpandProgress=1 until we morph.
+        // Block morph/soft-resize while wipe runs; keep play+play shell during hide.
         _playPlayDemoteAnimating = true;
         _playPlayOpen = true;
 
-        Dispatcher.BeginInvoke(
-            () =>
+        AnimateWidgetVisibility(
+            false,
+            onComplete: () =>
             {
                 if (!_playPlayDemoteAnimating || !_layoutReady)
                 {
@@ -2112,24 +2131,57 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                // SyncCollection already cleared ShowExpandedMeta — seed from-state for reverse morph.
-                foreach (var side in _viewModel.SideSessions)
-                {
-                    if (!side.ShowExpandedMeta && side.ExpandProgress < 0.99)
-                    {
-                        side.ExpandProgress = 1;
-                        side.MetaRailWidth = side.MeasuredMetaRailWidth;
-                    }
-                }
+                SnapDemoteToPausePlay();
+                AnimateWidgetVisibility(true, onComplete: EndPlayPlayDemote);
+            });
+    }
 
-                MorphSideChips(animate: true);
-                // Flag cleared in CompleteSideMorphClock when the collapse finishes (or sync Finish).
-                if (_playPlayClock is null)
-                {
-                    EndPlayPlayDemote();
-                }
-            },
-            DispatcherPriority.Loaded);
+    /// <summary>While fully hidden: collapse chip to pause+play geometry for the reopen wipe.</summary>
+    private void SnapDemoteToPausePlay()
+    {
+        _playPlayOpen = false;
+        SyncParkedListAlignment(playPlay: false);
+        AnimateSourceNameForPair(pair: false, animate: false);
+
+        foreach (var side in _viewModel.SideSessions)
+        {
+            side.ExpandProgress = 0;
+            side.MetaRailWidth = 0;
+        }
+
+        SnapChipVolumeHosts();
+        SyncChipMetaWidths(animate: false);
+        PushChipMetaHostWidths();
+
+        ParkedHost.BeginAnimation(WidthProperty, null);
+        ParkedHost.Width = double.NaN;
+        ParkedHost.Opacity = 1;
+        ParkedHost.UpdateLayout();
+        ParkedList.UpdateLayout();
+
+        var chip = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
+        if (chip < 8)
+        {
+            chip = 72;
+        }
+
+        _parkedChipTarget = chip;
+        _parkedOpen = true;
+        ParkedHost.IsHitTestVisible = true;
+        SealParkedReveal(1);
+        ParkedHost.Width = chip;
+        ParkedDivider.Width = ParkedDividerWidth;
+        ParkedDivider.Margin = new Thickness(0);
+        ParkedDivider.Opacity = 1;
+        _viewModel.ApplyParkedCompositeWidth(chip);
+        SnapPausePlayVolumeChrome(collapsed: _viewModel.IsVolumeEditorOpen);
+        RestoreSwapMediaFaces();
+        ApplyChipMarqueeScrims();
+
+        if (_taskbarHost is not null)
+        {
+            _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
+        }
     }
 
     private void EndPlayPlayDemote()
@@ -2141,7 +2193,7 @@ public partial class MainWindow : Window
 
         _playPlayDemoteAnimating = false;
         RestoreSwapMediaFaces();
-        SnapPausePlayVolumeChrome(collapsed: false);
+        SnapPausePlayVolumeChrome(collapsed: _viewModel.IsVolumeEditorOpen);
         _taskbarHost?.FlushRegion();
     }
 

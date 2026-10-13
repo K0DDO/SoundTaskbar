@@ -190,7 +190,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public event EventHandler<PrimarySwapEventArgs>? PrimarySwapping;
 
     /// <summary>
-    /// play+play → pause+play before SyncCollection/ApplyPrimary (snapshot window for wipe-right).
+    /// play+play → pause+play before SyncCollection/ApplyPrimary (UI: full hide then reopen).
     /// </summary>
     public event EventHandler<PlayPlayDemoteEventArgs>? PlayPlayDemoting;
 
@@ -813,7 +813,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 if (demotingPlayPlay)
                 {
-                    // Snapshot window: UI wipes old play+play right, then reveals pause+play.
+                    // UI: hide like no-source, snap pause+play, reopen.
                     PlayPlayDemoting?.Invoke(
                         this,
                         new PlayPlayDemoteEventArgs(_displayedPrimaryKey, primary.SessionKey));
