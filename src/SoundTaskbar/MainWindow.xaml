@@ -292,7 +292,8 @@
                                     IsHitTestVisible="False" />
                         </Grid>
 
-                        <Border Width="28"
+                        <Border x:Name="ChipExpandedArt"
+                                Width="28"
                                 Height="28"
                                 CornerRadius="4"
                                 ClipToBounds="True"
@@ -311,14 +312,17 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <Grid ClipToBounds="True">
+                            <Grid x:Name="ChipTitleRow" ClipToBounds="True">
                                 <controls:MarqueeText Text="{Binding Title}"
                                                       FontSize="11"
                                                       FontWeight="SemiBold"
                                                       Foreground="#F5F5F5"
                                                       Height="14" />
                             </Grid>
-                            <Grid Grid.Row="1" Margin="0,1,0,1">
+                            <Grid x:Name="ChipArtistRow"
+                                  Grid.Row="1"
+                                  Margin="0,1,0,1"
+                                  ClipToBounds="True">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -340,7 +344,9 @@
                                        Visibility="{Binding AppIconVisibility}"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
                             </Grid>
-                            <Grid Grid.Row="2">
+                            <Grid x:Name="ChipTimeRow"
+                                  Grid.Row="2"
+                                  ClipToBounds="True">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -470,7 +476,6 @@
                                 Margin="0"
                                 Opacity="0"
                                 Cursor="Hand"
-                                ToolTip="Поменять местами"
                                 VerticalAlignment="Center"
                                 MouseLeftButtonUp="OnParkedDividerClick">
                             <Border Width="2.5"
@@ -523,10 +528,14 @@
                                                   FontSize="11"
                                                   FontWeight="SemiBold"
                                                   Foreground="#F5F5F5"
-                                                  Height="14" />
+                                                  Height="14"
+                                                  ClipToBounds="True" />
 
                             <!-- Artist * shrinks; SourceSlot Auto (icon) keeps space — same idea as chip meta -->
-                            <Grid Grid.Row="1" Margin="0,1,0,1">
+                            <Grid x:Name="PrimaryArtistRow"
+                                  Grid.Row="1"
+                                  Margin="0,1,0,1"
+                                  ClipToBounds="True">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -573,7 +582,9 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Grid Grid.Row="2">
+                            <Grid x:Name="PrimaryTimeRow"
+                                  Grid.Row="2"
+                                  ClipToBounds="True">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />

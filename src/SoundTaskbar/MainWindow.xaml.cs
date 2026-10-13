@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     /// <summary>Blocks SoftResize/morph while play+play wipe-right demote runs.</summary>
     private bool _playPlayDemoteAnimating;
     private FrameworkElement? _swapChip;
+    private readonly List<FrameworkElement> _swapLiveFaces = new();
     private bool _widgetShown;
     private bool _revealAnimating;
     private bool _morphAfterReveal;
@@ -81,7 +82,9 @@ public partial class MainWindow : Window
     private const int WidgetRevealMs = 480;
     /// <summary>Hide/show slides the content toward the tray by this much.</summary>
     private const double WidgetRevealShift = 10;
-    private const int PrimarySwapMs = 520;
+    private const int PrimarySwapMs = 560;
+    /// <summary>Stagger between cube-faces on primary/chip swap (top→bottom roll).</summary>
+    private const double CubeFaceStagger = 0.07;
 
     private double ParkedReveal
     {
@@ -2168,8 +2171,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Side chip takes over the primary slot: ghosts of the old frame cross over
-    /// (old primary → left, old chip → right) while the new content slides in from the opposite side.
+    /// Primary ↔ side swap: each face (art / title / artist+icon / time) rolls like a cube
+    /// face top→bottom — old face collapses to the bottom edge, new unrolls from the top.
     /// </summary>
     private void OnPrimarySwapping(object? sender, PrimarySwapEventArgs e)
     {
@@ -2181,99 +2184,174 @@ public partial class MainWindow : Window
         ResetSwapVisuals();
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var artLeft = PrimaryArtHost.TranslatePoint(new Point(0, 0), SwapOverlay).X;
-        var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
-        var oldChip = oldChipItem is null
-            ? null
-            : ParkedList.ItemContainerGenerator.ContainerFromItem(oldChipItem) as FrameworkElement;
-        var chipCenter = oldChip is not null && oldChip.ActualWidth > 1
-            ? oldChip.TranslatePoint(new Point(oldChip.ActualWidth / 2, 0), SwapOverlay).X
-            : artLeft - 60;
-        var dx = Math.Max(40, artLeft + PrimaryArtHost.ActualWidth / 2 - chipCenter);
+        // Ghost-only (outgoing) and live-only (incoming) cube faces; primary pairs both.
+        var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, double Stagger)>();
 
-        var ghosts = new List<(UIElement Ghost, TranslateTransform Shift, double Direction)>();
-        void AddGhost(FrameworkElement source, double direction)
+        void AddGhostFace(FrameworkElement? source, double stagger)
         {
+            if (source is null || source.ActualWidth < 1 || source.ActualHeight < 1)
+            {
+                return;
+            }
+
             var bitmap = Snapshot(source, pixelsPerDip);
             if (bitmap is null)
             {
                 return;
             }
 
-            var pos = source.TranslatePoint(new Point(0, 0), SwapOverlay);
-            var shift = new TranslateTransform();
+            var ghostScale = new ScaleTransform(1, 1);
             var ghost = new Image
             {
                 Source = bitmap,
                 Width = source.ActualWidth,
                 Height = source.ActualHeight,
-                RenderTransform = shift
+                Stretch = Stretch.Fill,
+                RenderTransformOrigin = new Point(0.5, 1),
+                RenderTransform = ghostScale
             };
+            var pos = source.TranslatePoint(new Point(0, 0), SwapOverlay);
             Canvas.SetLeft(ghost, pos.X);
             Canvas.SetTop(ghost, pos.Y);
+            Panel.SetZIndex(ghost, 20);
             SwapOverlay.Children.Add(ghost);
-            ghosts.Add((ghost, shift, direction));
+            faces.Add((ghost, ghostScale, null, null, stagger));
         }
 
-        AddGhost(PrimaryArtHost, -1);
-        AddGhost(PrimaryMetaHost, -1);
-        if (oldChip is not null)
+        void PrepLiveFace(FrameworkElement live, double stagger)
         {
-            AddGhost(oldChip, 1);
+            var liveScale = new ScaleTransform(1, 0);
+            live.RenderTransformOrigin = new Point(0.5, 0);
+            live.RenderTransform = liveScale;
+            live.Opacity = 0;
+            _swapLiveFaces.Add(live);
+            faces.Add((null, null, live, liveScale, stagger));
+        }
+
+        void AddPairedFace(FrameworkElement? live, double stagger)
+        {
+            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
+            {
+                return;
+            }
+
+            AddGhostFace(live, stagger);
+            PrepLiveFace(live, stagger);
+        }
+
+        // Primary faces — art, title, channel+icon, duration (top → bottom order).
+        AddPairedFace(PrimaryArtHost, 0);
+        AddPairedFace(TitleMarquee, CubeFaceStagger);
+        AddPairedFace(PrimaryArtistRow, CubeFaceStagger * 2);
+        AddPairedFace(PrimaryTimeRow, CubeFaceStagger * 3);
+
+        // Outgoing side chip faces (container dies on SyncCollection — ghosts only).
+        var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
+        if (oldChipItem is not null &&
+            ParkedList.ItemContainerGenerator.ContainerFromItem(oldChipItem) is DependencyObject chipRoot)
+        {
+            AddGhostFace(FindDescendantByName(chipRoot, "ChipExpandedArt") as FrameworkElement, 0);
+            AddGhostFace(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement, CubeFaceStagger);
+            AddGhostFace(FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement, CubeFaceStagger * 2);
+            AddGhostFace(FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement, CubeFaceStagger * 3);
+        }
+
+        if (faces.Count == 0)
+        {
+            return;
+        }
+
+        var chipLiveAttached = false;
+        void TryAttachIncomingChipLives()
+        {
+            if (chipLiveAttached)
+            {
+                return;
+            }
+
+            var item = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.FromKey);
+            if (item is null ||
+                ParkedList.ItemContainerGenerator.ContainerFromItem(item) is not DependencyObject newChip)
+            {
+                return;
+            }
+
+            chipLiveAttached = true;
+            _swapChip = newChip as FrameworkElement;
+
+            void Attach(string name, double stagger)
+            {
+                if (FindDescendantByName(newChip, name) is not FrameworkElement el ||
+                    el.ActualWidth < 1 ||
+                    el.ActualHeight < 1)
+                {
+                    return;
+                }
+
+                PrepLiveFace(el, stagger);
+            }
+
+            Attach("ChipExpandedArt", 0);
+            Attach("ChipTitleRow", CubeFaceStagger);
+            Attach("ChipArtistRow", CubeFaceStagger * 2);
+            Attach("ChipTimeRow", CubeFaceStagger * 3);
+        }
+
+        void ApplyFace(
+            Image? ghost,
+            ScaleTransform? ghostScale,
+            FrameworkElement? live,
+            ScaleTransform? liveScale,
+            double stagger,
+            double t)
+        {
+            var local = Math.Clamp((t - stagger) / Math.Max(0.01, 1 - stagger), 0, 1);
+            if (local <= 0.5)
+            {
+                var p = local / 0.5;
+                var outP = p * p;
+                if (ghostScale is not null && ghost is not null)
+                {
+                    ghostScale.ScaleY = 1 - outP;
+                    ghost.Opacity = 1 - outP * 0.35;
+                }
+
+                if (live is not null && liveScale is not null)
+                {
+                    live.Opacity = 0;
+                    liveScale.ScaleY = 0;
+                }
+            }
+            else
+            {
+                var p = (local - 0.5) / 0.5;
+                var inP = 1 - (1 - p) * (1 - p);
+                if (ghostScale is not null && ghost is not null)
+                {
+                    ghostScale.ScaleY = 0;
+                    ghost.Opacity = 0;
+                }
+
+                if (live is not null && liveScale is not null)
+                {
+                    live.Opacity = 1;
+                    liveScale.ScaleY = inP;
+                }
+            }
         }
 
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
-            // Phase 1: old side shrinks away (ghosts). Phase 2: new side grows in.
-            double fadeOut;
-            double travelOut;
-            double fadeIn;
-            double travelIn;
-            if (t <= 0.5)
+            if (t >= 0.45)
             {
-                var u = t / 0.5;
-                fadeOut = 1 - u;
-                travelOut = u;
-                fadeIn = 0;
-                travelIn = 1;
-            }
-            else
-            {
-                var u = (t - 0.5) / 0.5;
-                fadeOut = 0;
-                travelOut = 1;
-                fadeIn = u;
-                travelIn = 1 - u;
+                TryAttachIncomingChipLives();
             }
 
-            foreach (var (ghost, shift, direction) in ghosts)
+            for (var i = 0; i < faces.Count; i++)
             {
-                ghost.Opacity = fadeOut;
-                shift.X = direction * dx * travelOut;
-            }
-
-            _primaryArtShift.X = -dx * travelIn;
-            _primaryMetaShift.X = -dx * travelIn;
-            PrimaryArtHost.Opacity = fadeIn;
-            PrimaryMetaHost.Opacity = fadeIn;
-
-            // New chip (old primary) is generated after this event — pick it up once it exists.
-            if (_swapChip is null)
-            {
-                var item = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.FromKey);
-                if (item is not null &&
-                    ParkedList.ItemContainerGenerator.ContainerFromItem(item) is FrameworkElement container)
-                {
-                    _swapChip = container;
-                    _swapChip.RenderTransform = new TranslateTransform();
-                }
-            }
-
-            if (_swapChip?.RenderTransform is TranslateTransform chipShift)
-            {
-                chipShift.X = dx * travelIn;
-                _swapChip.Opacity = fadeIn;
+                var (ghost, ghostScale, live, liveScale, stagger) = faces[i];
+                ApplyFace(ghost, ghostScale, live, liveScale, stagger, t);
             }
         }
 
@@ -2285,7 +2363,7 @@ public partial class MainWindow : Window
             0,
             1,
             TimeSpan.FromMilliseconds(PrimarySwapMs),
-            ease: null,
+            new CubicEase { EasingMode = EasingMode.EaseInOut },
             ResetSwapVisuals);
     }
 
@@ -2298,6 +2376,24 @@ public partial class MainWindow : Window
         _primaryMetaShift.X = 0;
         PrimaryArtHost.Opacity = 1;
         PrimaryMetaHost.Opacity = 1;
+        TitleMarquee.Opacity = 1;
+        PrimaryArtistRow.Opacity = 1;
+        PrimaryTimeRow.Opacity = 1;
+
+        foreach (var live in _swapLiveFaces)
+        {
+            live.BeginAnimation(UIElement.OpacityProperty, null);
+            live.Opacity = 1;
+            live.RenderTransform = Transform.Identity;
+            live.RenderTransformOrigin = new Point(0.5, 0.5);
+        }
+
+        _swapLiveFaces.Clear();
+
+        // Restore primary shift transforms used by volume / layout morphs.
+        PrimaryArtHost.RenderTransform = _primaryArtShift;
+        PrimaryMetaHost.RenderTransform = _primaryMetaShift;
+
         if (_swapChip is not null)
         {
             _swapChip.RenderTransform = Transform.Identity;

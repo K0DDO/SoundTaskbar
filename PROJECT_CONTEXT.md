@@ -77,10 +77,10 @@ dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTask
 - **Cold start**: `_layoutReady` после `SettleColdStartLayout` (2× Loaded) — иначе при уже играющих источниках chip/meta меряются без контейнеров и кривят layout
 - **Solo**: 310 / marquee / icon / VU — layout заморожен; volume open → имя + `TimeText` dissolve в прогресс (ширина+opacity, 260ms)
 - **pause+play** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms). Compact chip volume: **один clock** — mute + slider + steal art/next (без SoftResize/shell grow; XAML width storyboard убран). Primary volume: mute in place, steal art/play/next
-- **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`. Demote при паузе primary **сразу** (без grace/peak hold). `PlayPlayDemoting` wipe-right. **Клик по divider** → `SwapPrimaryAndSide` (блоки меняются). Peak только для входа в play+play, не удерживает режим после pause. Context menu: автозапуск / перезапуск / выход
+- **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`. Demote при паузе primary **сразу** (без grace/peak hold). `PlayPlayDemoting` wipe-right. **Клик по divider** → `SwapPrimaryAndSide` (без tooltip). Swap: cube-roll top→bottom по граням art/title/artist+icon/time (primary + chip), ~560ms. Peak только для входа в play+play, не удерживает режим после pause. Context menu: автозапуск / перезапуск / выход
 - **3+ источника**: `MaxSideChips=3`; лишние — маленькие paused-чипы слева, разделители между чипами (`DividerVisibility` в шаблоне); expanded play-чип всегда последний (у основного). `MorphSideChips` — прогресс на каждый чип, один clock, коалесинг через `ScheduleSideMorph` (ждёт конец ParkedReveal)
 - **Нет источника** → `HasSession=false` → morph в pill-иконку справа (обложка/♪) + wipe к трею (`RevealFraction`). Grace пустых сессий 900ms + tick refresh (баг: раньше grace истекал без refresh). Только `IsParkable` + running app; Stopped/Closed/мёртвый процесс → collapse. `_staleVisuals` держит последний трек на время анимации
-- **Смена доминирующего** (чип стал основным): `PrimarySwapping` → снапшоты старого кадра в `SwapOverlay` разъезжаются, новый контент въезжает навстречу (420ms)
+- **Смена доминирующего** / divider swap: `PrimarySwapping` → ghost ScaleY→0 (ось низ) + live ScaleY 0→1 (ось верх), stagger по граням; исходящий chip — только ghosts (контейнер умирает на SyncCollection), входящий chip lives подключаются mid-anim
 - Хост: таймер 800ms делает attach (стили пишутся только при изменении); анимации ширины/reveal идут через лёгкий `UpdateRegion` (только геометрия + регион). Win+D-защиты сейчас нет (откат в d7fc9cf)
 - pair/empty SMTC grace 2–2.5s; клик play/pause из виджета grace пропускает (1.5s)
 - Title fade: edge-scrim from tray sample; ресурсные кисти не мутировать (frozen) — только заменять
@@ -88,6 +88,6 @@ dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTask
 
 ## Следующие шаги
 
-1. Проверить вживую: 3 источника, swap pause+play ↔ play+pause, collapse при закрытии всех плееров
+1. Проверить cube-swap по divider в play+play (грани art/title/artist/time)
 2. Win+D: безопасная защита без перехвата WM_SHOWWINDOW (прошлая попытка ломала отрисовку)
 3. Seek по клику на прогресс
