@@ -19,7 +19,9 @@ public partial class MainWindow : Window
     private enum SwapFaceKind
     {
         Cube,
-        Seek
+        Seek,
+        /// <summary>Duration text: timed to progress shrink/expand, emerges from the bar.</summary>
+        Duration
     }
 
     private const double VolumeClosedWidth = 16;
@@ -2159,9 +2161,9 @@ public partial class MainWindow : Window
         ParkedHost.ClipToBounds = false;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        // Cube = art/title/artist/icon; Seek = prev/next + duration text.
-        // Progress bars stay put and lerp Value from previous → next (expand/shrink fill).
-        var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, SwapFaceKind Kind)>();
+        // Cube = art/title/artist/icon; Seek = prev/next; Duration = timed to progress direction.
+        // Progress bars stay put and lerp Value (both sides — freeze bindings so SyncCollection cannot snap).
+        var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, SwapFaceKind Kind, double ProgressFrom, double ProgressTo)>();
 
         Image? SnapshotGhost(FrameworkElement source, Point origin, int z)
         {
@@ -2206,6 +2208,16 @@ public partial class MainWindow : Window
             _swapLiveFaces.Add(live);
         }
 
+        void PrepLiveDuration(FrameworkElement live, ScaleTransform liveScale)
+        {
+            // Grow out of the progress bar (left edge).
+            live.RenderTransformOrigin = new Point(0, 0.5);
+            live.RenderTransform = liveScale;
+            live.Opacity = 0;
+            live.ClipToBounds = true;
+            _swapLiveFaces.Add(live);
+        }
+
         void AddPairedCube(FrameworkElement? live)
         {
             if (live is null ||
@@ -2224,7 +2236,7 @@ public partial class MainWindow : Window
 
             var liveScale = new ScaleTransform(1, 0);
             PrepLiveCube(live, liveScale);
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Cube));
+            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Cube, 0, 0));
         }
 
         void AddPairedSeek(FrameworkElement? live)
@@ -2242,7 +2254,27 @@ public partial class MainWindow : Window
 
             var liveScale = new ScaleTransform(0, 0);
             PrepLiveSeek(live, liveScale);
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Seek));
+            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Seek, 0, 0));
+        }
+
+        void AddPairedDuration(FrameworkElement? live, double progressFrom, double progressTo)
+        {
+            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
+            {
+                return;
+            }
+
+            // Ghost collapses back into the bar (left); live emerges from the bar.
+            var ghost = SnapshotGhost(live, new Point(0, 0.5), z: 30);
+            if (ghost is null)
+            {
+                return;
+            }
+
+            var liveScale = new ScaleTransform(0, 0);
+            PrepLiveDuration(live, liveScale);
+            faces.Add(
+                (ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, SwapFaceKind.Duration, progressFrom, progressTo));
         }
 
         // Progress fill: keep bar visible, animate Value from current → other side's current.
@@ -2259,15 +2291,21 @@ public partial class MainWindow : Window
         var primaryProgressTo = chipProgressFrom;
         var chipProgressTo = primaryProgressFrom;
 
-        BindingOperations.ClearBinding(ProgressBar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
-        ProgressBar.Value = primaryProgressFrom;
+        void FreezeProgressBar(ProgressBar bar, double value)
+        {
+            BindingOperations.ClearBinding(bar, System.Windows.Controls.Primitives.RangeBase.ValueProperty);
+            bar.BeginAnimation(System.Windows.Controls.Primitives.RangeBase.ValueProperty, null);
+            bar.Value = value;
+        }
 
-        // Primary: art/title/artist/icon cube; duration + prev/next same seek appear; progress lerps.
+        FreezeProgressBar(ProgressBar, primaryProgressFrom);
+
+        // Primary: art/title/artist/icon cube; duration timed to progress; prev/next seek.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistTextHost);
         AddPairedCube(SourceAppIcon);
-        AddPairedSeek(TimeTextHost);
+        AddPairedDuration(TimeTextHost, primaryProgressFrom, primaryProgressTo);
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
@@ -2280,17 +2318,17 @@ public partial class MainWindow : Window
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipAppIcon") as FrameworkElement);
-            AddPairedSeek(FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement);
+            AddPairedDuration(
+                FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement,
+                chipProgressFrom,
+                chipProgressTo);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
 
             chipProgressBar = FindDescendantByName(chipRoot, "ChipProgressBar") as ProgressBar;
             if (chipProgressBar is not null)
             {
-                BindingOperations.ClearBinding(
-                    chipProgressBar,
-                    System.Windows.Controls.Primitives.RangeBase.ValueProperty);
-                chipProgressBar.Value = chipProgressFrom;
+                FreezeProgressBar(chipProgressBar, chipProgressFrom);
             }
         }
 
@@ -2301,36 +2339,64 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Local 0..1 for duration relative to whether this side's fill shrinks or expands.
+        static double DurationLocalT(double easeT, double progressFrom, double progressTo)
+        {
+            const double eps = 0.02;
+            if (progressTo < progressFrom - eps)
+            {
+                // Shrink: duration emerges while the fill pulls back (full window).
+                return easeT;
+            }
+
+            if (progressTo > progressFrom + eps)
+            {
+                // Expand: wait until timeline has mostly grown, then appear.
+                const double start = 0.55;
+                return easeT <= start ? 0 : Math.Clamp((easeT - start) / (1 - start), 0, 1);
+            }
+
+            // Same fill level — appear in the second half.
+            return easeT < 0.45 ? 0 : Math.Clamp((easeT - 0.45) / 0.55, 0, 1);
+        }
+
         void ApplyFace(
             Image? ghost,
             ScaleTransform? ghostScale,
             FrameworkElement? live,
             ScaleTransform? liveScale,
             SwapFaceKind kind,
-            double t)
+            double progressFrom,
+            double progressTo,
+            double linearT,
+            double easeT)
         {
-            var p = t * t * (3 - 2 * t);
-
             if (kind == SwapFaceKind.Cube)
             {
                 if (ghostScale is not null && ghost is not null)
                 {
-                    ghostScale.ScaleY = 1 - p;
+                    ghostScale.ScaleY = 1 - easeT;
                     ghost.Opacity = 1;
                 }
 
                 if (live is not null && liveScale is not null)
                 {
-                    liveScale.ScaleY = p;
+                    liveScale.ScaleY = easeT;
                     live.Opacity = 1;
                 }
+
+                return;
             }
-            else
+
+            if (kind == SwapFaceKind.Duration)
             {
-                // Seek + duration: same uniform shrink/grow appear.
+                // Map on linear clock, then ease the local window once.
+                var d = DurationLocalT(linearT, progressFrom, progressTo);
+                var de = d * d * (3 - 2 * d);
+                // Old text collapses into the bar; new text grows out of it.
                 if (ghostScale is not null && ghost is not null)
                 {
-                    var s = 1 - p;
+                    var s = 1 - de;
                     ghostScale.ScaleX = s;
                     ghostScale.ScaleY = s;
                     ghost.Opacity = s;
@@ -2338,27 +2404,62 @@ public partial class MainWindow : Window
 
                 if (live is not null && liveScale is not null)
                 {
-                    liveScale.ScaleX = p;
-                    liveScale.ScaleY = p;
-                    live.Opacity = p > 0.01 ? 1 : 0;
+                    liveScale.ScaleX = de;
+                    liveScale.ScaleY = de;
+                    live.Opacity = de > 0.01 ? 1 : 0;
                 }
+
+                return;
+            }
+
+            // Seek prev/next.
+            if (ghostScale is not null && ghost is not null)
+            {
+                var s = 1 - easeT;
+                ghostScale.ScaleX = s;
+                ghostScale.ScaleY = s;
+                ghost.Opacity = s;
+            }
+
+            if (live is not null && liveScale is not null)
+            {
+                liveScale.ScaleX = easeT;
+                liveScale.ScaleY = easeT;
+                live.Opacity = easeT > 0.01 ? 1 : 0;
+            }
+        }
+
+        void ApplyProgress(double easeT)
+        {
+            // Re-freeze every frame — SyncCollection/ApplyTimeline must not snap either bar.
+            FreezeProgressBar(
+                ProgressBar,
+                primaryProgressFrom + (primaryProgressTo - primaryProgressFrom) * easeT);
+            if (chipProgressBar is null &&
+                _swapChip is not null &&
+                FindDescendantByName(_swapChip, "ChipProgressBar") is ProgressBar found)
+            {
+                chipProgressBar = found;
+            }
+
+            if (chipProgressBar is not null)
+            {
+                FreezeProgressBar(
+                    chipProgressBar,
+                    chipProgressFrom + (chipProgressTo - chipProgressFrom) * easeT);
             }
         }
 
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
-            var p = t * t * (3 - 2 * t);
-            ProgressBar.Value = primaryProgressFrom + (primaryProgressTo - primaryProgressFrom) * p;
-            if (chipProgressBar is not null)
-            {
-                chipProgressBar.Value = chipProgressFrom + (chipProgressTo - chipProgressFrom) * p;
-            }
+            var easeT = t * t * (3 - 2 * t);
+            ApplyProgress(easeT);
 
             for (var i = 0; i < faces.Count; i++)
             {
-                var (ghost, ghostScale, live, liveScale, kind) = faces[i];
-                ApplyFace(ghost, ghostScale, live, liveScale, kind, t);
+                var (ghost, ghostScale, live, liveScale, kind, progressFrom, progressTo) = faces[i];
+                ApplyFace(ghost, ghostScale, live, liveScale, kind, progressFrom, progressTo, t, easeT);
             }
         }
 
@@ -2372,6 +2473,19 @@ public partial class MainWindow : Window
             TimeSpan.FromMilliseconds(PrimarySwapMs),
             null,
             ResetSwapVisuals);
+
+        // After SyncCollection rebinds Progress, freeze again on the next layout pass.
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (!_primarySwapAnimating)
+                {
+                    return;
+                }
+
+                ApplyProgress(0);
+            },
+            DispatcherPriority.Loaded);
     }
 
     private void RestoreProgressBindings()
