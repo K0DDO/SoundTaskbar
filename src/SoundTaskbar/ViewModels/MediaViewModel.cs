@@ -20,13 +20,19 @@ public sealed class PrimarySwapEventArgs(string fromKey, string toKey) : EventAr
 }
 
 /// <summary>
-/// Audio track changed after skip. <see cref="Direction"/> +1 = next (roll left←new), -1 = previous.
-/// Raised before title/art bindings update so UI can snapshot the old faces.
+/// Audio track skip on primary or a side chip.
+/// <see cref="Direction"/> +1 = next, -1 = previous.
+/// <see cref="SessionKey"/> null/empty = primary; otherwise the side chip session.
 /// </summary>
-public sealed class TrackSkipEventArgs(int direction) : EventArgs
+public sealed class TrackSkipEventArgs(int direction, string? sessionKey = null) : EventArgs
 {
     /// <summary>+1 next, -1 previous.</summary>
     public int Direction { get; } = direction;
+
+    /// <summary>Null/empty = primary rail; otherwise parked side chip key.</summary>
+    public string? SessionKey { get; } = sessionKey;
+
+    public bool IsPrimary => string.IsNullOrEmpty(SessionKey);
 }
 
 /// <summary>
@@ -132,8 +138,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string _displayedTrackKey = string.Empty;
     /// <summary>+1 / -1 while waiting for SMTC to report a new track after skip; null = idle.</summary>
     private int? _pendingTrackSkipDir;
+    private string? _pendingTrackSkipSessionKey;
     private DateTimeOffset? _pendingTrackSkipUntil;
     private const int TrackSkipWaitMs = 3500;
+    /// <summary>Last shown Title|Artist per side chip (for skip-cube detection).</summary>
+    private readonly Dictionary<string, string> _sideTrackKeys = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Set when RefreshAsync is busy so the in-flight pass re-runs full after.</summary>
     private bool _refreshNeedsFull;
     private bool _staleVisuals;
@@ -1350,6 +1359,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             if (source.All(s => s.SessionKey != target[i].SessionKey))
             {
+                _sideTrackKeys.Remove(target[i].SessionKey);
                 target.RemoveAt(i);
             }
         }
@@ -1387,6 +1397,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
             var expandedMeta = string.Equals(snap.SessionKey, expandedKey, StringComparison.Ordinal);
             existing.AppId = snap.AppId;
+
+            // Side track-skip cube: raise while old Title/Artwork still bound.
+            TryRaiseSideTrackSkip(existing, snap);
+
             existing.Artwork = snap.Artwork ?? existing.Artwork;
             existing.Title = string.IsNullOrWhiteSpace(snap.Title) ? existing.Title : snap.Title;
             if (string.IsNullOrWhiteSpace(existing.Title))
@@ -1404,6 +1418,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             existing.IsVideo = snap.IsVideo;
             existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
             existing.ShowExpandedMeta = expandedMeta;
+
             existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
             if (_iconCache.TryGetValue(snap.AppId, out var cachedIcon))
@@ -1414,6 +1429,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 _ = LoadSideAppIconAsync(existing, snap.AppId);
             }
+
+            _sideTrackKeys[snap.SessionKey] = BuildTrackKey(existing.Title, existing.Artist);
         }
 
         NotifySourceSlotChanged();
@@ -1460,15 +1477,39 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private async Task PreviousSideSessionAsync(string sessionKey)
     {
         _media.Focus(sessionKey);
+        var snap = _media.Capture(sessionKey);
+        if (snap.CanSkipPrevious)
+        {
+            ArmTrackSkip(direction: -1, sessionKey);
+        }
+        else if (snap.CanSeek)
+        {
+            await _media.PreviousOrSeekBackAsync(sessionKey);
+            await RefreshAsync(full: false);
+            return;
+        }
+
         await _media.PreviousOrSeekBackAsync(sessionKey);
-        await RefreshAsync(full: false);
+        await PollTrackSkipAsync();
     }
 
     private async Task NextSideSessionAsync(string sessionKey)
     {
         _media.Focus(sessionKey);
+        var snap = _media.Capture(sessionKey);
+        if (snap.CanSkipNext)
+        {
+            ArmTrackSkip(direction: 1, sessionKey);
+        }
+        else if (snap.CanSeek)
+        {
+            await _media.NextOrSeekForwardAsync(sessionKey);
+            await RefreshAsync(full: false);
+            return;
+        }
+
         await _media.NextOrSeekForwardAsync(sessionKey);
-        await RefreshAsync(full: false);
+        await PollTrackSkipAsync();
     }
 
     private void RequestParkedDismiss()
@@ -1549,7 +1590,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _displayedPrimaryKey = string.Empty;
         _displayedTrackKey = string.Empty;
         _pendingTrackSkipDir = null;
+        _pendingTrackSkipSessionKey = null;
         _pendingTrackSkipUntil = null;
+        _sideTrackKeys.Clear();
         _staleVisuals = true;
         SetTimelineAnchor(_anchorPosition, playing: false);
         IsPlaying = false;
@@ -1697,7 +1740,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (CanSkipPrevious)
         {
-            ArmTrackSkip(direction: -1);
+            ArmTrackSkip(direction: -1, sessionKey: null);
         }
         else
         {
@@ -1721,7 +1764,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (CanSkipNext)
         {
-            ArmTrackSkip(direction: 1);
+            ArmTrackSkip(direction: 1, sessionKey: null);
         }
         else
         {
@@ -1756,12 +1799,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void ArmTrackSkip(int direction)
+    private void ArmTrackSkip(int direction, string? sessionKey)
     {
         _pendingTrackSkipDir = direction;
+        _pendingTrackSkipSessionKey = sessionKey;
         _pendingTrackSkipUntil = DateTimeOffset.UtcNow.AddMilliseconds(TrackSkipWaitMs);
         // Still on the button's UI thread (before the first await in GoNext/GoPrevious).
-        TrackSkipPreparing?.Invoke(this, new TrackSkipEventArgs(direction));
+        TrackSkipPreparing?.Invoke(this, new TrackSkipEventArgs(direction, sessionKey));
     }
 
     private void CancelTrackSkipArm()
@@ -1772,11 +1816,36 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _pendingTrackSkipDir = null;
+        _pendingTrackSkipSessionKey = null;
         _pendingTrackSkipUntil = null;
         TrackSkipCancelled?.Invoke(this, EventArgs.Empty);
     }
 
     private void TryRaiseTrackSkip(MediaSessionSnapshot snapshot)
+    {
+        // Primary path only.
+        if (_pendingTrackSkipDir is null || !string.IsNullOrEmpty(_pendingTrackSkipSessionKey))
+        {
+            return;
+        }
+
+        TryCommitTrackSkip(snapshot, _displayedTrackKey);
+    }
+
+    private void TryRaiseSideTrackSkip(SideSessionViewModel existing, MediaSessionSnapshot snap)
+    {
+        if (_pendingTrackSkipDir is null ||
+            string.IsNullOrEmpty(_pendingTrackSkipSessionKey) ||
+            !string.Equals(_pendingTrackSkipSessionKey, snap.SessionKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _sideTrackKeys.TryGetValue(snap.SessionKey, out var displayed);
+        TryCommitTrackSkip(snap, displayed ?? string.Empty);
+    }
+
+    private void TryCommitTrackSkip(MediaSessionSnapshot snapshot, string displayedKey)
     {
         if (_pendingTrackSkipDir is null)
         {
@@ -1803,21 +1872,23 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_displayedTrackKey))
+        if (string.IsNullOrWhiteSpace(displayedKey))
         {
             return;
         }
 
         var nextKey = BuildTrackKey(snapshot.Title, snapshot.Artist?.Trim() ?? string.Empty);
-        if (string.Equals(nextKey, _displayedTrackKey, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(nextKey, displayedKey, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         var dir = _pendingTrackSkipDir.Value;
+        var key = _pendingTrackSkipSessionKey;
         _pendingTrackSkipDir = null;
+        _pendingTrackSkipSessionKey = null;
         _pendingTrackSkipUntil = null;
-        TrackSkipping?.Invoke(this, new TrackSkipEventArgs(dir));
+        TrackSkipping?.Invoke(this, new TrackSkipEventArgs(dir, key));
     }
 
     private static string BuildTrackKey(string title, string artist) =>

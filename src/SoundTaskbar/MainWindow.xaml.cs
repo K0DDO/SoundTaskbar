@@ -2302,6 +2302,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Side chip lives under ParkedHost — don't clip ghosts while we measure/position.
+        if (!e.IsPrimary)
+        {
+            ParkedHost.ClipToBounds = false;
+        }
+
         _trackSkipDirection = e.Direction;
         var next = e.Direction >= 0;
         var ghostOrigin = next ? new Point(0, 0.5) : new Point(1, 0.5);
@@ -2350,15 +2356,39 @@ public partial class MainWindow : Window
             _trackSkipFaces.Add((ghost, ghostScale, live, liveScale));
         }
 
-        Prep(PrimaryArtHost);
-        Prep(TitleMarquee);
-        Prep(PrimaryArtistTextHost);
-        if (_trackSkipFaces.Count == 0)
+        if (e.IsPrimary)
         {
-            Prep(PrimaryArtistRow);
+            Prep(PrimaryArtHost);
+            Prep(TitleMarquee);
+            Prep(PrimaryArtistTextHost);
+            if (_trackSkipFaces.Count == 0)
+            {
+                Prep(PrimaryArtistRow);
+            }
+        }
+        else
+        {
+            var side = _viewModel.SideSessions.FirstOrDefault(s =>
+                string.Equals(s.SessionKey, e.SessionKey, StringComparison.Ordinal));
+            if (side is not null &&
+                ParkedList.ItemContainerGenerator.ContainerFromItem(side) is DependencyObject root)
+            {
+                var expanded = side.ShowExpandedMeta || side.ExpandProgress > 0.5;
+                if (expanded)
+                {
+                    Prep(FindDescendantByName(root, "ChipExpandedArt") as FrameworkElement);
+                    Prep(FindDescendantByName(root, "ChipTitleRow") as FrameworkElement);
+                    Prep(FindDescendantByName(root, "ChipArtistTextHost") as FrameworkElement);
+                }
+                else
+                {
+                    Prep(FindDescendantByName(root, "ChipCompactArtClip") as FrameworkElement);
+                }
+            }
         }
 
-        LogTrackSkip($"prepare dir={e.Direction} faces={_trackSkipFaces.Count} art={PrimaryArtHost.ActualWidth:0}x{PrimaryArtHost.ActualHeight:0}");
+        LogTrackSkip(
+            $"prepare dir={e.Direction} primary={e.IsPrimary} key={e.SessionKey ?? "-"} faces={_trackSkipFaces.Count}");
     }
 
     /// <summary>
@@ -2414,6 +2444,7 @@ public partial class MainWindow : Window
         LogTrackSkip("cancelled");
         StopTrackSkipTimer();
         DiscardTrackSkipFaces();
+        ParkedHost.ClipToBounds = true;
         if (!_primarySwapAnimating)
         {
             RestoreSwapMediaFaces();
@@ -2444,6 +2475,7 @@ public partial class MainWindow : Window
         StopTrackSkipTimer();
         DiscardTrackSkipFaces(removeGhostsOnly: true);
         _primarySwapAnimating = false;
+        ParkedHost.ClipToBounds = true;
         RestoreSwapMediaFaces();
         _taskbarHost?.FlushRegion();
     }
