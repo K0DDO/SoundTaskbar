@@ -52,7 +52,6 @@ public partial class MainWindow : Window
     private AnimationClockHolder? _playPlayClock;
     private AnimationClockHolder? _visibilityClock;
     private AnimationClockHolder? _swapClock;
-    private AnimationClockHolder? _demoteClock;
     /// <summary>Bumps on each pause+play volume chrome tween — stale Completed handlers no-op.</summary>
     private int _volumeChromeAnimId;
     private bool _pausePlayVolumeChromeCollapsed;
@@ -76,9 +75,6 @@ public partial class MainWindow : Window
     private const double ChipVolumeOpenWidth = 64;
     /// <summary>Total morph time; split into shrink-primary then expand-chip (or reverse).</summary>
     private const int PlayPlayMorphMs = 520;
-    /// <summary>Full demote timeline (wipe + overlapped reveal).</summary>
-    private const int PlayPlayDemoteMs = 720;
-    private const double PlayPlayDemoteWipeShift = 52;
     private const int WidgetRevealMs = 480;
     /// <summary>Hide/show slides the content toward the tray by this much.</summary>
     private const double WidgetRevealShift = 10;
