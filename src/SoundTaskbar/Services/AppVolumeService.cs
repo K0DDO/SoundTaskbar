@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using NAudio.CoreAudioApi;
 
@@ -14,10 +15,17 @@ public readonly record struct AppVolumeState(bool Found, float Volume, bool IsMu
 /// </summary>
 public sealed class AppVolumeService : IDisposable
 {
+    private const int ProcessNameCacheMs = 500;
+    private const int SessionRefreshMs = 400;
+
     private readonly object _gate = new();
+    private readonly ConcurrentDictionary<string, string[]> _tokenCache =
+        new(StringComparer.OrdinalIgnoreCase);
     private MMDeviceEnumerator? _enumerator;
     private MMDevice? _device;
     private long _lastRefreshTicks;
+    private long _processNamesTicks;
+    private HashSet<string>? _processNames;
     private bool _disposed;
 
     public AppVolumeState GetState(string? appId, bool forceRefresh = false)
@@ -128,7 +136,8 @@ public sealed class AppVolumeService : IDisposable
     }
 
     /// <summary>
-    /// True if a process matching the SMTC AppId is still running (fast parked-chip eviction).
+    /// True if a process matching the SMTC AppId is still running (parked-chip eviction).
+    /// Process-name snapshot is cached ~500ms — callers poll often.
     /// </summary>
     public bool IsAppRunning(string? appId)
     {
@@ -137,42 +146,19 @@ public sealed class AppVolumeService : IDisposable
             return false;
         }
 
-        var tokens = BuildTokens(appId);
-        Process[] processes;
-        try
-        {
-            processes = Process.GetProcesses();
-        }
-        catch
+        var tokens = GetTokens(appId);
+        var names = GetCachedProcessNames();
+        if (names is null)
         {
             return true; // fail open — keep chip until SMTC drops it
         }
 
-        try
+        foreach (var name in names)
         {
-            foreach (var process in processes)
+            if (IsMatch(tokens, appId, name, string.Empty))
             {
-                try
-                {
-                    var name = process.ProcessName ?? string.Empty;
-                    if (name.Length > 0 && IsMatch(tokens, appId, name, string.Empty))
-                    {
-                        return true;
-                    }
-                }
-                catch
-                {
-                    // process exited mid-enumeration
-                }
-                finally
-                {
-                    process.Dispose();
-                }
+                return true;
             }
-        }
-        finally
-        {
-            // disposed individually above
         }
 
         return false;
@@ -192,6 +178,56 @@ public sealed class AppVolumeService : IDisposable
             _device = null;
             _enumerator?.Dispose();
             _enumerator = null;
+            _processNames = null;
+        }
+    }
+
+    private HashSet<string>? GetCachedProcessNames()
+    {
+        var now = Environment.TickCount64;
+        lock (_gate)
+        {
+            if (_processNames is not null && now - _processNamesTicks < ProcessNameCacheMs)
+            {
+                return _processNames;
+            }
+        }
+
+        HashSet<string> names;
+        try
+        {
+            var processes = Process.GetProcesses();
+            names = new HashSet<string>(processes.Length, StringComparer.OrdinalIgnoreCase);
+            foreach (var process in processes)
+            {
+                try
+                {
+                    var name = process.ProcessName;
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        names.Add(name);
+                    }
+                }
+                catch
+                {
+                    // process exited mid-enumeration
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            _processNames = names;
+            _processNamesTicks = now;
+            return _processNames;
         }
     }
 
@@ -202,7 +238,7 @@ public sealed class AppVolumeService : IDisposable
         _device ??= _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
 
         var now = Environment.TickCount64;
-        if (forceRefresh || now - _lastRefreshTicks >= 400)
+        if (forceRefresh || now - _lastRefreshTicks >= SessionRefreshMs)
         {
             _device.AudioSessionManager.RefreshSessions();
             _lastRefreshTicks = now;
@@ -217,7 +253,7 @@ public sealed class AppVolumeService : IDisposable
             return list;
         }
 
-        var tokens = BuildTokens(appId);
+        var tokens = GetTokens(appId);
         var sessions = _device.AudioSessionManager.Sessions;
         for (var i = 0; i < sessions.Count; i++)
         {
@@ -307,56 +343,72 @@ public sealed class AppVolumeService : IDisposable
         }
     }
 
-    private static List<string> BuildTokens(string appId)
+    private string[] GetTokens(string appId) =>
+        _tokenCache.GetOrAdd(appId, static id => BuildTokens(id));
+
+    private static string[] BuildTokens(string appId)
     {
-        var tokens = new List<string>();
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var raw = appId.Trim();
-        tokens.Add(raw);
+        AddToken(set, raw);
 
         var withoutExe = raw.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
             ? raw[..^4]
             : raw;
-        tokens.Add(withoutExe);
+        AddToken(set, withoutExe);
 
         if (withoutExe.Contains('!', StringComparison.Ordinal))
         {
-            tokens.Add(withoutExe.Split('!')[^1]);
+            AddToken(set, withoutExe.Split('!')[^1]);
         }
 
         if (withoutExe.Contains('_', StringComparison.Ordinal))
         {
-            tokens.Add(withoutExe.Split('_')[0]);
+            AddToken(set, withoutExe.Split('_')[0]);
         }
 
-        var dotted = tokens[^1];
+        var dotted = withoutExe.Contains('!', StringComparison.Ordinal)
+            ? withoutExe.Split('!')[^1]
+            : withoutExe;
+        if (dotted.Contains('_', StringComparison.Ordinal))
+        {
+            dotted = dotted.Split('_')[0];
+        }
+
         if (dotted.Contains('.', StringComparison.Ordinal))
         {
-            tokens.Add(dotted.Split('.')[^1]);
+            AddToken(set, dotted.Split('.')[^1]);
         }
 
-        return tokens
-            .Where(t => t.Length >= 2)
-            .Select(t => t.ToLowerInvariant())
-            .Distinct()
-            .ToList();
+        return set.ToArray();
     }
 
-    private static bool IsMatch(List<string> tokens, string appId, string processName, string displayName)
+    private static void AddToken(HashSet<string> set, string token)
     {
-        var process = processName.ToLowerInvariant();
-        var display = displayName.ToLowerInvariant();
-        var id = appId.ToLowerInvariant();
+        if (token.Length >= 2)
+        {
+            set.Add(token);
+        }
+    }
 
-        if (id.Contains(process, StringComparison.Ordinal) || process.Contains(StripExe(id), StringComparison.Ordinal))
+    private static bool IsMatch(string[] tokens, string appId, string processName, string displayName)
+    {
+        if (processName.Length == 0 && displayName.Length == 0)
+        {
+            return false;
+        }
+
+        if (appId.Contains(processName, StringComparison.OrdinalIgnoreCase) ||
+            processName.Contains(StripExe(appId), StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
         foreach (var token in tokens)
         {
-            if (process.Contains(token, StringComparison.Ordinal) ||
-                token.Contains(process, StringComparison.Ordinal) ||
-                display.Contains(token, StringComparison.Ordinal))
+            if (processName.Contains(token, StringComparison.OrdinalIgnoreCase) ||
+                token.Contains(processName, StringComparison.OrdinalIgnoreCase) ||
+                (displayName.Length > 0 && displayName.Contains(token, StringComparison.OrdinalIgnoreCase)))
             {
                 return true;
             }

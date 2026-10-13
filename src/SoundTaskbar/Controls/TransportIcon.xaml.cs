@@ -150,23 +150,33 @@ public partial class TransportIcon : UserControl
     private static bool IsSeek(TransportIconKind kind) =>
         kind is TransportIconKind.SeekBack or TransportIconKind.SeekForward;
 
+    private static readonly Geometry SkipPreviousGeometry = FreezeParse(
+        "M12.5,2 L4.5,7 L12.5,12 Z M1.5,2 L2.7,2 L2.7,12 L1.5,12 Z");
+    private static readonly Geometry SkipNextGeometry = FreezeParse(
+        "M1.5,2 L9.5,7 L1.5,12 Z M11.3,2 L12.5,2 L12.5,12 L11.3,12 Z");
+    private static readonly Geometry SeekBackArc = FreezeParse("M 2,7 A 5,5 0 1 0 7,2");
+    private static readonly Geometry SeekForwardArc = FreezeParse("M 12,7 A 5,5 0 1 1 7,2");
+    private static readonly Geometry SeekBackTip = FreezeParse("M 7.65,0.85 L 4.45,2.05 L 7.85,3.35 Z");
+    private static readonly Geometry SeekForwardTip = FreezeParse("M 6.35,0.85 L 9.55,2.05 L 6.15,3.35 Z");
+
     /// <summary>Skip next mirrored — same visual center so prev/next appear-scale match.</summary>
     private static Geometry GeometryForSkip(TransportIconKind kind) =>
-        kind switch
-        {
-            TransportIconKind.SkipPrevious =>
-                Geometry.Parse("M12.5,2 L4.5,7 L12.5,12 Z M1.5,2 L2.7,2 L2.7,12 L1.5,12 Z"),
-            _ =>
-                Geometry.Parse("M1.5,2 L9.5,7 L1.5,12 Z M11.3,2 L12.5,2 L12.5,12 L11.3,12 Z")
-        };
+        kind == TransportIconKind.SkipPrevious ? SkipPreviousGeometry : SkipNextGeometry;
 
     private static Geometry GeometryForSeekArc(TransportIconKind kind) =>
-        kind == TransportIconKind.SeekBack
-            ? Geometry.Parse("M 2,7 A 5,5 0 1 0 7,2")
-            : Geometry.Parse("M 12,7 A 5,5 0 1 1 7,2");
+        kind == TransportIconKind.SeekBack ? SeekBackArc : SeekForwardArc;
 
     private static Geometry GeometryForSeekTip(TransportIconKind kind) =>
-        kind == TransportIconKind.SeekBack
-            ? Geometry.Parse("M 7.65,0.85 L 4.45,2.05 L 7.85,3.35 Z")
-            : Geometry.Parse("M 6.35,0.85 L 9.55,2.05 L 6.15,3.35 Z");
+        kind == TransportIconKind.SeekBack ? SeekBackTip : SeekForwardTip;
+
+    private static Geometry FreezeParse(string data)
+    {
+        var geometry = Geometry.Parse(data);
+        if (geometry.CanFreeze)
+        {
+            geometry.Freeze();
+        }
+
+        return geometry;
+    }
 }

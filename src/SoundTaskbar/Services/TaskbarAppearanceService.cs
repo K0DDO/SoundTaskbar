@@ -26,7 +26,9 @@ public sealed class TaskbarAppearance : IEquatable<TaskbarAppearance>
         TraySample == other.TraySample;
 
     public override bool Equals(object? obj) => Equals(obj as TaskbarAppearance);
-    public override int GetHashCode() => HashCode.Combine(Foreground, ProgressFill, IsLight, TraySample);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(Foreground, MutedForeground, ProgressTrack, ProgressFill, IsLight, TraySample);
 }
 
 /// <summary>
@@ -37,13 +39,15 @@ public sealed class TaskbarAppearanceService : IDisposable
 {
     private readonly DispatcherTimer _timer;
     private readonly Window _window;
+    private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
     private bool _disposed;
     private TaskbarAppearance? _last;
 
     public TaskbarAppearanceService(Window window)
     {
         _window = window;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        // Theme changes also come from UserPreferenceChanged; poll is for TranslucentTB / wallpaper.
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
         _timer.Tick += (_, _) => Refresh();
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
@@ -91,7 +95,7 @@ public sealed class TaskbarAppearanceService : IDisposable
         Changed?.Invoke(this, appearance);
     }
 
-    private static TaskbarAppearance Detect()
+    private TaskbarAppearance Detect()
     {
         var sample = SampleTrayColor();
         var isLight = sample is not null
@@ -114,19 +118,18 @@ public sealed class TaskbarAppearanceService : IDisposable
         };
     }
 
-    private static Color GetAccentColor(bool isLight)
+    private Color GetAccentColor(bool isLight)
     {
         try
         {
-            var settings = new Windows.UI.ViewManagement.UISettings();
             // Contrast-tuned accent shade for the current taskbar theme.
-            var accent = settings.GetColorValue(
+            var accent = _uiSettings.GetColorValue(
                 isLight
                     ? Windows.UI.ViewManagement.UIColorType.AccentDark1
                     : Windows.UI.ViewManagement.UIColorType.AccentLight2);
             if (accent.A == 0)
             {
-                accent = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Accent);
+                accent = _uiSettings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Accent);
             }
 
             return Color.FromArgb(accent.A, accent.R, accent.G, accent.B);

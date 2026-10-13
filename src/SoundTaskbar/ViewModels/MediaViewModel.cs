@@ -219,8 +219,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         };
 
         // SMTC can keep a zombie paused session after quit — poll + process check.
-        // Snappy: dismiss starts as soon as the paused app is gone (was 350ms).
-        _parkedWatchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        // 400ms is enough with cached IsAppRunning; 100ms was pure process-scan churn.
+        _parkedWatchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _parkedWatchdog.Tick += (_, _) => OnParkedWatchdog();
 
         _demoteDelayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DemoteDelayMs) };

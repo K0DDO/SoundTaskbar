@@ -1,6 +1,6 @@
 # SoundTaskbar
 
-Медиа-контролы рядом с Windows-таскбаром: обложка, название, prev / play / next, длительность. Источники вроде Spotify, Яндекс Музыки, видео в браузере — через системный SMTC.
+Медиа-контролы **в полосе Windows-таскбара** (слева от трея): обложка, название, prev / play / next, прогресс, громкость приложения. Источники — любой SMTC-плеер (Spotify, Яндекс Музыка, видео в браузере и т.д.).
 
 ## Требования
 
@@ -9,26 +9,24 @@
 
 ## Запуск
 
-Из корня репозитория (`Documents\VScode\SoundTaskbar`):
-
 ```powershell
 cd C:\Users\dima4ka\Documents\VScode\SoundTaskbar
 dotnet run --project src/SoundTaskbar
 ```
 
-Запусти музыку или видео, затем приложение — контролы появятся **в полосе таскбара** слева от системного трея.
-Правый клик по виджету → Выход.
+Правый клик по виджету → автозапуск / перезапуск / выход.
 
-## Сейчас умеет
+Портативный exe:
 
-- Читать активную медиа-сессию (title, artist, artwork, status)
-- Показывать прогресс и длительность
-- Previous / play-pause / next
-- Панель закреплена на полосе таскбара слева от трея
+```powershell
+dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTaskbar.exe
+```
 
-## Дальше
+## Умеет
 
-- Громкость конкретного приложения
-- Точнее учитывать centered taskbar / виджеты Win11
+- SMTC: title, artist, artwork, play/pause, next/prev (или seek ±10s)
+- Несколько источников: pause+play, play+play, до 5 side-чипов
+- Per-app volume + VU
+- Анимации смены трека / swap чипов / appear-dismiss
 
-Живой контекст для разработки: `PROJECT_CONTEXT.md`.
+Живой контекст для разработки: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).

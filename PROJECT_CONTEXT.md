@@ -1,94 +1,133 @@
 # SoundTaskbar — project context
 
 > **Для агента:** читай этот файл в начале каждой сессии и перед тем как контекст закончится.
-> После значимых изменений обновляй разделы «Текущее состояние» и «Следующие шаги».
+> После значимых изменений обновляй разделы «Текущее состояние» и «Следующие шаги», затем коммить.
 
 ## Продукт
 
-Windows-приложение: медиа-контролы **на полосе таскбара** для музыки и видео.
+Windows-приложение: медиа-контролы **на полосе таскбара** (слева от трея) для музыки и видео.
 
-Когда играет источник вроде Spotify, Яндекс Музыки, YouTube или другого плеера, на таскбаре видно:
+Показывает: обложку, title / artist, prev · play/pause · next, прогресс + время, per-app volume (клик → слайдер, без master volume).
 
-- обложку / превью
-- название трека или видео (и при наличии — исполнитель / канал)
-- кнопки назад, пауза/плей, вперёд
-- прогресс / длительность
-- громкость именно этого источника: клик открывает слайдер, можно сделать тише или громче без трогания системной громкости
-
-Та же схема для видео, не только для песен.
-
-## Целевое поведение
-
-1. Подхватывать активный медиа-источник системы (SMTC / session API).
-2. Показывать UI на полосе таскбара слева от трея.
-3. Play / pause / next / previous через системные команды медиа-сессии.
-4. Per-app volume: менять громкость конкретного audio session, не master volume.
-5. Несколько SMTC-источников: пауза оставляет чип с ▶ на обложке; два playing — упрощённый dual-вид.
-
-## Важные ограничения Win11 25H2
-
-- Маленький child `Shell_TrayWnd` оказывается под XAML-слоем таскбара → не видно.
-- Top-level overlay видно, но Win+D / «показать рабочий стол» его прячет (WorkerW/cloak).
-- Рабочий путь (FluentFlyout-style): child на **весь** таскбар + `SetWindowRgn` только на полосу виджета + прозрачный фон.
+Источники: Spotify, Яндекс Музыка, браузерное видео и любой SMTC-плеер.
 
 ## Стек
 
-- Платформа: Windows 10/11
-- UI: C# / WPF (`.NET 8`, TFM `net8.0-windows10.0.19041.0`)
-- Медиа: `GlobalSystemMediaTransportControlsSessionManager`
-- Хостинг: full-taskbar child + `SetWindowRgn` (`TaskbarHostService`)
-- Громкость источника: NAudio Core Audio (`AppVolumeService`) + `VolumeFlyout`
-- Решение: `SoundTaskbar.sln` → `src/SoundTaskbar`
+| Слой | Технология |
+|------|------------|
+| UI | C# / WPF, `.NET 8`, TFM `net8.0-windows10.0.19041.0` |
+| Медиа | `GlobalSystemMediaTransportControlsSessionManager` |
+| Хост | full-taskbar child + `SetWindowRgn` (`TaskbarHostService`) |
+| Громкость | NAudio Core Audio (`AppVolumeService`) |
+| Решение | `SoundTaskbar.sln` → `src/SoundTaskbar` |
 
 ## Запуск
 
 ```powershell
 cd C:\Users\dima4ka\Documents\VScode\SoundTaskbar
 dotnet run --project src/SoundTaskbar
-```
-
-Правый клик по виджету → «Запускать с Windows» / Выход.
-
-Портативный exe (self-contained, single-file, .NET внутри):
-
-```powershell
+# портативный exe:
 dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTaskbar.exe
 ```
 
-Автозапуск: `HKCU\...\Run\SoundTaskbar`, включается при первом запуске exe (не из bin\Debug), путь обновляется если exe перенесли. Один экземпляр (mutex).
+Правый клик → автозапуск / перезапуск / выход. Mutex одного экземпляра. Автозапуск пишет `HKCU\...\Run` только для published exe (не Debug/`dotnet run`).
 
-## Правила коммитов
+## Архитектура (карта файлов)
 
-- Сообщение с маленькой буквы
-- Без точки в конце
-- Одно короткое предложение
+```
+App.xaml(.cs)              mutex, autostart, errors.log, restart
+MainWindow.xaml(.cs)       весь UI-морф: chip/solo/pair, swap, track-skip, volume chrome
+ViewModels/
+  MediaViewModel.cs        SMTC refresh, primary timeline, demote, track-skip arm, volume
+  SideSessionViewModel.cs  parked chip state + local timeline clock + volume
+  PairLayoutPlanner.cs     sticky primary/side для ровно 2 playing
+Services/
+  MediaSessionService.cs   SMTC map, capture, transport, artwork decode
+  AppVolumeService.cs      per-app volume/peak + IsAppRunning (кэш имён процессов)
+  TaskbarHostService.cs    child на Shell_TrayWnd + region/reveal
+  TaskbarAppearanceService.cs  tray sample → light/dark + accent
+  StartupService.cs        HKCU Run
+Controls/                  MarqueeText, PlayPauseIcon, TransportIcon
+Helpers/                   AppIconLoader, MediaKindHelper, MediaSourceFormatter, TextMeasure, RelayCommand
+Native/NativeMethods.cs    P/Invoke только для host + appearance
+```
 
-## Правила для агента
+### Потоки данных
 
-1. В начале работы перечитай этот файл.
-2. Перед исчерпанием контекста обнови «Текущее состояние» и «Следующие шаги», затем закоммить.
-3. Не коммить секреты.
-4. Не раздувай scope.
-5. После логического куска — коммит (договорённость сессии).
-6. Запускай приложение сам после изменений.
+1. SMTC `Changed` / `TimelineChanged` → `MediaViewModel.RefreshAsync` (coalesce через `SemaphoreSlim`).
+2. Full capture = props+art параллельно; light = playback/timeline.
+3. `ApplyAll` на UI: filter parkable → playing set → solo / pause+play / play+play / empty.
+4. Локальные часы: primary `_uiTicker` 50ms; side `TickTimelineClock`; volume `_volumeTicker` 33ms.
+5. UI-морфы живут в `MainWindow` (не во ViewModel): parked reveal, play+play morph, divider cube-swap, track-skip.
 
-## Текущее состояние
+## Целевое поведение UI
 
-- **Cold start**: `_layoutReady` после `SettleColdStartLayout` (2× Loaded) — иначе при уже играющих источниках chip/meta меряются без контейнеров и кривят layout
-- **Solo**: 310 / marquee / icon / VU — layout заморожен; volume open → имя + `TimeText` dissolve в прогресс (ширина+opacity, 260ms)
-- **pause+play** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms). Compact chip volume: mute + slider + steal art/next. Primary volume: **как solo** — mute in place, VolumeHost 16→74, без steal art/play/next
-- **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`. Demote: пауза → ждём 1s (chrome play+play), unpause отменяет; затем тот же primary → shrink expanded, primary сменился → hide/settle/show. Peak только из solo; pair = только SMTC. Divider swap **только play↔play / pause↔pause**. Context menu: автозапуск / перезапуск / выход
-- **3+ источника**: `MaxSideChips=5`; лишние — маленькие paused-чипы слева, разделители между чипами; expanded play-чип всегда последний. Те же demote-правила, что для двух. `MorphSideChips` — прогресс на каждый чип
-- **Нет источника** → `HasSession=false` → morph в pill-иконку справа (обложка/♪) + wipe к трею (`RevealFraction`). Grace пустых сессий 900ms + tick refresh (баг: раньше grace истекал без refresh). Только `IsParkable` + running app; Stopped/Closed/мёртвый процесс → collapse. `_staleVisuals` держит последний трек на время анимации
-- **Смена доминирующего** / divider swap: cube (art/title/artist/app-icon); progress Value lerp на обеих сторонах (freeze binding); duration выходит из бара (shrink) или после роста fill (expand); prev/next = seek; pause/volume/VU не трогаем. Retarget unlocks chip transport. На swap `ParkedHost.ClipToBounds=false`
-- **Audio next/prev**: art — cube-roll; title/artist — slide; timeline — slash-morph чисел + lerp оранжевого fill (как chip swap); primary и side expanded; video/seek-only без этого
-- Хост: таймер 800ms делает attach (стили пишутся только при изменении); анимации ширины/reveal идут через лёгкий `UpdateRegion` (только геометрия + регион). Win+D-защиты сейчас нет (откат в d7fc9cf)
-- empty SMTC grace 900ms (Win+D blip); pair-exit grace убран — demote play+play→pause+play сразу
-- Title fade: edge-scrim from tray sample; ресурсные кисти не мутировать (frozen) — только заменять
-- Необработанные UI-исключения → `%LOCALAPPDATA%\SoundTaskbar\errors.log`, приложение не падает
+| Режим | Вид |
+|-------|-----|
+| Solo | ширина ~310, marquee, VU, volume open → dissolve имени/времени в прогресс |
+| pause+play | chip(и) слева + divider + primary play; appear/dismiss 340ms |
+| play+play | morph от pause chip; fixed meta `PlayPlayMetaWidth=96`; demote: 1s hold → wipe или chip shrink |
+| 3+ | `MaxSideChips=5`; expanded play-чип последний; лишние — compact paused |
+| Нет сессии | pill-иконка + wipe к трею (`RevealFraction`); grace пустых 900ms |
+| Divider swap | vertical cube art/title/artist/icon; seek glyphs; slash-morph time; orange lerp |
+| Audio next/prev | art cube-roll; title/artist slide; timeline slash-morph (как swap); video = seek-only |
+
+## Важные ограничения Win11
+
+- Маленький child `Shell_TrayWnd` прячется под XAML-слоем таскбара.
+- Рабочий путь (FluentFlyout-style): child на **весь** таскбар + `SetWindowRgn` только на полосу виджета.
+- Win+D / cloak hooks **откатывались** (ломали отрисовку) — не возвращать без отдельного плана.
+- Style/exstyle и `SetWindowPos` писать только при реальном изменении.
+
+## Текущее состояние (после аудита perf)
+
+### Поведение — работает
+
+- Cold start: `_layoutReady` после `SettleColdStartLayout` (2× Loaded).
+- Solo / pause+play / play+play / 3+ chips / empty wipe — как в таблице выше.
+- Primary volume в pause+play = как solo (без steal art/play/next). Compact chip volume: mute + slider + steal.
+- Track-skip на primary и side (expanded/compact art).
+- Empty SMTC grace 900ms + tick refresh. Только `IsParkable` + running app.
+- Title edge-scrim из tray sample; resource brushes не мутировать.
+- UI exceptions → `%LOCALAPPDATA%\SoundTaskbar\errors.log`.
+
+### Perf (сделано в аудите)
+
+| Было | Стало |
+|------|--------|
+| `IsAppRunning` → `Process.GetProcesses` на каждый вызов | кэш имён процессов ~500ms + кэш tokens |
+| Side `RefreshVolume(forceRefresh:true)` каждые 33ms | общий 400ms session refresh с primary |
+| Parked watchdog 100ms | 400ms |
+| Appearance `GetPixel` каждые 300ms | 1500ms + reuse `UISettings` |
+| Sequential SMTC media props | `Task.WhenAll` + `DecodePixelWidth=64` |
+| `Geometry.Parse` на каждый transport redraw | frozen static geometries |
+| Dead Win+D P/Invoke surface | удалён |
+| Publish | `PublishReadyToRun=true` |
+
+### Хрупкое — не трогать без регрессии
+
+- Demote delay / commit / `HoldPlayPlayDuringDemoteDelay`
+- Empty-session grace + tick kick
+- Seek guard / no-rewind `SyncTimeline` (Spotify stale Position)
+- Track-skip arm + empty-title wait + known-music override
+- `RetargetSessionKey` + transport lock (PlayPause переживает swap)
+- Force sticky keys для divider swap
+- Playing-set: peak только из solo; pair = SMTC-only
+- Host region / attach split / reveal wipe
+
+## Правила коммитов / агента
+
+1. Сообщение: lowercase, без точки, одно короткое предложение.
+2. В начале сессии — этот файл; перед концом контекста — обновить «Текущее состояние» / «Следующие шаги» + коммит.
+3. Не коммить секреты; не раздувать scope.
+4. После логического куска — коммит; запускай приложение сам.
+5. Не переписывать host/SMTC parkable/demote «для красоты».
 
 ## Следующие шаги
 
-1. Проверить cube-swap по divider в play+play (грани art/title/artist/time)
-2. Win+D: безопасная защита без перехвата WM_SHOWWINDOW (прошлая попытка ломала отрисовку)
-3. Seek по клику на прогресс
+1. Diff-based SMTC `RebuildSessions` (сейчас clear-all + re-subscribe) — меньше churn при `SessionsChanged`.
+2. Artwork content-hash cache, чтобы не перекодировать один и тот же thumbnail.
+3. Проверить cube-swap грани (art/title/artist/time) в play+play.
+4. Seek по клику на прогресс.
+5. Win+D: безопасная защита без `WM_SHOWWINDOW` (прошлый откат — d7fc9cf).
+6. README всё ещё частично устарел относительно volume/multi-chip — держать в синхе с этим файлом.

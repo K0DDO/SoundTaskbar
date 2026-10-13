@@ -497,9 +497,16 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             TimeText = text;
         }
 
-        Progress = _durationSpan.TotalSeconds <= 0
+        var nextProgress = _durationSpan.TotalSeconds <= 0
             ? 0
             : Math.Clamp(position.TotalSeconds / _durationSpan.TotalSeconds, 0, 1);
+        // Match primary: skip tiny Progress INPC that force layered redraws every 50ms.
+        if (Math.Abs(nextProgress - Progress) < 0.0025)
+        {
+            return;
+        }
+
+        Progress = nextProgress;
     }
 
     private void RecalculateMetaWidth()
@@ -597,7 +604,9 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             return;
         }
 
-        var state = _volume.GetState(AppId, forceRefresh: true);
+        // Share the 400ms session refresh with primary — forceRefresh here was refreshing
+        // Core Audio on every 33ms VU tick per side chip.
+        var state = _volume.GetState(AppId);
         CanControlVolume = state.Found;
         if (!state.Found)
         {

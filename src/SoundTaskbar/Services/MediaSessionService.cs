@@ -75,7 +75,7 @@ public sealed class MediaSessionService : IDisposable
             var list = new List<MediaSessionSnapshot>(_sessions.Count);
             foreach (var (key, session) in _sessions)
             {
-                list.Add(CaptureSession(key, session, artwork: null, includeMediaProps: false));
+                list.Add(CaptureSession(key, session, artwork: null));
             }
 
             return list;
@@ -95,16 +95,16 @@ public sealed class MediaSessionService : IDisposable
             return Array.Empty<MediaSessionSnapshot>();
         }
 
-        var results = new List<MediaSessionSnapshot>(pairs.Count);
-        foreach (var (key, session) in pairs)
+        // Fetch media props in parallel — SMTC calls are I/O bound; then snapshot under lock.
+        var mediaTasks = pairs.Select(async pair =>
         {
             BitmapImage? artwork = null;
-            string title = string.Empty;
-            string artist = string.Empty;
-            MediaPlaybackType? playbackType = null;
+            var title = string.Empty;
+            var artist = string.Empty;
+            MediaPlaybackType? playbackType = (MediaPlaybackType?)null;
             try
             {
-                var props = await session.TryGetMediaPropertiesAsync();
+                var props = await pair.Session.TryGetMediaPropertiesAsync();
                 if (props is not null)
                 {
                     title = props.Title ?? string.Empty;
@@ -121,14 +121,21 @@ public sealed class MediaSessionService : IDisposable
                 // keep empty media props
             }
 
-            lock (_gate)
+            return (pair.Key, pair.Session, title, artist, artwork, playbackType);
+        });
+
+        var media = await Task.WhenAll(mediaTasks);
+        var results = new List<MediaSessionSnapshot>(media.Length);
+        lock (_gate)
+        {
+            foreach (var (key, session, title, artist, artwork, playbackType) in media)
             {
                 if (!_sessions.ContainsKey(key))
                 {
                     continue;
                 }
 
-                var snap = CaptureSession(key, session, artwork, includeMediaProps: false);
+                var snap = CaptureSession(key, session, artwork);
                 results.Add(CloneWithMedia(snap, title, artist, artwork, playbackType));
             }
         }
@@ -146,7 +153,7 @@ public sealed class MediaSessionService : IDisposable
                 return new MediaSessionSnapshot();
             }
 
-            return CaptureSession(key, session, artwork: null, includeMediaProps: false);
+            return CaptureSession(key, session, artwork: null);
         }
     }
 
@@ -210,28 +217,31 @@ public sealed class MediaSessionService : IDisposable
     /// </summary>
     public bool PollSessions()
     {
-        List<string> before;
+        HashSet<string> before;
         lock (_gate)
         {
-            before = _sessions.Keys.ToList();
+            before = new HashSet<string>(_sessions.Keys, StringComparer.OrdinalIgnoreCase);
         }
 
         RebuildSessions();
 
-        List<string> after;
         lock (_gate)
         {
-            after = _sessions.Keys.ToList();
-        }
+            if (before.Count != _sessions.Count)
+            {
+                return true;
+            }
 
-        if (before.Count != after.Count)
-        {
-            return true;
-        }
+            foreach (var key in _sessions.Keys)
+            {
+                if (!before.Contains(key))
+                {
+                    return true;
+                }
+            }
 
-        before.Sort(StringComparer.OrdinalIgnoreCase);
-        after.Sort(StringComparer.OrdinalIgnoreCase);
-        return !before.SequenceEqual(after, StringComparer.OrdinalIgnoreCase);
+            return false;
+        }
     }
 
     public Task<bool> PlayAsync(string? sessionKey = null) =>
@@ -427,8 +437,7 @@ public sealed class MediaSessionService : IDisposable
     private static MediaSessionSnapshot CaptureSession(
         string key,
         GlobalSystemMediaTransportControlsSession session,
-        BitmapImage? artwork,
-        bool includeMediaProps)
+        BitmapImage? artwork)
     {
         try
         {
@@ -465,8 +474,8 @@ public sealed class MediaSessionService : IDisposable
                     ? timeline.EndTime - timeline.StartTime
                     : TimeSpan.Zero,
                 Artwork = artwork,
-                Title = includeMediaProps ? string.Empty : string.Empty,
-                Artist = includeMediaProps ? string.Empty : string.Empty
+                Title = string.Empty,
+                Artist = string.Empty
             };
         }
         catch
@@ -537,6 +546,8 @@ public sealed class MediaSessionService : IDisposable
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.StreamSource = memory;
+            // Taskbar art is 28px — decode small to cut decode CPU / memory.
+            image.DecodePixelWidth = 64;
             image.EndInit();
             image.Freeze();
             return image;

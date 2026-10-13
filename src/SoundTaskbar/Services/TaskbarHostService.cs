@@ -189,15 +189,16 @@ public sealed class TaskbarHostService : IDisposable
             return;
         }
 
+        var dpi = NativeMethods.GetDpiForWindow(taskbar);
+        var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
+
         NativeMethods.RECT trayRect;
         if (tray == IntPtr.Zero || !NativeMethods.GetWindowRect(tray, out trayRect))
         {
             trayRect = taskbarRect;
-            trayRect.Left = taskbarRect.Right - Scale(taskbar, 160);
+            trayRect.Left = taskbarRect.Right - Scale(160, scale);
         }
 
-        var dpi = NativeMethods.GetDpiForWindow(taskbar);
-        var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
         var gap = (int)Math.Round(6 * scale);
         var desiredWidgetWidth = (int)Math.Round(_desiredWidgetWidthDip * scale);
 
@@ -209,8 +210,8 @@ public sealed class TaskbarHostService : IDisposable
             desiredWidgetWidth = barWidth;
         }
 
-        var available = Math.Max(Scale(taskbar, 180), trayRect.Left - taskbarRect.Left - gap * 2);
-        var widgetWidth = Math.Clamp(desiredWidgetWidth, Scale(taskbar, 180), available);
+        var available = Math.Max(Scale(180, scale), trayRect.Left - taskbarRect.Left - gap * 2);
+        var widgetWidth = Math.Clamp(desiredWidgetWidth, Scale(180, scale), available);
         var widgetScreenLeft = trayRect.Left - gap - widgetWidth;
         if (widgetScreenLeft < taskbarRect.Left + gap)
         {
@@ -295,12 +296,8 @@ public sealed class TaskbarHostService : IDisposable
         LayoutChanged?.Invoke(this, layout);
     }
 
-    private static int Scale(IntPtr hwnd, int value)
-    {
-        var dpi = NativeMethods.GetDpiForWindow(hwnd);
-        var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
-        return (int)Math.Round(value * scale);
-    }
+    private static int Scale(int value, double scale) =>
+        (int)Math.Round(value * scale);
 
     private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {

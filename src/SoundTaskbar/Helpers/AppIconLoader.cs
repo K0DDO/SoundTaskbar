@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -11,6 +12,10 @@ namespace SoundTaskbar.Helpers;
 internal static class AppIconLoader
 {
     private const int OutputSize = 16;
+    private static readonly ConcurrentDictionary<string, BitmapImage?> ImageCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, string?> ExeCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static Task<BitmapImage?> TryLoadAsync(string? appId) =>
         Task.Run(() => TryLoad(appId));
@@ -22,17 +27,25 @@ internal static class AppIconLoader
             return null;
         }
 
+        if (ImageCache.TryGetValue(appId, out var cached))
+        {
+            return cached;
+        }
+
+        BitmapImage? image = null;
         try
         {
             var exe = ResolveExecutable(appId);
             if (exe is null || !File.Exists(exe))
             {
+                ImageCache[appId] = null;
                 return null;
             }
 
             using var icon = Icon.ExtractAssociatedIcon(exe);
             if (icon is null)
             {
+                ImageCache[appId] = null;
                 return null;
             }
 
@@ -42,19 +55,21 @@ internal static class AppIconLoader
             mono.Save(ms, ImageFormat.Png);
             ms.Position = 0;
 
-            var image = new BitmapImage();
+            image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.StreamSource = ms;
             image.DecodePixelWidth = OutputSize;
             image.EndInit();
             image.Freeze();
-            return image;
         }
         catch
         {
-            return null;
+            image = null;
         }
+
+        ImageCache[appId] = image;
+        return image;
     }
 
     /// <summary>White silhouette: alpha from luminance, RGB = white.</summary>
@@ -86,46 +101,54 @@ internal static class AppIconLoader
 
     private static string? ResolveExecutable(string appId)
     {
+        if (ExeCache.TryGetValue(appId, out var cachedExe))
+        {
+            return cachedExe;
+        }
+
         var id = appId.Trim();
         var lower = id.ToLowerInvariant();
+        string? path = null;
 
         if (lower.EndsWith(".exe", StringComparison.Ordinal) && File.Exists(id))
         {
-            return id;
+            path = id;
         }
-
-        var needle = GuessProcessNeedle(lower);
-        if (needle.Length == 0)
+        else
         {
-            return null;
-        }
-
-        foreach (var process in Process.GetProcesses())
-        {
-            try
+            var needle = GuessProcessNeedle(lower);
+            if (needle.Length > 0)
             {
-                var name = process.ProcessName;
-                if (name.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
-                    needle.Contains(name, StringComparison.OrdinalIgnoreCase))
+                foreach (var process in Process.GetProcesses())
                 {
-                    var path = process.MainModule?.FileName;
-                    if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                    try
                     {
-                        return path;
+                        var name = process.ProcessName;
+                        if (name.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+                            needle.Contains(name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var file = process.MainModule?.FileName;
+                            if (!string.IsNullOrWhiteSpace(file) && File.Exists(file))
+                            {
+                                path = file;
+                                break;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Access denied for some system processes
+                    }
+                    finally
+                    {
+                        process.Dispose();
                     }
                 }
             }
-            catch
-            {
-                // Access denied for some system processes
-            }
-            finally
-            {
-                process.Dispose();
-            }
         }
 
-        return null;
+        ExeCache[appId] = path;
+        return path;
     }
 
     private static string GuessProcessNeedle(string appIdLower)
