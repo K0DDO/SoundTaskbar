@@ -20,13 +20,17 @@ public sealed class PrimarySwapEventArgs(string fromKey, string toKey) : EventAr
 }
 
 /// <summary>
-/// play+play → pause+play. <see cref="PrimaryChanged"/> false = same primary, chip shrink only;
-/// true = primary switched, UI does hide/settle/show restart.
+/// play+play → pause+play (2+ side chips ok). <see cref="PrimaryChanged"/> false = chip shrink;
+/// true = hide/settle/show restart. <see cref="FromExpandedKey"/> is the play chip that collapses.
 /// </summary>
-public sealed class PlayPlayDemoteEventArgs(string fromPrimaryKey, string toPrimaryKey) : EventArgs
+public sealed class PlayPlayDemoteEventArgs(
+    string fromPrimaryKey,
+    string toPrimaryKey,
+    string? fromExpandedKey) : EventArgs
 {
     public string FromPrimaryKey { get; } = fromPrimaryKey;
     public string ToPrimaryKey { get; } = toPrimaryKey;
+    public string? FromExpandedKey { get; } = fromExpandedKey;
 
     public bool PrimaryChanged =>
         !string.Equals(FromPrimaryKey, ToPrimaryKey, StringComparison.Ordinal);
@@ -101,7 +105,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Brief hold for Win+D SMTC blips; tab/app close still collapses after this.</summary>
     private const int EmptySessionsGraceMs = 900;
     /// <summary>Side rail cap: expanded play chip + small paused chips, separated by dividers.</summary>
-    private const int MaxSideChips = 3;
+    private const int MaxSideChips = 5;
     /// <summary>Layout restart hide in flight — pause+play data waits for <see cref="CommitDemoteLayout"/>.</summary>
     private bool _demoteCommitPending;
     private MediaSessionSnapshot? _pendingDemotePrimary;
@@ -831,35 +835,29 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 if (demotingPlayPlay)
                 {
-                    var demoteArgs = new PlayPlayDemoteEventArgs(_displayedPrimaryKey, primary.SessionKey);
-                    if (demoteArgs.PrimaryChanged)
-                    {
-                        // Primary switches — defer bindings; UI hide → commit → show.
-                        _demoteCommitPending = true;
-                        _pendingDemotePrimary = primary;
-                        _pendingDemoteParked = parked;
-                        _pendingDemoteKeepArtwork = keepArtwork;
-                        PlayPlayDemoting?.Invoke(this, demoteArgs);
-                        return;
-                    }
-
-                    // Same primary — apply now; UI only shrinks the expanded chip.
-                    _parkedDismissPending = false;
-                    SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
-                    ShowParkedRail = true;
-                    UpdateParkedWatchdog();
-                    PlayPlayDemoting?.Invoke(this, demoteArgs);
+                    // Defer SyncCollection for both paths so UI can arm morph/restart
+                    // before side chips (incl. 3+) reshuffle — same rules for any count.
+                    var fromExpanded = SideSessions.FirstOrDefault(s => s.ShowExpandedMeta)?.SessionKey;
+                    _demoteCommitPending = true;
+                    _pendingDemotePrimary = primary;
+                    _pendingDemoteParked = parked;
+                    _pendingDemoteKeepArtwork = keepArtwork;
+                    PlayPlayDemoting?.Invoke(
+                        this,
+                        new PlayPlayDemoteEventArgs(
+                            _displayedPrimaryKey,
+                            primary.SessionKey,
+                            fromExpanded));
+                    return;
                 }
-                else
-                {
-                    RaiseSwapIfNeeded(primary.SessionKey);
 
-                    _parkedDismissPending = false;
-                    SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
-                    ShowParkedRail = true;
-                    UpdateParkedWatchdog();
-                    // Widget width: MainWindow ApplyParkedCompositeWidth after chip measure (not Solo clamp).
-                }
+                RaiseSwapIfNeeded(primary.SessionKey);
+
+                _parkedDismissPending = false;
+                SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
+                ShowParkedRail = true;
+                UpdateParkedWatchdog();
+                // Widget width: MainWindow ApplyParkedCompositeWidth after chip measure (not Solo clamp).
             }
             else
             {

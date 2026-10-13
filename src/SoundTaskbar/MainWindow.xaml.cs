@@ -2107,7 +2107,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: same primary = chip shrink; primary switch = hide/settle/show restart.
+    /// play+play → pause+play (any side-chip count): same primary = shrink that play chip;
+    /// primary switch = hide/settle/show restart. Extra compact chips stay put either way.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
@@ -2119,7 +2120,7 @@ public partial class MainWindow : Window
 
         if (!e.PrimaryChanged)
         {
-            StartSamePrimaryChipDemote();
+            StartSamePrimaryChipDemote(e.FromExpandedKey);
             return;
         }
 
@@ -2157,8 +2158,10 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>Primary stays — only collapse the expanded side chip (reverse of promote morph).</summary>
-    private void StartSamePrimaryChipDemote()
+    /// <summary>
+    /// Primary stays — collapse only the former expanded play chip; other side chips stay compact.
+    /// </summary>
+    private void StartSamePrimaryChipDemote(string? fromExpandedKey)
     {
         _chipDemoteAnimating = true;
         _playPlayClock?.Cancel();
@@ -2167,13 +2170,22 @@ public partial class MainWindow : Window
         _morphScheduled = false;
         _playPlayOpen = true;
 
-        // SyncCollection already cleared ShowExpandedMeta — seed from-state for reverse morph.
+        // Commit after the flag so SyncCollection cannot ScheduleSideMorph first (3+ chips).
+        _viewModel.CommitDemoteLayout();
+
         foreach (var side in _viewModel.SideSessions)
         {
-            if (!side.ShowExpandedMeta && side.ExpandProgress < 0.99)
+            var wasExpanded = !string.IsNullOrEmpty(fromExpandedKey) &&
+                              string.Equals(side.SessionKey, fromExpandedKey, StringComparison.Ordinal);
+            if (wasExpanded)
             {
                 side.ExpandProgress = 1;
                 side.MetaRailWidth = side.MeasuredMetaRailWidth;
+            }
+            else
+            {
+                side.ExpandProgress = 0;
+                side.MetaRailWidth = 0;
             }
         }
 
