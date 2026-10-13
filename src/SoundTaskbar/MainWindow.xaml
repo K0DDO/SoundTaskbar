@@ -335,73 +335,68 @@
                             <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
                         </Border>
 
+                        <!-- Width animates; content fills host so title marquee fades (not hard-clipped) -->
                         <Grid x:Name="ChipMetaHost"
                               Width="0"
                               Margin="6,0,0,0"
                               ClipToBounds="True"
                               VerticalAlignment="Center">
-                            <Grid Width="{Binding MetaContentWidth}">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <controls:MarqueeText Text="{Binding Title}"
-                                                      FontSize="11"
-                                                      FontWeight="SemiBold"
-                                                      Foreground="#F5F5F5"
-                                                      Height="14" />
-                                <!-- Artist left, app icon right (same as primary) -->
-                                <Grid Grid.Row="1" Margin="0,1,0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid x:Name="ChipArtistHost"
-                                          ClipToBounds="True"
-                                          VerticalAlignment="Center">
-                                        <TextBlock x:Name="ChipArtistText"
-                                                   Text="{Binding Artist}"
-                                                   Foreground="#B8C0CC"
-                                                   FontSize="9"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                    <Image Grid.Column="1"
-                                           Source="{Binding AppIcon}"
-                                           Width="8"
-                                           Height="8"
-                                           Margin="5,0,0,0"
-                                           Stretch="Uniform"
-                                           Opacity="0.9"
-                                           VerticalAlignment="Center"
-                                           Visibility="{Binding AppIconVisibility}"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                                <Grid Grid.Row="2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <ProgressBar Height="2"
-                                                 Minimum="0"
-                                                 Maximum="1"
-                                                 Value="{Binding Progress, Mode=OneWay}"
-                                                 Foreground="{DynamicResource ProgressAccentBrush}"
-                                                 Background="{DynamicResource ProgressTrackBrush}"
-                                                 BorderThickness="0"
-                                                 VerticalAlignment="Center" />
-                                    <Grid x:Name="ChipTimeTextHost"
-                                          Grid.Column="1"
-                                          ClipToBounds="True"
-                                          VerticalAlignment="Center">
-                                        <TextBlock x:Name="ChipTimeText"
-                                                   Margin="4,0,0,0"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="#C8CDD6"
-                                                   FontSize="8"
-                                                   Text="{Binding TimeText}" />
-                                    </Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <controls:MarqueeText Text="{Binding Title}"
+                                                  FontSize="11"
+                                                  FontWeight="SemiBold"
+                                                  Foreground="#F5F5F5"
+                                                  Height="14" />
+                            <!-- Artist left, app icon right — artist stays when volume opens (like primary) -->
+                            <Grid Grid.Row="1" Margin="0,1,0,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Artist}"
+                                           Foreground="#B8C0CC"
+                                           FontSize="9"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <Image Grid.Column="1"
+                                       Source="{Binding AppIcon}"
+                                       Width="8"
+                                       Height="8"
+                                       Margin="5,0,0,0"
+                                       Stretch="Uniform"
+                                       Opacity="0.9"
+                                       VerticalAlignment="Center"
+                                       Visibility="{Binding AppIconVisibility}"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Grid>
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ProgressBar Height="2"
+                                             Minimum="0"
+                                             Maximum="1"
+                                             Value="{Binding Progress, Mode=OneWay}"
+                                             Foreground="{DynamicResource ProgressAccentBrush}"
+                                             Background="{DynamicResource ProgressTrackBrush}"
+                                             BorderThickness="0"
+                                             VerticalAlignment="Center" />
+                                <!-- Only duration dissolves into progress (solo-style) -->
+                                <Grid x:Name="ChipTimeTextHost"
+                                      Grid.Column="1"
+                                      ClipToBounds="True"
+                                      VerticalAlignment="Center">
+                                    <TextBlock x:Name="ChipTimeText"
+                                               Margin="4,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="#C8CDD6"
+                                               FontSize="8"
+                                               Text="{Binding TimeText}" />
                                 </Grid>
                             </Grid>
                         </Grid>

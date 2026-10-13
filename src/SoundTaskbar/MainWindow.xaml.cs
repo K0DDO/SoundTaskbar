@@ -807,7 +807,7 @@ public partial class MainWindow : Window
                     : (open ? metaTo + SideSessionViewModel.ChipVolumeOpenExtra : metaTo));
 
             ApplyChipVolumeOpen(container, open, animate: true, duration, ease);
-            AnimateChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", open, duration, ease);
+            // Solo-style: only duration dissolves — channel/artist stays, title fades via marquee.
             AnimateChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", open, duration, ease);
 
             metaHost.BeginAnimation(WidthProperty, null);
@@ -1301,7 +1301,6 @@ public partial class MainWindow : Window
             }
 
             ApplyChipVolumeOpen(container, side.IsVolumeEditorOpen, animate: false);
-            SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", side.IsVolumeEditorOpen);
             SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", side.IsVolumeEditorOpen);
         }
     }
