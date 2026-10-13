@@ -61,6 +61,8 @@ public partial class MainWindow : Window
     private readonly List<FrameworkElement> _swapLiveFaces = new();
     /// <summary>Suppress chip morph while cube-swap runs so left rail does not redraw via pause+play.</summary>
     private bool _primarySwapAnimating;
+    /// <summary>ParkedHost opacity saved so swap can hide live chip under ghosts (no stack flash).</summary>
+    private double _parkedHostOpacityBeforeSwap = 1;
     private bool _widgetShown;
     private bool _revealAnimating;
     private bool _morphAfterReveal;
@@ -2148,6 +2150,7 @@ public partial class MainWindow : Window
 
         ResetSwapVisuals();
         _primarySwapAnimating = true;
+        _parkedHostOpacityBeforeSwap = ParkedHost.Opacity;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         // cube=true → ScaleY roll; cube=false → opacity appear/disappear only (transport).
@@ -2190,6 +2193,7 @@ public partial class MainWindow : Window
             live.RenderTransformOrigin = new Point(0.5, 0);
             live.RenderTransform = liveScale;
             live.Opacity = 0;
+            live.ClipToBounds = true;
             _swapLiveFaces.Add(live);
             faces.Add((null, null, live, liveScale, true));
         }
@@ -2213,7 +2217,8 @@ public partial class MainWindow : Window
             PrepLiveCube(live);
         }
 
-        // Primary media — cube. Transport (incl. play/pause) stays put like seek.
+        // Primary media — cube (art/title are the reference; artist/time same path).
+        // Transport stays put like seek.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistRow);
@@ -2233,36 +2238,16 @@ public partial class MainWindow : Window
             AddGhostFace(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement, cube: false);
         }
 
+        // Hide live chip under SwapOverlay ghosts (like primary live Opacity=0 at t=0).
+        // Must be AFTER chip snapshots — otherwise SyncCollection stacks new chip on old ghosts.
+        ParkedHost.Opacity = 0;
+
         if (faces.Count == 0)
         {
+            ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
             _primarySwapAnimating = false;
             return;
         }
-
-        // Keep play+play chrome expanded — no compact redraw on the left.
-        Dispatcher.BeginInvoke(
-            () =>
-            {
-                if (!_primarySwapAnimating)
-                {
-                    return;
-                }
-
-                foreach (var side in _viewModel.SideSessions)
-                {
-                    if (!side.ShowExpandedMeta)
-                    {
-                        continue;
-                    }
-
-                    side.ExpandProgress = 1;
-                    side.MetaRailWidth = side.MeasuredMetaRailWidth;
-                }
-
-                PushChipMetaHostWidths();
-                ParkedList.UpdateLayout();
-            },
-            DispatcherPriority.Loaded);
 
         var chipLiveAttached = false;
         void TryAttachIncomingChipLives()
@@ -2314,6 +2299,7 @@ public partial class MainWindow : Window
                 PrepLiveAppear(el);
             }
 
+            // Same faces as primary art/title/artist/time + transport appear.
             AttachCube("ChipExpandedArt");
             AttachCube("ChipTitleRow");
             AttachCube("ChipArtistRow");
@@ -2400,9 +2386,17 @@ public partial class MainWindow : Window
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
-            if (t >= 0.45)
+            // Attach as soon as the new chip exists (still under ParkedHost.Opacity=0).
+            TryAttachIncomingChipLives();
+
+            // Reveal host only in the roll-in half — mirrors primary live Opacity 0→1 after midpoint.
+            if (t >= 0.5 && chipLiveAttached)
             {
-                TryAttachIncomingChipLives();
+                ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
+            }
+            else
+            {
+                ParkedHost.Opacity = 0;
             }
 
             for (var i = 0; i < faces.Count; i++)
@@ -2422,6 +2416,32 @@ public partial class MainWindow : Window
             TimeSpan.FromMilliseconds(PrimarySwapMs),
             new CubicEase { EasingMode = EasingMode.EaseInOut },
             ResetSwapVisuals);
+
+        // Seed expanded widths after SyncCollection without showing the chip yet.
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (!_primarySwapAnimating)
+                {
+                    return;
+                }
+
+                foreach (var side in _viewModel.SideSessions)
+                {
+                    if (!side.ShowExpandedMeta)
+                    {
+                        continue;
+                    }
+
+                    side.ExpandProgress = 1;
+                    side.MetaRailWidth = side.MeasuredMetaRailWidth;
+                }
+
+                PushChipMetaHostWidths();
+                ParkedList.UpdateLayout();
+                TryAttachIncomingChipLives();
+            },
+            DispatcherPriority.Loaded);
     }
 
     private void ResetSwapVisuals()
@@ -2436,6 +2456,7 @@ public partial class MainWindow : Window
         TitleMarquee.Opacity = 1;
         PrimaryArtistRow.Opacity = 1;
         PrimaryTimeRow.Opacity = 1;
+        ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
 
         foreach (var live in _swapLiveFaces)
         {
