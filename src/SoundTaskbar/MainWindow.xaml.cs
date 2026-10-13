@@ -3552,6 +3552,7 @@ public partial class MainWindow : Window
         // Resource brushes get frozen once shared by templates — replace, never mutate.
         Resources["ProgressAccentBrush"] = new SolidColorBrush(appearance.ProgressFill);
         Resources["ProgressTrackBrush"] = new SolidColorBrush(appearance.ProgressTrack);
+        ApplyMenuAppearance(appearance);
 
         ProgressBar.Background = _progressTrackBrush;
         ProgressBar.Foreground = _progressFillBrush;
@@ -3559,6 +3560,28 @@ public partial class MainWindow : Window
         var iconBrush = new SolidColorBrush(appearance.Foreground);
         PreviousIcon.Foreground = iconBrush;
         NextIcon.Foreground = iconBrush;
+    }
+
+    private void ApplyMenuAppearance(TaskbarAppearance appearance)
+    {
+        if (appearance.IsLight)
+        {
+            Resources["MenuBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0xF3, 0xF3, 0xF3));
+            Resources["MenuForegroundBrush"] = new SolidColorBrush(appearance.Foreground);
+            Resources["MenuBorderBrush"] = new SolidColorBrush(Color.FromRgb(0xD8, 0xD8, 0xD8));
+            Resources["MenuHoverBrush"] = new SolidColorBrush(Color.FromArgb(0x18, 0x00, 0x00, 0x00));
+            Resources["MenuSeparatorBrush"] = new SolidColorBrush(Color.FromArgb(0x28, 0x00, 0x00, 0x00));
+        }
+        else
+        {
+            Resources["MenuBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
+            Resources["MenuForegroundBrush"] = new SolidColorBrush(appearance.Foreground);
+            Resources["MenuBorderBrush"] = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40));
+            Resources["MenuHoverBrush"] = new SolidColorBrush(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF));
+            Resources["MenuSeparatorBrush"] = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+        }
+
+        Resources["MenuAccentBrush"] = new SolidColorBrush(appearance.ProgressFill);
     }
 
     private void OnContextMenuOpened(object sender, RoutedEventArgs e) =>
