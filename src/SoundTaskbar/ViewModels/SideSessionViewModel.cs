@@ -368,8 +368,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
             OnPropertyChanged(nameof(EffectiveMetaRailWidth));
 
-            // play+play: volume steals from fixed meta in UI — do not remorph chip.
-            // pause+play compact: host must soft-resize for the open slider.
+            // Compact pause chip: soft-resize host. play+play expanded: MainWindow grows
+            // chip left + dissolves time (solo-style) — do not remorph ExpandProgress.
             if (!ShowExpandedMeta)
             {
                 _onChipLayoutChanged?.Invoke();
@@ -377,23 +377,10 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>
-    /// Meta rail shown in the chip. play+play volume open steals width so art shifts, chip stays fixed.
-    /// </summary>
-    public double EffectiveMetaRailWidth
-    {
-        get
-        {
-            var baseWidth = MetaRailWidth;
-            if (ShowExpandedMeta && IsVolumeEditorOpen && ExpandProgress > 0.5)
-            {
-                baseWidth = Math.Max(0, baseWidth - (ChipVolumeOpenExtra));
-            }
+    /// <summary>Meta rail width pushed to ChipMetaHost (volume no longer steals from it).</summary>
+    public double EffectiveMetaRailWidth => MetaRailWidth;
 
-            return baseWidth;
-        }
-    }
-
+    /// <summary>Extra chip/shell width when the expanded play+play volume slider is open.</summary>
     public const double ChipVolumeOpenExtra = 50;
 
     public double PeakLevel

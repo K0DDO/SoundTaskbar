@@ -667,7 +667,10 @@ public partial class MainWindow : Window
             });
     }
 
-    /// <summary>play+play: volume grows by stealing meta width — art shifts, chip/shell stay fixed.</summary>
+    /// <summary>
+    /// play+play left chip volume: like solo — grow chip to the left for the slider,
+    /// dissolve time into the progress bar. Meta/art stay put (no rightward crush).
+    /// </summary>
     private void AnimatePlayPlaySideVolume(SideSessionViewModel side)
     {
         for (var i = 0; i < ParkedList.Items.Count; i++)
@@ -677,37 +680,146 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject container ||
-                FindDescendantByName(container, "ChipMetaHost") is not FrameworkElement metaHost)
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject container)
             {
                 return;
             }
 
-            var to = side.EffectiveMetaRailWidth;
-            var from = metaHost.ActualWidth > 0.5 ? metaHost.ActualWidth : metaHost.Width;
-            if (double.IsNaN(from) || from < 0)
+            var open = side.IsVolumeEditorOpen;
+            var duration = TimeSpan.FromMilliseconds(260);
+            var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
+
+            // Keep meta at full width — volume must not steal from title/timeline.
+            if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
-                from = to;
+                metaHost.BeginAnimation(WidthProperty, null);
+                metaHost.Width = side.EffectiveMetaRailWidth;
             }
 
-            metaHost.BeginAnimation(WidthProperty, null);
-            metaHost.Width = from;
-            var ease = new CubicEase
+            AnimateChipTimeTextForVolume(container, open, duration, ease);
+
+            var chipFrom = !double.IsNaN(ParkedHost.Width) && ParkedHost.Width > 1
+                ? ParkedHost.Width
+                : ParkedHost.ActualWidth > 1 ? ParkedHost.ActualWidth : _parkedChipTarget;
+            SnapChipVolumeHosts();
+            ParkedHost.BeginAnimation(WidthProperty, null);
+            ParkedHost.Width = double.NaN;
+            ParkedHost.UpdateLayout();
+            ParkedList.UpdateLayout();
+            var chipTo = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
+            ParkedHost.Width = chipFrom;
+
+            if (Math.Abs(chipTo - chipFrom) < 0.5)
             {
-                EasingMode = side.IsVolumeEditorOpen ? EasingMode.EaseOut : EasingMode.EaseIn
-            };
-            metaHost.BeginAnimation(
-                WidthProperty,
-                new DoubleAnimation
+                _parkedChipTarget = chipTo;
+                _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
+                return;
+            }
+
+            _parkedChipTarget = chipTo;
+            var shellFrom = _taskbarHost?.DesiredWidgetWidthDip
+                            ?? _viewModel.ComputePlayPlayCompositeWidth(chipFrom);
+            var shellTo = _viewModel.ComputePlayPlayCompositeWidth(chipTo);
+            var holder = new AnimationClockHolder();
+            holder.ProgressChanged += t =>
+            {
+                var chip = chipFrom + (chipTo - chipFrom) * t;
+                ParkedHost.Width = chip;
+                if (_taskbarHost is not null)
                 {
-                    From = from,
-                    To = to,
-                    Duration = TimeSpan.FromMilliseconds(260),
-                    EasingFunction = ease,
-                    FillBehavior = FillBehavior.HoldEnd
+                    _taskbarHost.DesiredWidgetWidthDip = shellFrom + (shellTo - shellFrom) * t;
+                }
+            };
+            holder.Start(
+                0,
+                1,
+                duration,
+                ease,
+                () =>
+                {
+                    ParkedHost.Width = chipTo;
+                    _viewModel.ApplyPlayPlayCompositeWidth(chipTo);
+                    _taskbarHost?.FlushRegion();
                 });
             return;
         }
+    }
+
+    /// <summary>Side-chip time dissolve into progress (mirrors solo TimeTextHost).</summary>
+    private static void AnimateChipTimeTextForVolume(
+        DependencyObject container,
+        bool volumeOpen,
+        Duration duration,
+        IEasingFunction ease)
+    {
+        if (FindDescendantByName(container, "ChipTimeTextHost") is not FrameworkElement host ||
+            FindDescendantByName(container, "ChipTimeText") is not FrameworkElement text)
+        {
+            return;
+        }
+
+        text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var full = Math.Max(
+            1,
+            Math.Ceiling(text.DesiredSize.Width + text.Margin.Left + text.Margin.Right));
+
+        var current = host.Width;
+        if (volumeOpen && !double.IsNaN(current) && current < 0.5 && host.ActualWidth < 0.5)
+        {
+            host.BeginAnimation(WidthProperty, null);
+            host.Width = 0;
+            text.BeginAnimation(UIElement.OpacityProperty, null);
+            text.Opacity = 0;
+            return;
+        }
+
+        var from = host.ActualWidth > 0.5
+            ? host.ActualWidth
+            : (!double.IsNaN(current) && current >= 0 ? current : (volumeOpen ? full : 0));
+        var to = volumeOpen ? 0 : full;
+        var opacityFrom = double.IsNaN(text.Opacity) ? (volumeOpen ? 1 : 0) : text.Opacity;
+        var opacityTo = volumeOpen ? 0 : 1;
+
+        if (Math.Abs(to - from) < 0.5 && Math.Abs(opacityTo - opacityFrom) < 0.02)
+        {
+            host.BeginAnimation(WidthProperty, null);
+            host.Width = volumeOpen ? 0 : double.NaN;
+            text.BeginAnimation(UIElement.OpacityProperty, null);
+            text.Opacity = opacityTo;
+            return;
+        }
+
+        host.BeginAnimation(WidthProperty, null);
+        host.Width = from;
+        text.BeginAnimation(UIElement.OpacityProperty, null);
+        text.Opacity = opacityFrom;
+
+        var widthAnim = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = duration,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        widthAnim.Completed += (_, _) =>
+        {
+            host.BeginAnimation(WidthProperty, null);
+            host.Width = volumeOpen ? 0 : double.NaN;
+            text.BeginAnimation(UIElement.OpacityProperty, null);
+            text.Opacity = opacityTo;
+        };
+        host.BeginAnimation(WidthProperty, widthAnim);
+        text.BeginAnimation(
+            UIElement.OpacityProperty,
+            new DoubleAnimation
+            {
+                From = opacityFrom,
+                To = opacityTo,
+                Duration = duration,
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
+            });
     }
 
     private void ApplyChipMarqueeScrims()
