@@ -237,13 +237,13 @@ public partial class MainWindow : Window
         if (playPlay)
         {
             _viewModel.ApplyPlayPlayCompositeWidth(chip);
-            SnapPausePlayVolumeChrome(collapsed: false);
         }
         else
         {
             _viewModel.ApplyParkedCompositeWidth(chip);
-            SnapPausePlayVolumeChrome(collapsed: _viewModel.IsVolumeEditorOpen);
         }
+
+        SnapPausePlayVolumeChrome(collapsed: false);
 
         if (_taskbarHost is not null)
         {
@@ -314,15 +314,8 @@ public partial class MainWindow : Window
             }
 
             SyncParkedListAlignment(playPlay: _viewModel.IsPlayPlay);
-            if (_viewModel.IsPlayPlay)
-            {
-                // pause+play volume steals art/next — restore when entering play+play.
-                SnapPausePlayVolumeChrome(collapsed: false);
-            }
-            else if (_viewModel.IsVolumeEditorOpen && _parkedOpen)
-            {
-                SnapPausePlayVolumeChrome(collapsed: true);
-            }
+            // Primary volume never steals chrome (same open as solo).
+            SnapPausePlayVolumeChrome(collapsed: false);
         }
         else if (e.PropertyName == nameof(MediaViewModel.HasSession))
         {
@@ -1622,16 +1615,8 @@ public partial class MainWindow : Window
         VolumeButton.Opacity = 1;
         VolumeButton.IsHitTestVisible = true;
 
-        // Use VM play+play flag — _playPlayOpen can lag mid-morph and skip/steal wrongly.
-        var pausePlay = _parkedOpen && !_viewModel.IsPlayPlay;
-        if (pausePlay)
-        {
-            AnimatePausePlayVolumeSteal(open, duration, ease);
-        }
-        else
-        {
-            SnapPausePlayVolumeChrome(collapsed: false);
-        }
+        // Same as solo: grow VolumeHost only — do not steal art/play/next in pause+play.
+        SnapPausePlayVolumeChrome(collapsed: false);
 
         AnimateSourceNameForVolume(open, duration, ease);
         AnimateTimeTextForVolume(open, duration, ease);
