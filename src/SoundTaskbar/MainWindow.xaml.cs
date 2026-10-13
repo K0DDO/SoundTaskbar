@@ -2233,16 +2233,15 @@ public partial class MainWindow : Window
             faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, false));
         }
 
-        // Primary: media cube; prev/next shrink-appear; pause / volume / VU untouched.
+        // Primary: media cube; title/artist/duration text like TitleMarquee; icon/progress stay put.
         AddPairedCube(PrimaryArtHost);
         AddPairedCube(TitleMarquee);
-        AddPairedCube(PrimaryArtistRow);
-        AddPairedCube(PrimaryTimeRow);
+        AddPairedCube(PrimaryArtistTextHost);
+        AddPairedCube(TimeTextHost);
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
-        // Chip: same pairing on the live elements. SyncCollection retargets the VM so
-        // these references stay valid and ChipExpandedPlay is never recreated/hidden.
+        // Chip: same text-only pairing. SyncCollection retargets the VM so containers survive.
         var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
         if (chipItem is not null &&
             ParkedList.ItemContainerGenerator.ContainerFromItem(chipItem) is DependencyObject chipRoot)
@@ -2250,8 +2249,8 @@ public partial class MainWindow : Window
             _swapChip = chipRoot as FrameworkElement;
             AddPairedCube(FindDescendantByName(chipRoot, "ChipExpandedArt") as FrameworkElement);
             AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
-            AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement);
-            AddPairedCube(FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistTextHost") as FrameworkElement);
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipTimeTextHost") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
             AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
         }
