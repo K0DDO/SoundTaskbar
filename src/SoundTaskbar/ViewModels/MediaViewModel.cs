@@ -20,13 +20,16 @@ public sealed class PrimarySwapEventArgs(string fromKey, string toKey) : EventAr
 }
 
 /// <summary>
-/// play+play is collapsing to pause+play (e.g. primary paused). Raised before side/primary sync
-/// so UI can snapshot the old frame and wipe it right.
+/// play+play → pause+play. <see cref="PrimaryChanged"/> false = same primary, chip shrink only;
+/// true = primary switched, UI does hide/settle/show restart.
 /// </summary>
 public sealed class PlayPlayDemoteEventArgs(string fromPrimaryKey, string toPrimaryKey) : EventArgs
 {
     public string FromPrimaryKey { get; } = fromPrimaryKey;
     public string ToPrimaryKey { get; } = toPrimaryKey;
+
+    public bool PrimaryChanged =>
+        !string.Equals(FromPrimaryKey, ToPrimaryKey, StringComparison.Ordinal);
 }
 
 public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
@@ -828,24 +831,35 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             {
                 if (demotingPlayPlay)
                 {
-                    // Defer bindings so hide still shows old play+play; UI commits while hidden.
-                    _demoteCommitPending = true;
-                    _pendingDemotePrimary = primary;
-                    _pendingDemoteParked = parked;
-                    _pendingDemoteKeepArtwork = keepArtwork;
-                    PlayPlayDemoting?.Invoke(
-                        this,
-                        new PlayPlayDemoteEventArgs(_displayedPrimaryKey, primary.SessionKey));
-                    return;
+                    var demoteArgs = new PlayPlayDemoteEventArgs(_displayedPrimaryKey, primary.SessionKey);
+                    if (demoteArgs.PrimaryChanged)
+                    {
+                        // Primary switches — defer bindings; UI hide → commit → show.
+                        _demoteCommitPending = true;
+                        _pendingDemotePrimary = primary;
+                        _pendingDemoteParked = parked;
+                        _pendingDemoteKeepArtwork = keepArtwork;
+                        PlayPlayDemoting?.Invoke(this, demoteArgs);
+                        return;
+                    }
+
+                    // Same primary — apply now; UI only shrinks the expanded chip.
+                    _parkedDismissPending = false;
+                    SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
+                    ShowParkedRail = true;
+                    UpdateParkedWatchdog();
+                    PlayPlayDemoting?.Invoke(this, demoteArgs);
                 }
+                else
+                {
+                    RaiseSwapIfNeeded(primary.SessionKey);
 
-                RaiseSwapIfNeeded(primary.SessionKey);
-
-                _parkedDismissPending = false;
-                SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
-                ShowParkedRail = true;
-                UpdateParkedWatchdog();
-                // Widget width: MainWindow ApplyParkedCompositeWidth after chip measure (not Solo clamp).
+                    _parkedDismissPending = false;
+                    SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
+                    ShowParkedRail = true;
+                    UpdateParkedWatchdog();
+                    // Widget width: MainWindow ApplyParkedCompositeWidth after chip measure (not Solo clamp).
+                }
             }
             else
             {

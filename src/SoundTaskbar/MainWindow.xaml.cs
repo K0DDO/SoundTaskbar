@@ -65,6 +65,8 @@ public partial class MainWindow : Window
     private bool _pausePlayVolumeChromeCollapsed;
     /// <summary>play+play→pause+play restart: hide → settle → show. Blocks morph/resize/HasSession.</summary>
     private bool _layoutRestarting;
+    /// <summary>Same-primary demote: chip MorphSideChips collapse only.</summary>
+    private bool _chipDemoteAnimating;
     private FrameworkElement? _swapChip;
     private readonly List<FrameworkElement> _swapLiveFaces = new();
     /// <summary>Suppress chip morph while cube-swap runs so left rail does not redraw via pause+play.</summary>
@@ -293,7 +295,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.ShowPairAppIcon))
         {
-            if (_layoutRestarting)
+            if (_layoutRestarting || _chipDemoteAnimating)
             {
                 return;
             }
@@ -306,7 +308,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.IsPlayPlay))
         {
-            if (_layoutRestarting)
+            if (_layoutRestarting || _chipDemoteAnimating)
             {
                 return;
             }
@@ -358,7 +360,7 @@ public partial class MainWindow : Window
 
         ApplyChipMarqueeScrims();
 
-        if (_layoutRestarting || !_viewModel.ShowParkedRail || !_layoutReady)
+        if (_layoutRestarting || _chipDemoteAnimating || !_viewModel.ShowParkedRail || !_layoutReady)
         {
             return;
         }
@@ -403,7 +405,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_layoutRestarting || _primarySwapAnimating)
+        if (_layoutRestarting || _chipDemoteAnimating || _primarySwapAnimating)
         {
             return;
         }
@@ -432,7 +434,7 @@ public partial class MainWindow : Window
     /// <summary>Coalesce side-rail changes (SyncCollection fires many) into one morph after layout.</summary>
     private void ScheduleSideMorph()
     {
-        if (_layoutRestarting || _primarySwapAnimating)
+        if (_layoutRestarting || _chipDemoteAnimating || _primarySwapAnimating)
         {
             return;
         }
@@ -461,7 +463,7 @@ public partial class MainWindow : Window
             () =>
             {
                 _morphScheduled = false;
-                if (_layoutRestarting || _primarySwapAnimating)
+                if (_layoutRestarting || _chipDemoteAnimating || _primarySwapAnimating)
                 {
                     return;
                 }
@@ -483,6 +485,13 @@ public partial class MainWindow : Window
     private void CompleteSideMorphClock()
     {
         _playPlayClock = null;
+        if (_chipDemoteAnimating)
+        {
+            _chipDemoteAnimating = false;
+            RestoreSwapMediaFaces();
+            _taskbarHost?.FlushRegion();
+        }
+
         if (!_morphAfterClock)
         {
             return;
@@ -2088,7 +2097,7 @@ public partial class MainWindow : Window
 
     private void OnParkedDividerClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (!_layoutReady || _layoutRestarting || !_viewModel.ShowParkedRail)
+        if (!_layoutReady || _layoutRestarting || _chipDemoteAnimating || !_viewModel.ShowParkedRail)
         {
             return;
         }
@@ -2098,12 +2107,19 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play → pause+play: same as closing the app and cold-starting — hide, settle, show.
+    /// play+play → pause+play: same primary = chip shrink; primary switch = hide/settle/show restart.
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
-        if (!_layoutReady || _layoutRestarting || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        if (!_layoutReady || _layoutRestarting || _chipDemoteAnimating ||
+            !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
+            return;
+        }
+
+        if (!e.PrimaryChanged)
+        {
+            StartSamePrimaryChipDemote();
             return;
         }
 
@@ -2139,6 +2155,33 @@ public partial class MainWindow : Window
                 _taskbarHost?.FlushRegion();
             });
         });
+    }
+
+    /// <summary>Primary stays — only collapse the expanded side chip (reverse of promote morph).</summary>
+    private void StartSamePrimaryChipDemote()
+    {
+        _chipDemoteAnimating = true;
+        _playPlayClock?.Cancel();
+        _playPlayClock = null;
+        _morphAfterClock = false;
+        _morphScheduled = false;
+        _playPlayOpen = true;
+
+        // SyncCollection already cleared ShowExpandedMeta — seed from-state for reverse morph.
+        foreach (var side in _viewModel.SideSessions)
+        {
+            if (!side.ShowExpandedMeta && side.ExpandProgress < 0.99)
+            {
+                side.ExpandProgress = 1;
+                side.MetaRailWidth = side.MeasuredMetaRailWidth;
+            }
+        }
+
+        MorphSideChips(animate: true);
+        if (_playPlayClock is null)
+        {
+            _chipDemoteAnimating = false;
+        }
     }
 
     /// <summary>Cancel morph / swap / parked-reveal clocks so a layout restart starts clean.</summary>
@@ -2226,7 +2269,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnPrimarySwapping(object? sender, PrimarySwapEventArgs e)
     {
-        if (_layoutRestarting || !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        if (_layoutRestarting || _chipDemoteAnimating || !_layoutReady || !_widgetShown ||
+            WidgetRoot.ActualWidth < 1)
         {
             return;
         }
