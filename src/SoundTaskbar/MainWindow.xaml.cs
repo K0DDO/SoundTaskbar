@@ -488,6 +488,7 @@ public partial class MainWindow : Window
         if (_chipDemoteAnimating)
         {
             _chipDemoteAnimating = false;
+            _playPlayOpen = _viewModel.IsPlayPlay;
             RestoreSwapMediaFaces();
             _taskbarHost?.FlushRegion();
         }
@@ -1590,39 +1591,24 @@ public partial class MainWindow : Window
         // Mute replaces speaker in place; slider opens left and (in pause+play) steals art + next/play.
         var duration = TimeSpan.FromMilliseconds(260);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
-        var hostTo = open ? VolumeOpenWidth : VolumeClosedWidth;
 
-        // Clear HoldEnd residue, then lerp closed↔open (16 ↔ 74).
         VolumeHost.BeginAnimation(WidthProperty, null);
-        var hostFrom = !double.IsNaN(VolumeHost.Width) && VolumeHost.Width > 0.5
-            ? VolumeHost.Width
-            : (VolumeHost.ActualWidth > 0.5
-                ? VolumeHost.ActualWidth
-                : (open ? VolumeClosedWidth : VolumeOpenWidth));
-        hostFrom = Math.Clamp(hostFrom, VolumeClosedWidth, VolumeOpenWidth);
-        VolumeHost.Width = hostFrom;
-        var hostAnim = new DoubleAnimation
-        {
-            From = hostFrom,
-            To = hostTo,
-            Duration = duration,
-            EasingFunction = ease,
-            FillBehavior = FillBehavior.HoldEnd
-        };
-        hostAnim.Completed += (_, _) =>
-        {
-            VolumeHost.BeginAnimation(WidthProperty, null);
-            VolumeHost.Width = hostTo;
-        };
-        VolumeHost.BeginAnimation(WidthProperty, hostAnim);
+        VolumeHost.BeginAnimation(
+            WidthProperty,
+            new DoubleAnimation
+            {
+                From = VolumeHost.ActualWidth > 0.5 ? VolumeHost.ActualWidth : (open ? VolumeClosedWidth : VolumeOpenWidth),
+                To = open ? VolumeOpenWidth : VolumeClosedWidth,
+                Duration = duration,
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
+            });
 
         VolumeSlider.BeginAnimation(OpacityProperty, null);
-        var sliderOpacityFrom = VolumeSlider.Opacity;
         VolumeSlider.BeginAnimation(
             OpacityProperty,
             new DoubleAnimation
             {
-                From = sliderOpacityFrom,
                 To = open ? 1 : 0,
                 Duration = duration,
                 EasingFunction = ease,
@@ -1632,8 +1618,6 @@ public partial class MainWindow : Window
         VolumeSlider.IsHitTestVisible = open;
         VolumeButton.BeginAnimation(WidthProperty, null);
         VolumeButton.Width = VolumeButtonWidth;
-        VolumeButton.Height = VolumeClosedWidth;
-        VolumeButton.MinHeight = VolumeClosedWidth;
         VolumeButton.BeginAnimation(OpacityProperty, null);
         VolumeButton.Opacity = 1;
         VolumeButton.IsHitTestVisible = true;
@@ -2129,8 +2113,16 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
     {
-        if (!_layoutReady || _layoutRestarting || _chipDemoteAnimating ||
-            !_widgetShown || WidgetRoot.ActualWidth < 1)
+        // Always clear deferred pause+play bindings — never leave ShowExpandedMeta stuck
+        // (that made IsPlayPlay true and primary volume open without art/play steal).
+        if (!_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        {
+            _viewModel.CommitDemoteLayout();
+            _playPlayOpen = false;
+            return;
+        }
+
+        if (_layoutRestarting || _chipDemoteAnimating)
         {
             return;
         }
@@ -2155,12 +2147,14 @@ public partial class MainWindow : Window
             if (!_layoutReady)
             {
                 _viewModel.CommitDemoteLayout();
+                _playPlayOpen = false;
                 _layoutRestarting = false;
                 return;
             }
 
             // Fully hidden: apply pause+play data and snap exactly like app restart.
             _viewModel.CommitDemoteLayout();
+            _playPlayOpen = false;
             ResetSwapVisuals();
             SwapOverlay.Children.Clear();
             RestoreSwapMediaFaces();
@@ -2210,6 +2204,7 @@ public partial class MainWindow : Window
         if (_playPlayClock is null)
         {
             _chipDemoteAnimating = false;
+            _playPlayOpen = false;
         }
     }
 

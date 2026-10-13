@@ -768,20 +768,21 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Transport: tall hit boxes; steal via width clip hosts. -->
+                <!-- Transport: width-clip hosts for pause+play volume steal (art/play/next). -->
                 <StackPanel x:Name="TransportHost"
                             Grid.Column="3"
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <Grid x:Name="PreviousTransportClip"
                           Width="16"
-                          Height="36"
+                          Height="16"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="PreviousButton"
                                 Style="{StaticResource CompactMediaButton}"
                                 Width="16"
-                                Height="36"
+                                Height="16"
+                                MinHeight="16"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Center"
                                 Command="{Binding PreviousCommand}">
@@ -797,6 +798,9 @@
                           VerticalAlignment="Center">
                         <Button x:Name="PlayPauseTransportButton"
                                 Style="{StaticResource PlayPauseButton}"
+                                Width="28"
+                                Height="28"
+                                MinHeight="28"
                                 Command="{Binding PlayPauseCommand}"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center">
@@ -808,13 +812,14 @@
                     </Grid>
                     <Grid x:Name="NextTransportClip"
                           Width="16"
-                          Height="36"
+                          Height="16"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="NextTransportButton"
                                 Style="{StaticResource CompactMediaButton}"
                                 Width="16"
-                                Height="36"
+                                Height="16"
+                                MinHeight="16"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Center"
                                 Command="{Binding NextCommand}">
