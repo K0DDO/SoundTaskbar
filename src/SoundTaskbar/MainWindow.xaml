@@ -461,15 +461,26 @@
                             </ItemsControl>
                         </Grid>
 
+                        <!-- Full chrome width is the hit target; thin bar centered inside -->
                         <Border x:Name="ParkedDivider"
                                 Grid.Column="1"
                                 Width="0"
                                 Height="28"
-                                CornerRadius="1.25"
-                                Background="#AAFFFFFF"
+                                Background="Transparent"
                                 Margin="0"
                                 Opacity="0"
-                                VerticalAlignment="Center" />
+                                Cursor="Hand"
+                                ToolTip="Поменять местами"
+                                VerticalAlignment="Center"
+                                MouseLeftButtonUp="OnParkedDividerClick">
+                            <Border Width="2.5"
+                                    Height="28"
+                                    CornerRadius="1.25"
+                                    Background="#AAFFFFFF"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    IsHitTestVisible="False" />
+                        </Border>
 
                         <!-- Clip host: volume open shrinks art toward the right (into meta/VU) -->
                         <Grid x:Name="PrimaryArtClip"

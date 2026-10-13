@@ -23,7 +23,8 @@ public partial class MainWindow : Window
     private const double PlayTransportFullWidth = 30;
     /// <summary>CompactMediaButton style width.</summary>
     private const double NextTransportFullWidth = 16;
-    private const double ParkedDividerWidth = 2.5;
+    /// <summary>Hit-target / layout chrome for divider (bar is 2.5px centered inside).</summary>
+    private static double ParkedDividerWidth => MediaViewModel.PausePlayDividerChrome;
 
     /// <summary>0 = hidden, 1 = fully open. Drives chip + divider + shell together.</summary>
     private static readonly DependencyProperty ParkedRevealProperty =
@@ -221,7 +222,7 @@ public partial class MainWindow : Window
         SealParkedReveal(1);
         ParkedHost.Width = chip;
         ParkedDivider.Width = ParkedDividerWidth;
-        ParkedDivider.Margin = new Thickness(8, 0, 6, 0);
+        ParkedDivider.Margin = new Thickness(0);
         ParkedDivider.Opacity = 1;
 
         if (playPlay)
@@ -722,7 +723,7 @@ public partial class MainWindow : Window
         ParkedHost.Width = chipWidth;
         ParkedHost.Opacity = 1;
         ParkedDivider.Width = ParkedDividerWidth;
-        ParkedDivider.Margin = new Thickness(8, 0, 6, 0);
+        ParkedDivider.Margin = new Thickness(0);
         ParkedDivider.Opacity = 1;
 
         if (_taskbarHost is not null)
@@ -1128,7 +1129,7 @@ public partial class MainWindow : Window
                     var chip = chipFrom + (chipTo - chipFrom) * t;
                     ParkedHost.Width = chip;
                     ParkedDivider.Width = ParkedDividerWidth;
-                    ParkedDivider.Margin = new Thickness(8, 0, 6, 0);
+                    ParkedDivider.Margin = new Thickness(0);
                     ParkedHost.Opacity = 1;
                     ParkedDivider.Opacity = 1;
                     if (_taskbarHost is not null)
@@ -1264,7 +1265,7 @@ public partial class MainWindow : Window
         var chip = _parkedChipTarget * p;
         ParkedHost.Width = chip;
         ParkedDivider.Width = ParkedDividerWidth * p;
-        ParkedDivider.Margin = new Thickness(8 * p, 0, 6 * p, 0);
+        ParkedDivider.Margin = new Thickness(0);
         // Same opacity mapping both ways so dismiss is a true reverse of appear.
         var fade = Math.Clamp(p * 2.0, 0, 1);
         ParkedHost.Opacity = fade;
@@ -2053,6 +2054,17 @@ public partial class MainWindow : Window
         DismissIcon.Opacity = iconOpacity;
         DismissIconScale.ScaleX = iconScale;
         DismissIconScale.ScaleY = iconScale;
+    }
+
+    private void OnParkedDividerClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!_layoutReady || _playPlayDemoteAnimating || !_viewModel.ShowParkedRail)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        _viewModel.SwapPrimaryAndSide();
     }
 
     /// <summary>

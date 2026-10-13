@@ -25,7 +25,8 @@ internal static class PairLayoutPlanner
     public static PairPlan Plan(
         IReadOnlyList<MediaSessionSnapshot> playing,
         string? stickyPrimaryKey,
-        string? parkedSideKey = null)
+        string? parkedSideKey = null,
+        bool forceStickyPrimary = false)
     {
         if (playing.Count < 2)
         {
@@ -38,10 +39,20 @@ internal static class PairLayoutPlanner
 
         var videos = playing.Where(s => s.IsVideo).ToList();
 
-        // Prefer video as primary; otherwise sticky; otherwise first playing.
-        var primary = videos.Count > 0
-            ? (PickSticky(videos, stickyPrimaryKey) ?? videos[0])
-            : (PickSticky(playing, stickyPrimaryKey) ?? playing[0]);
+        // Divider swap: honor sticky even over video preference.
+        MediaSessionSnapshot primary;
+        var sticky = PickSticky(playing, stickyPrimaryKey);
+        if (forceStickyPrimary && sticky is not null)
+        {
+            primary = sticky;
+        }
+        else
+        {
+            // Prefer video as primary; otherwise sticky; otherwise first playing.
+            primary = videos.Count > 0
+                ? (PickSticky(videos, stickyPrimaryKey) ?? videos[0])
+                : (sticky ?? playing[0]);
+        }
 
         // If we already had a parked chip, keep that session on the side (stable morph).
         MediaSessionSnapshot side;

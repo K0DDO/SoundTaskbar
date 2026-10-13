@@ -91,6 +91,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
+    /// <summary>Next plan should keep this key on the side (divider swap).</summary>
+    private string? _forceParkedSideKey;
+    /// <summary>Next plan should use this primary even if paused (divider swap).</summary>
+    private string? _forcePrimaryKey;
     private DateTimeOffset? _pairExitAfter;
     private DateTimeOffset? _emptySessionsGraceUntil;
     private long _lastPrimaryAliveCheckMs;
@@ -766,9 +770,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         _emptySessionsGraceUntil = null;
 
-        // SMTC sometimes lags (music still audible but status Paused when YouTube starts) —
-        // treat Core Audio peak as playing so we enter play+play instead of pause+play.
-        var playing = enriched.Where(IsEffectivelyPlaying).ToList();
+        // Mode uses SMTC Playing only — peak must not delay demote after pause.
+        // Peak still helps discover a second audible source when SMTC is late (promote into play+play).
+        var smtcPlaying = enriched.Where(s => s.IsPlaying).ToList();
+        var playing = smtcPlaying.Count >= 2
+            ? smtcPlaying
+            : enriched.Where(IsEffectivelyPlaying).ToList();
+        // If SMTC already shows a pause (count dropped), do not keep peak-inflated play+play.
+        if (smtcPlaying.Count < 2 && playing.Count >= 2 && IsPlayPlay)
+        {
+            playing = smtcPlaying;
+        }
+
         var focusedKey = _media.FocusedKey;
         var primary = PickPrimary(enriched, playing, focusedKey);
         if (primary is null)
@@ -786,8 +799,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             _pairExitAfter = null;
             // Keep the chip that started playing on the side so pause+play → play+play morphs in place.
+            var forceSticky = !string.IsNullOrEmpty(_forcePrimaryKey) ||
+                             !string.IsNullOrEmpty(_forceParkedSideKey);
             var parkedSideKey = ShowParkedRail ? PickParkedSideKey(playing) : null;
-            var plan = PairLayoutPlanner.Plan(playing, _primarySessionKey, parkedSideKey);
+            var plan = PairLayoutPlanner.Plan(
+                playing,
+                _primarySessionKey,
+                parkedSideKey,
+                forceStickyPrimary: forceSticky);
+            _forcePrimaryKey = null;
             RaiseSwapIfNeeded(plan.Primary.SessionKey);
             primary = ApplyPairPlan(plan, enriched);
         }
@@ -877,6 +897,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return false;
         }
 
+        // Primary paused/stopped: demote immediately (no 2.5s hold).
+        if (playing.All(s => s.SessionKey != _pairPrimaryKey))
+        {
+            return false;
+        }
+
         _pairExitAfter ??= DateTimeOffset.UtcNow.AddMilliseconds(PairExitGraceMs);
         if (DateTimeOffset.UtcNow >= _pairExitAfter.Value)
         {
@@ -921,6 +947,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private string? PickParkedSideKey(List<MediaSessionSnapshot> playing)
     {
+        if (!string.IsNullOrEmpty(_forceParkedSideKey))
+        {
+            var forced = _forceParkedSideKey;
+            _forceParkedSideKey = null;
+            if (playing.Any(s => s.SessionKey == forced))
+            {
+                return forced;
+            }
+        }
+
         var expanded = SideSessions.FirstOrDefault(s => s.ShowExpandedMeta);
         if (expanded is not null)
         {
@@ -928,6 +964,34 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         return SideSessions.FirstOrDefault(s => playing.Any(p => p.SessionKey == s.SessionKey))?.SessionKey;
+    }
+
+    /// <summary>Swap primary with the side chip next to the divider (click on divider).</summary>
+    public void SwapPrimaryAndSide()
+    {
+        if (!ShowParkedRail || SideSessions.Count == 0 || string.IsNullOrWhiteSpace(_primarySessionKey))
+        {
+            return;
+        }
+
+        var side = SideSessions.LastOrDefault(s => s.ShowExpandedMeta) ?? SideSessions[^1];
+        if (string.Equals(side.SessionKey, _primarySessionKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        CloseSideVolumeEditors();
+        if (IsVolumeEditorOpen)
+        {
+            IsVolumeEditorOpen = false;
+        }
+
+        _skipPairGraceUntil = DateTimeOffset.UtcNow.AddMilliseconds(UserToggleGraceSkipMs);
+        _forceParkedSideKey = _primarySessionKey;
+        _forcePrimaryKey = side.SessionKey;
+        _media.Focus(side.SessionKey);
+        _primarySessionKey = side.SessionKey;
+        _ = RefreshAsync(full: true);
     }
 
     private void RaiseSwapIfNeeded(string nextPrimaryKey)
@@ -988,6 +1052,25 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         List<MediaSessionSnapshot> playing,
         string? focusedKey)
     {
+        if (!string.IsNullOrEmpty(_forcePrimaryKey))
+        {
+            var forcedKey = _forcePrimaryKey;
+            // Cleared after Plan in play+play; clear here for pause+play path.
+            var forced = enriched.FirstOrDefault(s =>
+                s.SessionKey == forcedKey && s.IsParkable && _volume.IsAppRunning(s.AppId));
+            if (forced is not null)
+            {
+                if (playing.Count < 2)
+                {
+                    _forcePrimaryKey = null;
+                }
+
+                return forced;
+            }
+
+            _forcePrimaryKey = null;
+        }
+
         if (playing.Count > 0)
         {
             // Explicit focus (e.g. resume from parked chip) wins among playing.
@@ -1154,10 +1237,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
 
             existing.SourceName = MediaSourceFormatter.Format(snap.AppId);
-            var effectivelyPlaying = IsEffectivelyPlaying(snap);
-            existing.IsPlaying = effectivelyPlaying;
+            existing.IsPlaying = snap.IsPlaying;
             existing.IsVideo = snap.IsVideo;
-            existing.CanToggle = effectivelyPlaying ? snap.CanPause : snap.CanPlay;
+            existing.CanToggle = snap.IsPlaying ? snap.CanPause : snap.CanPlay;
             existing.ShowExpandedMeta = expandedMeta;
             existing.ApplyTimeline(snap.Position, snap.Duration);
             existing.RefreshVolume();
