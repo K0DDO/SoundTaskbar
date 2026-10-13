@@ -19,6 +19,10 @@ public partial class MainWindow : Window
     private const double VolumeOpenWidth = 74;
     private const double VolumeButtonWidth = 16;
     private const double PrimaryArtFullWidth = 28;
+    /// <summary>PlayPauseButton style width 28 (margin animated separately).</summary>
+    private const double PlayTransportFullWidth = 28;
+    /// <summary>CompactMediaButton style width.</summary>
+    private const double NextTransportFullWidth = 16;
     private const double ParkedDividerWidth = 2.5;
 
     /// <summary>0 = hidden, 1 = fully open. Drives chip + divider + shell together.</summary>
@@ -47,6 +51,9 @@ public partial class MainWindow : Window
     private AnimationClockHolder? _playPlayClock;
     private AnimationClockHolder? _visibilityClock;
     private AnimationClockHolder? _swapClock;
+    /// <summary>Bumps on each pause+play volume chrome tween — stale Completed handlers no-op.</summary>
+    private int _volumeChromeAnimId;
+    private bool _pausePlayVolumeChromeCollapsed;
     private FrameworkElement? _swapChip;
     private bool _widgetShown;
     private bool _revealAnimating;
@@ -1363,22 +1370,27 @@ public partial class MainWindow : Window
         var duration = TimeSpan.FromMilliseconds(260);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
+        VolumeHost.BeginAnimation(WidthProperty, null);
         VolumeHost.BeginAnimation(
             WidthProperty,
             new DoubleAnimation
             {
+                From = VolumeHost.ActualWidth > 0.5 ? VolumeHost.ActualWidth : (open ? VolumeClosedWidth : VolumeOpenWidth),
                 To = open ? VolumeOpenWidth : VolumeClosedWidth,
                 Duration = duration,
-                EasingFunction = ease
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
             });
 
+        VolumeSlider.BeginAnimation(OpacityProperty, null);
         VolumeSlider.BeginAnimation(
             OpacityProperty,
             new DoubleAnimation
             {
                 To = open ? 1 : 0,
                 Duration = duration,
-                EasingFunction = ease
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
             });
 
         VolumeSlider.IsHitTestVisible = open;
@@ -1388,14 +1400,14 @@ public partial class MainWindow : Window
         VolumeButton.Opacity = 1;
         VolumeButton.IsHitTestVisible = true;
 
-        // pause+play only: art + play + next collapse right; Previous + slider + mute remain.
-        if (_parkedOpen && !_playPlayOpen)
+        // Use VM play+play flag — _playPlayOpen can lag mid-morph and skip/steal wrongly.
+        var pausePlay = _parkedOpen && !_viewModel.IsPlayPlay;
+        if (pausePlay)
         {
             AnimatePausePlayVolumeSteal(open, duration, ease);
         }
-        else if (!open)
+        else
         {
-            // Leaving volume while not in pause+play — ensure chrome restored.
             SnapPausePlayVolumeChrome(collapsed: false);
         }
 
@@ -1404,76 +1416,67 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// pause+play volume: compress art toward VU and collapse play/next so slider can open;
-    /// Previous stays beside mute.
+    /// pause+play volume: clip art from the right + collapse play/next; Previous + slider + mute remain.
+    /// Deterministic widths + anim generation so rapid toggles / stale Completed cannot desync.
     /// </summary>
     private void AnimatePausePlayVolumeSteal(bool open, Duration duration, IEasingFunction ease)
     {
-        AnimateWidthAndOpacity(
+        var id = ++_volumeChromeAnimId;
+        _pausePlayVolumeChromeCollapsed = open;
+
+        // Art host stays full size, right-aligned — only the clip width shrinks (slides into VU).
+        PrimaryArtHost.BeginAnimation(WidthProperty, null);
+        PrimaryArtHost.Width = PrimaryArtFullWidth;
+        PrimaryArtHost.BeginAnimation(UIElement.OpacityProperty, null);
+        PrimaryArtHost.Opacity = 1;
+
+        AnimateChromeWidth(
             PrimaryArtClip,
             PrimaryArtFullWidth,
             collapse: open,
             restoreNaN: false,
-            duration,
-            ease);
-        AnimateWidthAndOpacity(
-            PrimaryArtHost,
-            PrimaryArtFullWidth,
-            collapse: open,
-            restoreNaN: false,
+            id,
             duration,
             ease);
 
-        PlayPauseTransportButton.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var playFull = Math.Max(
-            1,
-            Math.Ceiling(
-                PlayPauseTransportButton.DesiredSize.Width +
-                PlayPauseTransportButton.Margin.Left +
-                PlayPauseTransportButton.Margin.Right));
-        NextTransportButton.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var nextFull = Math.Max(1, Math.Ceiling(NextTransportButton.DesiredSize.Width));
+        PlayPauseTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
+        PlayPauseTransportButton.Opacity = 1;
+        NextTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
+        NextTransportButton.Opacity = 1;
 
-        if (!open)
-        {
-            if (playFull < 8)
-            {
-                playFull = 26;
-            }
-
-            if (nextFull < 8)
-            {
-                nextFull = 16;
-            }
-        }
-
-        AnimateWidthAndOpacity(
+        AnimateChromeWidth(
             PlayPauseTransportButton,
-            playFull,
+            PlayTransportFullWidth,
             collapse: open,
             restoreNaN: true,
+            id,
             duration,
             ease);
-        AnimateWidthAndOpacity(
+        AnimateChromeWidth(
             NextTransportButton,
-            nextFull,
+            NextTransportFullWidth,
             collapse: open,
             restoreNaN: true,
+            id,
             duration,
             ease);
+
+        // Collapse play margin with the button so leftover 2px does not jitter layout.
+        PlayPauseTransportButton.Margin = open ? new Thickness(0) : new Thickness(2, 0, 0, 0);
         PlayPauseTransportButton.IsHitTestVisible = !open;
         NextTransportButton.IsHitTestVisible = !open;
     }
 
     private void SnapPausePlayVolumeChrome(bool collapsed)
     {
+        _volumeChromeAnimId++;
+        _pausePlayVolumeChromeCollapsed = collapsed;
+
         PrimaryArtClip.BeginAnimation(WidthProperty, null);
         PrimaryArtClip.Width = collapsed ? 0 : PrimaryArtFullWidth;
-        PrimaryArtClip.BeginAnimation(UIElement.OpacityProperty, null);
-        PrimaryArtClip.Opacity = collapsed ? 0 : 1;
 
         PrimaryArtHost.BeginAnimation(WidthProperty, null);
-        PrimaryArtHost.Width = collapsed ? 0 : PrimaryArtFullWidth;
+        PrimaryArtHost.Width = PrimaryArtFullWidth;
         PrimaryArtHost.BeginAnimation(UIElement.OpacityProperty, null);
         PrimaryArtHost.Opacity = 1;
 
@@ -1481,49 +1484,59 @@ public partial class MainWindow : Window
         PlayPauseTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
         NextTransportButton.BeginAnimation(WidthProperty, null);
         NextTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
+        PlayPauseTransportButton.Opacity = 1;
+        NextTransportButton.Opacity = 1;
         if (collapsed)
         {
             PlayPauseTransportButton.Width = 0;
-            PlayPauseTransportButton.Opacity = 0;
             NextTransportButton.Width = 0;
-            NextTransportButton.Opacity = 0;
+            PlayPauseTransportButton.Margin = new Thickness(0);
         }
         else
         {
             PlayPauseTransportButton.Width = double.NaN;
-            PlayPauseTransportButton.Opacity = 1;
             NextTransportButton.Width = double.NaN;
-            NextTransportButton.Opacity = 1;
+            PlayPauseTransportButton.Margin = new Thickness(2, 0, 0, 0);
         }
 
         PlayPauseTransportButton.IsHitTestVisible = !collapsed;
         NextTransportButton.IsHitTestVisible = !collapsed;
     }
 
-    private static void AnimateWidthAndOpacity(
+    private void AnimateChromeWidth(
         FrameworkElement element,
         double fullWidth,
         bool collapse,
         bool restoreNaN,
+        int animId,
         Duration duration,
         IEasingFunction ease)
     {
+        // Interruptible: reverse from where we are; otherwise use known endpoints (no Measure races).
+        var current = element.ActualWidth;
+        if (!double.IsNaN(element.Width) && element.Width >= 0 && element.Width < 500)
+        {
+            current = element.Width;
+        }
+
+        double from;
+        if (collapse)
+        {
+            from = current > 0.5 ? current : fullWidth;
+        }
+        else
+        {
+            from = current > 0.5 ? Math.Min(current, fullWidth) : 0;
+        }
+
         var to = collapse ? 0 : fullWidth;
-        var from = element.ActualWidth > 0.5
-            ? element.ActualWidth
-            : (!double.IsNaN(element.Width) && element.Width >= 0 ? element.Width : (collapse ? fullWidth : 0));
-        var opacityTo = collapse ? 0.0 : 1.0;
-        var opacityFrom = double.IsNaN(element.Opacity) ? (collapse ? 1 : 0) : element.Opacity;
 
         element.BeginAnimation(WidthProperty, null);
         element.Width = from;
-        element.BeginAnimation(UIElement.OpacityProperty, null);
-        element.Opacity = opacityFrom;
 
-        if (Math.Abs(to - from) < 0.5 && Math.Abs(opacityTo - opacityFrom) < 0.02)
+        if (Math.Abs(to - from) < 0.5)
         {
             element.Width = collapse ? 0 : (restoreNaN ? double.NaN : fullWidth);
-            element.Opacity = opacityTo;
             return;
         }
 
@@ -1537,23 +1550,16 @@ public partial class MainWindow : Window
         };
         widthAnim.Completed += (_, _) =>
         {
+            if (animId != _volumeChromeAnimId)
+            {
+                return;
+            }
+
             element.BeginAnimation(WidthProperty, null);
             element.Width = collapse ? 0 : (restoreNaN ? double.NaN : fullWidth);
-            element.BeginAnimation(UIElement.OpacityProperty, null);
-            element.Opacity = opacityTo;
         };
 
         element.BeginAnimation(WidthProperty, widthAnim);
-        element.BeginAnimation(
-            UIElement.OpacityProperty,
-            new DoubleAnimation
-            {
-                From = opacityFrom,
-                To = opacityTo,
-                Duration = duration,
-                EasingFunction = ease,
-                FillBehavior = FillBehavior.HoldEnd
-            });
     }
 
     /// <summary>Solo: collapse app name into the mono icon in sync with the volume host width.</summary>
