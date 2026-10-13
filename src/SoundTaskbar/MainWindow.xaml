@@ -180,19 +180,26 @@
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
-                        <Button x:Name="ChipExpandedPrev"
-                                Style="{StaticResource CompactMediaButton}"
-                                Width="16"
-                                Height="16"
-                                Padding="0"
-                                VerticalAlignment="Center"
-                                Command="{Binding PreviousCommand}">
-                            <controls:TransportIcon Width="8"
-                                                    Height="8"
-                                                    Kind="{Binding PreviousIconKind}"
-                                                    Seconds="{Binding SeekSeconds}"
-                                                    Foreground="#F2F4F7" />
-                        </Button>
+                        <Grid x:Name="ChipExpandedPrevClip"
+                              Width="16"
+                              Height="16"
+                              ClipToBounds="True"
+                              VerticalAlignment="Center">
+                            <Button x:Name="ChipExpandedPrev"
+                                    Style="{StaticResource CompactMediaButton}"
+                                    Width="16"
+                                    Height="16"
+                                    Padding="0"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center"
+                                    Command="{Binding PreviousCommand}">
+                                <controls:TransportIcon Width="8"
+                                                        Height="8"
+                                                        Kind="{Binding PreviousIconKind}"
+                                                        Seconds="{Binding SeekSeconds}"
+                                                        Foreground="#F2F4F7" />
+                            </Button>
+                        </Grid>
                         <Button x:Name="ChipExpandedPlay"
                                 Style="{StaticResource PlayPauseButton}"
                                 Width="22"
@@ -205,20 +212,27 @@
                                                     IsPlaying="{Binding IsPlaying}"
                                                     Foreground="#F2F4F7" />
                         </Button>
-                        <Button x:Name="ChipExpandedNext"
-                                Style="{StaticResource CompactMediaButton}"
-                                Width="16"
-                                Height="16"
-                                Padding="0"
-                                Margin="0,0,4,0"
-                                VerticalAlignment="Center"
-                                Command="{Binding NextCommand}">
-                            <controls:TransportIcon Width="8"
-                                                    Height="8"
-                                                    Kind="{Binding NextIconKind}"
-                                                    Seconds="{Binding SeekSeconds}"
-                                                    Foreground="#F2F4F7" />
-                        </Button>
+                        <Grid x:Name="ChipExpandedNextClip"
+                              Width="16"
+                              Height="16"
+                              Margin="0,0,4,0"
+                              ClipToBounds="True"
+                              VerticalAlignment="Center">
+                            <Button x:Name="ChipExpandedNext"
+                                    Style="{StaticResource CompactMediaButton}"
+                                    Width="16"
+                                    Height="16"
+                                    Padding="0"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center"
+                                    Command="{Binding NextCommand}">
+                                <controls:TransportIcon Width="8"
+                                                        Height="8"
+                                                        Kind="{Binding NextIconKind}"
+                                                        Seconds="{Binding SeekSeconds}"
+                                                        Foreground="#F2F4F7" />
+                            </Button>
+                        </Grid>
                     </StackPanel>
 
                     <Grid x:Name="ChipVolumeHostExpanded"
@@ -705,15 +719,22 @@
                             Grid.Column="3"
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
-                    <Button x:Name="PreviousButton"
-                            Style="{StaticResource CompactMediaButton}"
-                            VerticalAlignment="Center"
-                            Command="{Binding PreviousCommand}">
-                        <controls:TransportIcon x:Name="PreviousIcon"
-                                                  Kind="{Binding PreviousIconKind}"
-                                                  Seconds="{Binding SeekSeconds}"
-                                                  Foreground="#F2F4F7" />
-                    </Button>
+                    <Grid x:Name="PreviousTransportClip"
+                          Width="16"
+                          Height="16"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <Button x:Name="PreviousButton"
+                                Style="{StaticResource CompactMediaButton}"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Center"
+                                Command="{Binding PreviousCommand}">
+                            <controls:TransportIcon x:Name="PreviousIcon"
+                                                      Kind="{Binding PreviousIconKind}"
+                                                      Seconds="{Binding SeekSeconds}"
+                                                      Foreground="#F2F4F7" />
+                        </Button>
+                    </Grid>
                     <Grid x:Name="PlayPauseTransportClip"
                           Margin="2,0,0,0"
                           ClipToBounds="True"
@@ -730,13 +751,15 @@
                         </Button>
                     </Grid>
                     <Grid x:Name="NextTransportClip"
+                          Width="16"
+                          Height="16"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="NextTransportButton"
                                 Style="{StaticResource CompactMediaButton}"
                                 VerticalAlignment="Center"
                                 Command="{Binding NextCommand}"
-                                HorizontalAlignment="Right">
+                                HorizontalAlignment="Center">
                             <controls:TransportIcon x:Name="NextIcon"
                                                       Kind="{Binding NextIconKind}"
                                                       Seconds="{Binding SeekSeconds}"

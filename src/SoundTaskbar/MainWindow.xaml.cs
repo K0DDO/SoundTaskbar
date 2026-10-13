@@ -2179,7 +2179,7 @@ public partial class MainWindow : Window
             var pos = source.TranslatePoint(new Point(0, 0), SwapOverlay);
             Canvas.SetLeft(ghost, pos.X);
             Canvas.SetTop(ghost, pos.Y);
-            Panel.SetZIndex(ghost, 20);
+            Panel.SetZIndex(ghost, cubeOriginBottom ? 40 : 25);
             SwapOverlay.Children.Add(ghost);
             return ghost;
         }
@@ -2277,8 +2277,9 @@ public partial class MainWindow : Window
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistRow);
         AddPairedCube(PrimaryTimeRow);
-        AddPairedSeek(PreviousButton);
-        AddPairedSeek(NextTransportButton);
+        // Scale the fixed clip hosts (not bare buttons) so prev matches next — no upward drift.
+        AddPairedSeek(PreviousTransportClip);
+        AddPairedSeek(NextTransportClip);
 
         // Outgoing chip media + seek only (not pause / volume).
         var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
@@ -2289,8 +2290,8 @@ public partial class MainWindow : Window
             AddChipCubeGhost("ChipTitleRow", FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
             AddChipCubeGhost("ChipArtistRow", FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement);
             AddChipCubeGhost("ChipTimeRow", FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
-            AddChipSeekGhost("ChipExpandedPrev", FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
-            AddChipSeekGhost("ChipExpandedNext", FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
+            AddChipSeekGhost("ChipExpandedPrevClip", FindDescendantByName(chipRoot, "ChipExpandedPrevClip") as FrameworkElement);
+            AddChipSeekGhost("ChipExpandedNextClip", FindDescendantByName(chipRoot, "ChipExpandedNextClip") as FrameworkElement);
         }
 
         // Hide live chip under SwapOverlay ghosts until lives are prepped.
@@ -2303,14 +2304,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        var chipLiveAttached = false;
+        var chipHostReady = false;
         void TryAttachIncomingChipLives()
         {
-            if (chipLiveAttached)
-            {
-                return;
-            }
-
             var item = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.FromKey);
             if (item is null ||
                 ParkedList.ItemContainerGenerator.ContainerFromItem(item) is not DependencyObject newChip)
@@ -2321,43 +2317,89 @@ public partial class MainWindow : Window
             if (item.ShowExpandedMeta)
             {
                 item.ExpandProgress = 1;
-                item.MetaRailWidth = item.MeasuredMetaRailWidth;
+                item.MetaRailWidth = Math.Max(item.MeasuredMetaRailWidth, MediaViewModel.PlayPlayMetaWidth);
                 PushChipMetaHostWidths();
+                if (FindDescendantByName(newChip, "ChipMetaHost") is FrameworkElement metaHost)
+                {
+                    metaHost.BeginAnimation(WidthProperty, null);
+                    metaHost.Width = item.MetaRailWidth;
+                }
+
                 ParkedList.UpdateLayout();
+                if (newChip is UIElement chipEl)
+                {
+                    chipEl.UpdateLayout();
+                }
             }
 
-            chipLiveAttached = true;
             _swapChip = newChip as FrameworkElement;
 
             void AttachCube(string name)
             {
-                if (!chipCubeSlots.TryGetValue(name, out var index) ||
-                    FindDescendantByName(newChip, name) is not FrameworkElement el ||
-                    el.ActualWidth < 1 ||
-                    el.ActualHeight < 1)
+                if (!chipCubeSlots.TryGetValue(name, out var index))
                 {
                     return;
                 }
 
+                var slot = faces[index];
+                if (slot.Live is not null)
+                {
+                    return;
+                }
+
+                if (FindDescendantByName(newChip, name) is not FrameworkElement el)
+                {
+                    return;
+                }
+
+                // Artist/time often measure 0 until meta width is pushed — still bind the live face.
+                if (el.ActualWidth < 1 || el.ActualHeight < 1)
+                {
+                    el.Measure(new Size(
+                        Math.Max(1, slot.Ghost?.Width ?? MediaViewModel.PlayPlayMetaWidth),
+                        Math.Max(1, slot.Ghost?.Height ?? 16)));
+                    el.Arrange(new Rect(el.DesiredSize));
+                }
+
                 var liveScale = new ScaleTransform(1, 0);
                 PrepLiveCube(el, liveScale);
-                var slot = faces[index];
+                // Match ghost box so both faces share the same roll footprint (like art/title).
+                if (slot.Ghost is not null)
+                {
+                    if (el.ActualWidth < 1)
+                    {
+                        el.Width = slot.Ghost.Width;
+                    }
+
+                    if (el.ActualHeight < 1)
+                    {
+                        el.MinHeight = slot.Ghost.Height;
+                    }
+                }
+
                 faces[index] = (slot.Ghost, slot.GhostScale, el, liveScale, true);
             }
 
             void AttachSeek(string name)
             {
-                if (!chipSeekSlots.TryGetValue(name, out var index) ||
-                    FindDescendantByName(newChip, name) is not FrameworkElement el ||
-                    el.ActualWidth < 1 ||
-                    el.ActualHeight < 1)
+                if (!chipSeekSlots.TryGetValue(name, out var index))
+                {
+                    return;
+                }
+
+                var slot = faces[index];
+                if (slot.Live is not null)
+                {
+                    return;
+                }
+
+                if (FindDescendantByName(newChip, name) is not FrameworkElement el)
                 {
                     return;
                 }
 
                 var liveScale = new ScaleTransform(0, 0);
                 PrepLiveSeek(el, liveScale);
-                var slot = faces[index];
                 faces[index] = (slot.Ghost, slot.GhostScale, el, liveScale, false);
             }
 
@@ -2365,15 +2407,18 @@ public partial class MainWindow : Window
             AttachCube("ChipTitleRow");
             AttachCube("ChipArtistRow");
             AttachCube("ChipTimeRow");
-            AttachSeek("ChipExpandedPrev");
-            AttachSeek("ChipExpandedNext");
+            AttachSeek("ChipExpandedPrevClip");
+            AttachSeek("ChipExpandedNextClip");
 
-            // Pause stays put — show immediately with the host (same play/pause state).
+            // Pause stays put — same play/pause state, no animation.
             if (FindDescendantByName(newChip, "ChipExpandedPlay") is FrameworkElement play)
             {
                 play.Opacity = 1;
                 play.RenderTransform = Transform.Identity;
             }
+
+            chipHostReady = chipCubeSlots.Count == 0 ||
+                            chipCubeSlots.Values.All(i => faces[i].Live is not null);
         }
 
         void ApplyFace(
@@ -2427,8 +2472,8 @@ public partial class MainWindow : Window
             t = Math.Clamp(t, 0, 1);
             TryAttachIncomingChipLives();
 
-            // Show parked host as soon as chip lives exist so both cube faces can overlap.
-            if (chipLiveAttached)
+            // Show parked host once media cube lives are bound — both faces overlap like primary art/title.
+            if (chipHostReady)
             {
                 ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
             }
