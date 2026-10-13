@@ -505,24 +505,30 @@
                                 Opacity="0"
                                 VerticalAlignment="Center" />
 
-                        <Border x:Name="PrimaryArtHost"
-                                Grid.Column="2"
-                                Width="28"
-                                Height="28"
-                                CornerRadius="4"
-                                ClipToBounds="True"
-                                Background="#44000000"
-                                VerticalAlignment="Center">
-                            <Grid>
-                                <TextBlock x:Name="ArtworkPlaceholder"
-                                           Text="♪"
-                                           FontSize="12"
-                                           Foreground="#CCFFFFFF"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                                <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                            </Grid>
-                        </Border>
+                        <!-- Clip host: volume open shrinks art toward the right (into meta/VU) -->
+                        <Grid x:Name="PrimaryArtClip"
+                              Grid.Column="2"
+                              Width="28"
+                              ClipToBounds="True"
+                              VerticalAlignment="Center">
+                            <Border x:Name="PrimaryArtHost"
+                                    Width="28"
+                                    Height="28"
+                                    HorizontalAlignment="Right"
+                                    CornerRadius="4"
+                                    ClipToBounds="True"
+                                    Background="#44000000">
+                                <Grid>
+                                    <TextBlock x:Name="ArtworkPlaceholder"
+                                               Text="♪"
+                                               FontSize="12"
+                                               Foreground="#CCFFFFFF"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                    <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                </Grid>
+                            </Border>
+                        </Grid>
 
                         <Grid x:Name="PrimaryMetaHost"
                               Grid.Column="3"
@@ -699,23 +705,27 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Transport (single mode) -->
+                <!-- Transport: pause+play volume keeps only Previous; play/next collapse right -->
                 <StackPanel x:Name="TransportHost"
                             Grid.Column="3"
                             Orientation="Horizontal"
+                            ClipToBounds="True"
                             VerticalAlignment="Center">
-                    <Button Style="{StaticResource CompactMediaButton}"
+                    <Button x:Name="PreviousButton"
+                            Style="{StaticResource CompactMediaButton}"
                             Command="{Binding PreviousCommand}">
                         <controls:TransportIcon x:Name="PreviousIcon"
                                                   Kind="{Binding PreviousIconKind}"
                                                   Seconds="{Binding SeekSeconds}"
                                                   Foreground="#F2F4F7" />
                     </Button>
-                    <Button Content="{Binding PlayPauseLabel}"
+                    <Button x:Name="PlayPauseTransportButton"
+                            Content="{Binding PlayPauseLabel}"
                             Style="{StaticResource PlayPauseButton}"
                             Command="{Binding PlayPauseCommand}"
                             Margin="2,0" />
-                    <Button Style="{StaticResource CompactMediaButton}"
+                    <Button x:Name="NextTransportButton"
+                            Style="{StaticResource CompactMediaButton}"
                             Command="{Binding NextCommand}">
                         <controls:TransportIcon x:Name="NextIcon"
                                                   Kind="{Binding NextIconKind}"

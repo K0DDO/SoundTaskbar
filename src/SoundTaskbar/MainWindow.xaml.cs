@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private const double VolumeClosedWidth = 16;
     private const double VolumeOpenWidth = 74;
     private const double VolumeButtonWidth = 16;
+    private const double PrimaryArtFullWidth = 28;
     private const double ParkedDividerWidth = 2.5;
 
     /// <summary>0 = hidden, 1 = fully open. Drives chip + divider + shell together.</summary>
@@ -46,7 +47,6 @@ public partial class MainWindow : Window
     private AnimationClockHolder? _playPlayClock;
     private AnimationClockHolder? _visibilityClock;
     private AnimationClockHolder? _swapClock;
-    private AnimationClockHolder? _volumeShellClock;
     private FrameworkElement? _swapChip;
     private bool _widgetShown;
     private bool _revealAnimating;
@@ -211,10 +211,12 @@ public partial class MainWindow : Window
         if (playPlay)
         {
             _viewModel.ApplyPlayPlayCompositeWidth(chip);
+            SnapPausePlayVolumeChrome(collapsed: false);
         }
         else
         {
             _viewModel.ApplyParkedCompositeWidth(chip);
+            SnapPausePlayVolumeChrome(collapsed: _viewModel.IsVolumeEditorOpen);
         }
 
         if (_taskbarHost is not null)
@@ -275,6 +277,15 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MediaViewModel.IsPlayPlay))
         {
             SyncParkedListAlignment(playPlay: _viewModel.IsPlayPlay);
+            if (_viewModel.IsPlayPlay)
+            {
+                // pause+play volume steals art/next — restore when entering play+play.
+                SnapPausePlayVolumeChrome(collapsed: false);
+            }
+            else if (_viewModel.IsVolumeEditorOpen && _parkedOpen)
+            {
+                SnapPausePlayVolumeChrome(collapsed: true);
+            }
         }
         else if (e.PropertyName == nameof(MediaViewModel.HasSession))
         {
@@ -285,7 +296,7 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.DesiredWidgetWidth))
         {
-            if (_taskbarHost is not null && _playPlayClock is null && _volumeShellClock is null)
+            if (_taskbarHost is not null && _playPlayClock is null)
             {
                 _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
             }
@@ -1348,8 +1359,7 @@ public partial class MainWindow : Window
 
     private void AnimateVolumeEditor(bool open)
     {
-        // Speaker stays put → becomes mute; slider opens to its left. Shell grows in pause+play
-        // so art / next are not crushed into the tray clip.
+        // Mute replaces speaker in place; slider opens left and (in pause+play) steals art + next/play.
         var duration = TimeSpan.FromMilliseconds(260);
         var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
@@ -1378,9 +1388,15 @@ public partial class MainWindow : Window
         VolumeButton.Opacity = 1;
         VolumeButton.IsHitTestVisible = true;
 
-        if (_parkedOpen)
+        // pause+play only: art + play + next collapse right; Previous + slider + mute remain.
+        if (_parkedOpen && !_playPlayOpen)
         {
-            AnimatePrimaryVolumeShell(open, duration, ease);
+            AnimatePausePlayVolumeSteal(open, duration, ease);
+        }
+        else if (!open)
+        {
+            // Leaving volume while not in pause+play — ensure chrome restored.
+            SnapPausePlayVolumeChrome(collapsed: false);
         }
 
         AnimateSourceNameForVolume(open, duration, ease);
@@ -1388,67 +1404,155 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// pause+play / play+play: grow shell with the volume host so Col0 (art+meta) and transport stay.
+    /// pause+play volume: compress art toward VU and collapse play/next so slider can open;
+    /// Previous stays beside mute.
     /// </summary>
-    private void AnimatePrimaryVolumeShell(bool open, Duration duration, IEasingFunction ease)
+    private void AnimatePausePlayVolumeSteal(bool open, Duration duration, IEasingFunction ease)
     {
-        if (_taskbarHost is null)
-        {
-            return;
-        }
+        AnimateWidthAndOpacity(
+            PrimaryArtClip,
+            PrimaryArtFullWidth,
+            collapse: open,
+            restoreNaN: false,
+            duration,
+            ease);
+        AnimateWidthAndOpacity(
+            PrimaryArtHost,
+            PrimaryArtFullWidth,
+            collapse: open,
+            restoreNaN: false,
+            duration,
+            ease);
 
-        var parked = Math.Max(1, _parkedChipTarget);
-        var to = _playPlayOpen
-            ? _viewModel.ComputePlayPlayCompositeWidth(parked)
-            : _viewModel.ComputeParkedCompositeWidth(parked);
-        // IsVolumeEditorOpen already flipped — Compute* includes/excludes PrimaryVolumeOpenExtra.
-        var from = _taskbarHost.DesiredWidgetWidthDip;
-        if (Math.Abs(to - from) < 0.5)
-        {
-            _taskbarHost.DesiredWidgetWidthDip = to;
-            if (_playPlayOpen)
-            {
-                _viewModel.ApplyPlayPlayCompositeWidth(parked);
-            }
-            else
-            {
-                _viewModel.ApplyParkedCompositeWidth(parked);
-            }
-
-            return;
-        }
-
-        _volumeShellClock?.Cancel();
-        var holder = new AnimationClockHolder();
-        _volumeShellClock = holder;
-        holder.ProgressChanged += t =>
-        {
-            _taskbarHost.DesiredWidgetWidthDip = from + (to - from) * t;
-        };
-        holder.Start(
-            0,
+        PlayPauseTransportButton.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var playFull = Math.Max(
             1,
-            duration.TimeSpan,
-            ease,
-            () =>
+            Math.Ceiling(
+                PlayPauseTransportButton.DesiredSize.Width +
+                PlayPauseTransportButton.Margin.Left +
+                PlayPauseTransportButton.Margin.Right));
+        NextTransportButton.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var nextFull = Math.Max(1, Math.Ceiling(NextTransportButton.DesiredSize.Width));
+
+        if (!open)
+        {
+            if (playFull < 8)
             {
-                if (!ReferenceEquals(_volumeShellClock, holder))
-                {
-                    return;
-                }
+                playFull = 26;
+            }
 
-                _volumeShellClock = null;
-                _taskbarHost.DesiredWidgetWidthDip = to;
-                if (_playPlayOpen)
-                {
-                    _viewModel.ApplyPlayPlayCompositeWidth(parked);
-                }
-                else
-                {
-                    _viewModel.ApplyParkedCompositeWidth(parked);
-                }
+            if (nextFull < 8)
+            {
+                nextFull = 16;
+            }
+        }
 
-                _taskbarHost.FlushRegion();
+        AnimateWidthAndOpacity(
+            PlayPauseTransportButton,
+            playFull,
+            collapse: open,
+            restoreNaN: true,
+            duration,
+            ease);
+        AnimateWidthAndOpacity(
+            NextTransportButton,
+            nextFull,
+            collapse: open,
+            restoreNaN: true,
+            duration,
+            ease);
+        PlayPauseTransportButton.IsHitTestVisible = !open;
+        NextTransportButton.IsHitTestVisible = !open;
+    }
+
+    private void SnapPausePlayVolumeChrome(bool collapsed)
+    {
+        PrimaryArtClip.BeginAnimation(WidthProperty, null);
+        PrimaryArtClip.Width = collapsed ? 0 : PrimaryArtFullWidth;
+        PrimaryArtClip.BeginAnimation(UIElement.OpacityProperty, null);
+        PrimaryArtClip.Opacity = collapsed ? 0 : 1;
+
+        PrimaryArtHost.BeginAnimation(WidthProperty, null);
+        PrimaryArtHost.Width = collapsed ? 0 : PrimaryArtFullWidth;
+        PrimaryArtHost.BeginAnimation(UIElement.OpacityProperty, null);
+        PrimaryArtHost.Opacity = 1;
+
+        PlayPauseTransportButton.BeginAnimation(WidthProperty, null);
+        PlayPauseTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
+        NextTransportButton.BeginAnimation(WidthProperty, null);
+        NextTransportButton.BeginAnimation(UIElement.OpacityProperty, null);
+        if (collapsed)
+        {
+            PlayPauseTransportButton.Width = 0;
+            PlayPauseTransportButton.Opacity = 0;
+            NextTransportButton.Width = 0;
+            NextTransportButton.Opacity = 0;
+        }
+        else
+        {
+            PlayPauseTransportButton.Width = double.NaN;
+            PlayPauseTransportButton.Opacity = 1;
+            NextTransportButton.Width = double.NaN;
+            NextTransportButton.Opacity = 1;
+        }
+
+        PlayPauseTransportButton.IsHitTestVisible = !collapsed;
+        NextTransportButton.IsHitTestVisible = !collapsed;
+    }
+
+    private static void AnimateWidthAndOpacity(
+        FrameworkElement element,
+        double fullWidth,
+        bool collapse,
+        bool restoreNaN,
+        Duration duration,
+        IEasingFunction ease)
+    {
+        var to = collapse ? 0 : fullWidth;
+        var from = element.ActualWidth > 0.5
+            ? element.ActualWidth
+            : (!double.IsNaN(element.Width) && element.Width >= 0 ? element.Width : (collapse ? fullWidth : 0));
+        var opacityTo = collapse ? 0.0 : 1.0;
+        var opacityFrom = double.IsNaN(element.Opacity) ? (collapse ? 1 : 0) : element.Opacity;
+
+        element.BeginAnimation(WidthProperty, null);
+        element.Width = from;
+        element.BeginAnimation(UIElement.OpacityProperty, null);
+        element.Opacity = opacityFrom;
+
+        if (Math.Abs(to - from) < 0.5 && Math.Abs(opacityTo - opacityFrom) < 0.02)
+        {
+            element.Width = collapse ? 0 : (restoreNaN ? double.NaN : fullWidth);
+            element.Opacity = opacityTo;
+            return;
+        }
+
+        var widthAnim = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = duration,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        widthAnim.Completed += (_, _) =>
+        {
+            element.BeginAnimation(WidthProperty, null);
+            element.Width = collapse ? 0 : (restoreNaN ? double.NaN : fullWidth);
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = opacityTo;
+        };
+
+        element.BeginAnimation(WidthProperty, widthAnim);
+        element.BeginAnimation(
+            UIElement.OpacityProperty,
+            new DoubleAnimation
+            {
+                From = opacityFrom,
+                To = opacityTo,
+                Duration = duration,
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.HoldEnd
             });
     }
 

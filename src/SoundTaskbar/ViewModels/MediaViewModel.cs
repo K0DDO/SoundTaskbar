@@ -78,11 +78,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>ParkedDivider width 2.5 + margins 8+6.</summary>
     public const double PausePlayDividerChrome = 16.5;
 
-    /// <summary>
-    /// Primary volume host grow (74−16). Added to pause+play / play+play shell so art/transport stay put.
-    /// </summary>
-    public const double PrimaryVolumeOpenExtra = 58;
-
     private double _desiredWidgetWidth = SoloWidgetWidth;
     private string? _pairPrimaryKey;
     private string? _pairSideKey;
@@ -226,26 +221,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return SoloWidgetWidth;
         }
 
-        var w = SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
-        if (IsVolumeEditorOpen)
-        {
-            w += PrimaryVolumeOpenExtra;
-        }
-
-        return w;
+        return SoloWidgetWidth - PausePlayTrim + parkedMeasuredWidth.Value + PausePlayDividerChrome;
     }
 
     /// <summary>play+play: tighter primary + measured expanded chip + divider.</summary>
-    public double ComputePlayPlayCompositeWidth(double parkedMeasuredWidth)
-    {
-        var w = SoloWidgetWidth - PausePlayTrim - PlayPlayExtraTrim + parkedMeasuredWidth + PausePlayDividerChrome;
-        if (IsVolumeEditorOpen)
-        {
-            w += PrimaryVolumeOpenExtra;
-        }
-
-        return w;
-    }
+    public double ComputePlayPlayCompositeWidth(double parkedMeasuredWidth) =>
+        SoloWidgetWidth - PausePlayTrim - PlayPlayExtraTrim + parkedMeasuredWidth + PausePlayDividerChrome;
 
     /// <summary>
     /// pause+play only. play+play width is driven by MainWindow morph (measured).
