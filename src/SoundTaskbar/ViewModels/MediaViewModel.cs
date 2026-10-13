@@ -44,6 +44,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private readonly DispatcherTimer _volumeTicker;
     private readonly DispatcherTimer _volumeHideTimer;
     private readonly DispatcherTimer _parkedWatchdog;
+    private readonly DispatcherTimer _demoteDelayTimer;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _disposed;
@@ -111,6 +112,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private MediaSessionSnapshot? _pendingDemotePrimary;
     private List<MediaSessionSnapshot>? _pendingDemoteParked;
     private bool _pendingDemoteKeepArtwork;
+    /// <summary>Waiting 1s after pause before demote animation; cancelled if play resumes.</summary>
+    private bool _demoteDelayArmed;
+    private string? _demoteDelayFromPrimary;
+    private string? _demoteDelayFromExpanded;
+    private const int DemoteDelayMs = 1000;
     private string _displayedPrimaryKey = string.Empty;
     private bool _staleVisuals;
     private BitmapImage? _appIcon;
@@ -189,6 +195,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         // Snappy: dismiss starts as soon as the paused app is gone (was 350ms).
         _parkedWatchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _parkedWatchdog.Tick += (_, _) => OnParkedWatchdog();
+
+        _demoteDelayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DemoteDelayMs) };
+        _demoteDelayTimer.Tick += (_, _) => OnDemoteDelayElapsed();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -668,6 +677,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _volumeTicker.Stop();
         _volumeHideTimer.Stop();
         _parkedWatchdog.Stop();
+        CancelDemoteDelay();
         _media.Changed -= OnMediaChanged;
         _media.TimelineChanged -= OnTimelineChanged;
         _media.Dispose();
@@ -784,22 +794,34 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         // Hide wipe owns UI — refresh only the pending pause+play target, keep old bindings.
         if (_demoteCommitPending)
         {
-            var pendingPrimary = PickPrimary(enriched, playing, _media.FocusedKey);
-            if (pendingPrimary is null || playing.Count >= 2)
+            if (playing.Count >= 2)
             {
+                // Unpaused during wipe — drop pending demote; fall through to play+play.
+                CancelDemoteDelay();
+                _demoteCommitPending = false;
+                _pendingDemotePrimary = null;
+                _pendingDemoteParked = null;
+            }
+            else
+            {
+                var pendingPrimary = PickPrimary(enriched, playing, _media.FocusedKey);
+                if (pendingPrimary is null)
+                {
+                    return;
+                }
+
+                _pendingDemotePrimary = pendingPrimary;
+                _pendingDemoteParked = BuildSideList(enriched, pendingPrimary.SessionKey, expanded: null);
+                _pendingDemoteKeepArtwork = keepArtwork;
                 return;
             }
-
-            _pendingDemotePrimary = pendingPrimary;
-            _pendingDemoteParked = BuildSideList(enriched, pendingPrimary.SessionKey, expanded: null);
-            _pendingDemoteKeepArtwork = keepArtwork;
-            return;
         }
 
         var focusedKey = _media.FocusedKey;
         var primary = PickPrimary(enriched, playing, focusedKey);
         if (primary is null)
         {
+            CancelDemoteDelay();
             if (ShouldHoldEmptySessions())
             {
                 return;
@@ -811,6 +833,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (playing.Count >= 2)
         {
+            // Unpaused (or still dual play) — never demote.
+            CancelDemoteDelay();
+
             // Keep the chip that started playing on the side so pause+play → play+play morphs in place.
             var forceSticky = !string.IsNullOrEmpty(_forcePrimaryKey) ||
                              !string.IsNullOrEmpty(_forceParkedSideKey);
@@ -826,28 +851,15 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            // Demote immediately when one side pauses — no pair-exit grace delay.
-            var demotingPlayPlay = IsPlayPlay;
-
+            var demotingPlayPlay = IsPlayPlay || _demoteDelayArmed;
             var parked = BuildSideList(enriched, primary.SessionKey, expanded: null);
 
             if (parked.Count > 0)
             {
                 if (demotingPlayPlay)
                 {
-                    // Defer SyncCollection for both paths so UI can arm morph/restart
-                    // before side chips (incl. 3+) reshuffle — same rules for any count.
-                    var fromExpanded = SideSessions.FirstOrDefault(s => s.ShowExpandedMeta)?.SessionKey;
-                    _demoteCommitPending = true;
-                    _pendingDemotePrimary = primary;
-                    _pendingDemoteParked = parked;
-                    _pendingDemoteKeepArtwork = keepArtwork;
-                    PlayPlayDemoting?.Invoke(
-                        this,
-                        new PlayPlayDemoteEventArgs(
-                            _displayedPrimaryKey,
-                            primary.SessionKey,
-                            fromExpanded));
+                    // Hold play+play chrome for 1s; unpause cancels. Then fire demote animation.
+                    HoldPlayPlayDuringDemoteDelay(enriched, primary, parked, keepArtwork);
                     return;
                 }
 
@@ -861,6 +873,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
             else
             {
+                CancelDemoteDelay();
                 if (!demotingPlayPlay)
                 {
                     RaiseSwapIfNeeded(primary.SessionKey);
@@ -874,6 +887,91 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _primarySessionKey = primary.SessionKey;
         _media.Focus(primary.SessionKey);
         ApplyPrimary(primary, keepArtwork);
+    }
+
+    /// <summary>
+    /// Keep expanded play chip visible while waiting; start/reset 1s timer once.
+    /// </summary>
+    private void HoldPlayPlayDuringDemoteDelay(
+        List<MediaSessionSnapshot> enriched,
+        MediaSessionSnapshot primary,
+        List<MediaSessionSnapshot> parked,
+        bool keepArtwork)
+    {
+        if (!_demoteDelayArmed)
+        {
+            _demoteDelayArmed = true;
+            _demoteDelayFromPrimary = _displayedPrimaryKey;
+            _demoteDelayFromExpanded = SideSessions.FirstOrDefault(s => s.ShowExpandedMeta)?.SessionKey;
+            _demoteDelayTimer.Stop();
+            _demoteDelayTimer.Start();
+        }
+
+        // Target after animation (may differ from on-screen primary during the wait).
+        _pendingDemotePrimary = primary;
+        _pendingDemoteParked = parked;
+        _pendingDemoteKeepArtwork = keepArtwork;
+
+        // Visual hold: keep the same primary + expanded chip until the timer fires.
+        var holdPrimaryKey = _demoteDelayFromPrimary ?? _displayedPrimaryKey;
+        var holdPrimary = (!string.IsNullOrEmpty(holdPrimaryKey)
+                              ? enriched.FirstOrDefault(s => s.SessionKey == holdPrimaryKey)
+                              : null)
+                          ?? primary;
+        var holdExpandedKey = _demoteDelayFromExpanded
+                              ?? SideSessions.FirstOrDefault(s => s.ShowExpandedMeta)?.SessionKey;
+        var holdExpanded = holdExpandedKey is null
+            ? null
+            : enriched.FirstOrDefault(s => s.SessionKey == holdExpandedKey);
+
+        _parkedDismissPending = false;
+        SyncCollection(
+            SideSessions,
+            BuildSideList(enriched, holdPrimary.SessionKey, holdExpanded),
+            freezeTransportIcons: true,
+            expandedKey: holdExpanded?.SessionKey);
+        ShowParkedRail = true;
+        UpdateParkedWatchdog();
+        _primarySessionKey = holdPrimary.SessionKey;
+        _media.Focus(holdPrimary.SessionKey);
+        ApplyPrimary(holdPrimary, keepArtwork);
+    }
+
+    private void OnDemoteDelayElapsed()
+    {
+        _demoteDelayTimer.Stop();
+        if (_disposed || !_demoteDelayArmed)
+        {
+            return;
+        }
+
+        _demoteDelayArmed = false;
+        if (_pendingDemotePrimary is null || _pendingDemoteParked is null)
+        {
+            CancelDemoteDelay();
+            return;
+        }
+
+        _demoteCommitPending = true;
+        PlayPlayDemoting?.Invoke(
+            this,
+            new PlayPlayDemoteEventArgs(
+                _demoteDelayFromPrimary ?? _displayedPrimaryKey,
+                _pendingDemotePrimary.SessionKey,
+                _demoteDelayFromExpanded));
+    }
+
+    private void CancelDemoteDelay()
+    {
+        _demoteDelayTimer.Stop();
+        _demoteDelayArmed = false;
+        _demoteDelayFromPrimary = null;
+        _demoteDelayFromExpanded = null;
+        if (!_demoteCommitPending)
+        {
+            _pendingDemotePrimary = null;
+            _pendingDemoteParked = null;
+        }
     }
 
     /// <summary>
@@ -1379,6 +1477,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         DesiredWidgetWidth = SoloWidgetWidth;
         RequestParkedDismiss();
         _kindCache.Clear();
+        CancelDemoteDelay();
         _demoteCommitPending = false;
         _pendingDemotePrimary = null;
         _pendingDemoteParked = null;
