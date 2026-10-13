@@ -2237,11 +2237,12 @@ public partial class MainWindow : Window
             PrepLiveFace(live, stagger);
         }
 
-        // Primary faces — art, title, channel+icon, duration (all roll together).
+        // Primary faces — art/title/artist/time + play/pause (all roll together).
         AddPairedFace(PrimaryArtHost, 0);
         AddPairedFace(TitleMarquee, 0);
         AddPairedFace(PrimaryArtistRow, 0);
         AddPairedFace(PrimaryTimeRow, 0);
+        AddPairedFace(PlayPauseTransportButton, 0);
 
         // Outgoing side chip faces (container dies on SyncCollection — ghosts only).
         var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
@@ -2252,6 +2253,7 @@ public partial class MainWindow : Window
             AddGhostFace(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement, 0);
             AddGhostFace(FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement, 0);
             AddGhostFace(FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement, 0);
+            AddGhostFace(FindDescendantByName(chipRoot, "ChipExpandedPlay") as FrameworkElement, 0);
         }
 
         if (faces.Count == 0)
@@ -2293,6 +2295,7 @@ public partial class MainWindow : Window
             Attach("ChipTitleRow", 0);
             Attach("ChipArtistRow", 0);
             Attach("ChipTimeRow", 0);
+            Attach("ChipExpandedPlay", 0);
         }
 
         void ApplyFace(
