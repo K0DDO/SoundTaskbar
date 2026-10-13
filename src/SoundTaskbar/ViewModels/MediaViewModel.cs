@@ -234,9 +234,17 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     public event EventHandler<PlayPlayDemoteEventArgs>? PlayPlayDemoting;
 
     /// <summary>
-    /// Audio next/prev changed the track — horizontal cube-roll before new meta binds.
+    /// Fired on the UI thread before TrySkip* — snapshot old art/title for the cube.
+    /// </summary>
+    public event EventHandler<TrackSkipEventArgs>? TrackSkipPreparing;
+
+    /// <summary>
+    /// Audio next/prev changed the track — start horizontal cube before new meta binds.
     /// </summary>
     public event EventHandler<TrackSkipEventArgs>? TrackSkipping;
+
+    /// <summary>Armed skip expired without a title change — discard prepared ghosts.</summary>
+    public event EventHandler? TrackSkipCancelled;
 
     public RelayCommand PreviousCommand { get; }
     public RelayCommand PlayPauseCommand { get; }
@@ -1691,6 +1699,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             ArmTrackSkip(direction: -1);
         }
+        else
+        {
+            // No skip control — seek path (no cube).
+            await _media.PreviousOrSeekBackAsync(_primarySessionKey);
+            return;
+        }
 
         await _media.PreviousOrSeekBackAsync(_primarySessionKey);
         await PollTrackSkipAsync();
@@ -1708,6 +1722,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (CanSkipNext)
         {
             ArmTrackSkip(direction: 1);
+        }
+        else
+        {
+            await _media.NextOrSeekForwardAsync(_primarySessionKey);
+            return;
         }
 
         await _media.NextOrSeekForwardAsync(_primarySessionKey);
@@ -1741,6 +1760,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     {
         _pendingTrackSkipDir = direction;
         _pendingTrackSkipUntil = DateTimeOffset.UtcNow.AddMilliseconds(TrackSkipWaitMs);
+        // Still on the button's UI thread (before the first await in GoNext/GoPrevious).
+        TrackSkipPreparing?.Invoke(this, new TrackSkipEventArgs(direction));
+    }
+
+    private void CancelTrackSkipArm()
+    {
+        if (_pendingTrackSkipDir is null)
+        {
+            return;
+        }
+
+        _pendingTrackSkipDir = null;
+        _pendingTrackSkipUntil = null;
+        TrackSkipCancelled?.Invoke(this, EventArgs.Empty);
     }
 
     private void TryRaiseTrackSkip(MediaSessionSnapshot snapshot)
@@ -1752,8 +1785,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
         if (_pendingTrackSkipUntil is { } until && DateTimeOffset.UtcNow > until)
         {
-            _pendingTrackSkipDir = null;
-            _pendingTrackSkipUntil = null;
+            CancelTrackSkipArm();
             return;
         }
 
@@ -1761,13 +1793,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         // even if SMTC PlaybackType flaps to video.
         if (snapshot.IsVideo && !MediaKindHelper.IsKnownMusicAppId(snapshot.AppId))
         {
-            _pendingTrackSkipDir = null;
-            _pendingTrackSkipUntil = null;
+            CancelTrackSkipArm();
             return;
         }
 
-        // Spotify briefly reports empty props mid-skip — wait for a real title, don't
-        // fire (and clear the arm) on "Без названия" or the cube never runs for the song.
+        // Spotify briefly reports empty props mid-skip — wait for a real title.
         if (string.IsNullOrWhiteSpace(snapshot.Title))
         {
             return;
@@ -1779,9 +1809,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
 
         var nextKey = BuildTrackKey(snapshot.Title, snapshot.Artist?.Trim() ?? string.Empty);
-        if (string.Equals(nextKey, _displayedTrackKey, StringComparison.Ordinal))
+        if (string.Equals(nextKey, _displayedTrackKey, StringComparison.OrdinalIgnoreCase))
         {
-            // Same track still (SMTC lag) — keep waiting until timeout.
             return;
         }
 

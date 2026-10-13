@@ -1,6 +1,7 @@
 ﻿using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -73,6 +74,11 @@ public partial class MainWindow : Window
     private readonly List<FrameworkElement> _swapLiveFaces = new();
     /// <summary>Suppress chip morph while cube-swap runs so left rail does not redraw via pause+play.</summary>
     private bool _primarySwapAnimating;
+    /// <summary>Ghosts captured on next/prev click, waiting for the new track to bind.</summary>
+    private readonly List<(Image Ghost, ScaleTransform GhostScale, FrameworkElement Live, ScaleTransform LiveScale)> _trackSkipFaces = new();
+    private int _trackSkipDirection;
+    private DispatcherTimer? _trackSkipTimer;
+    private DateTime _trackSkipAnimStart;
     private bool _widgetShown;
     private bool _revealAnimating;
     private bool _morphAfterReveal;
@@ -114,7 +120,9 @@ public partial class MainWindow : Window
         _viewModel.ParkedLayoutChanged += OnParkedLayoutChanged;
         _viewModel.PrimarySwapping += OnPrimarySwapping;
         _viewModel.PlayPlayDemoting += OnPlayPlayDemoting;
+        _viewModel.TrackSkipPreparing += OnTrackSkipPreparing;
         _viewModel.TrackSkipping += OnTrackSkipping;
+        _viewModel.TrackSkipCancelled += OnTrackSkipCancelled;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged += OnSideSessionPropertyChanged;
@@ -266,7 +274,11 @@ public partial class MainWindow : Window
         _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
         _viewModel.PrimarySwapping -= OnPrimarySwapping;
         _viewModel.PlayPlayDemoting -= OnPlayPlayDemoting;
+        _viewModel.TrackSkipPreparing -= OnTrackSkipPreparing;
         _viewModel.TrackSkipping -= OnTrackSkipping;
+        _viewModel.TrackSkipCancelled -= OnTrackSkipCancelled;
+        StopTrackSkipTimer();
+        DiscardTrackSkipFaces();
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged -= OnSideSessionPropertyChanged;
@@ -2275,47 +2287,35 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Audio next/prev changed the song: horizontal cube-roll on art / title / artist.
-    /// Next → old folds left, new opens from right; previous → opposite.
-    /// </summary>
-    private void OnTrackSkipping(object? sender, TrackSkipEventArgs e)
+    /// <summary>Click time: freeze old art/title as overlay ghosts (still on UI thread).</summary>
+    private void OnTrackSkipPreparing(object? sender, TrackSkipEventArgs e)
     {
-        // Must be synchronous on the UI thread *before* ApplyPrimary binds the new title/art.
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(() => OnTrackSkipping(sender, e));
+            Dispatcher.Invoke(() => OnTrackSkipPreparing(sender, e));
             return;
         }
 
-        if (_layoutRestarting || _chipDemoteAnimating || _primarySwapAnimating ||
-            !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        DiscardTrackSkipFaces();
+        if (_layoutRestarting || !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
             return;
         }
 
-        ResetSwapVisuals();
-        _primarySwapAnimating = true;
-
+        _trackSkipDirection = e.Direction;
         var next = e.Direction >= 0;
-        // Next: ghost collapses toward left edge, live expands from right.
-        // Prev: ghost collapses toward right edge, live expands from left.
         var ghostOrigin = next ? new Point(0, 0.5) : new Point(1, 0.5);
         var liveOrigin = next ? new Point(1, 0.5) : new Point(0, 0.5);
-
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var faces = new List<(Image Ghost, ScaleTransform GhostScale, FrameworkElement Live, ScaleTransform LiveScale)>();
 
-        void AddHorizontalCube(FrameworkElement? live)
+        void Prep(FrameworkElement? live)
         {
-            if (live is null ||
-                live.Visibility != Visibility.Visible ||
-                live.ActualWidth < 1 ||
-                live.ActualHeight < 1)
+            if (live is null || live.ActualWidth < 1 || live.ActualHeight < 1)
             {
                 return;
             }
 
+            live.UpdateLayout();
             var bitmap = Snapshot(live, pixelsPerDip);
             if (bitmap is null)
             {
@@ -2331,67 +2331,165 @@ public partial class MainWindow : Window
                 Stretch = Stretch.Fill,
                 RenderTransformOrigin = ghostOrigin,
                 RenderTransform = ghostScale,
-                ClipToBounds = true
+                ClipToBounds = true,
+                IsHitTestVisible = false
             };
             var pos = live.TranslatePoint(new Point(0, 0), SwapOverlay);
             Canvas.SetLeft(ghost, pos.X);
             Canvas.SetTop(ghost, pos.Y);
             Panel.SetZIndex(ghost, 50);
+            // Keep ghost hidden until commit — otherwise it covers the still-old live face.
+            ghost.Opacity = 0;
             SwapOverlay.Children.Add(ghost);
 
-            var liveScale = new ScaleTransform(0, 1);
+            var liveScale = new ScaleTransform(1, 1);
             live.RenderTransformOrigin = liveOrigin;
             live.RenderTransform = liveScale;
-            live.Opacity = 1;
             live.ClipToBounds = true;
             _swapLiveFaces.Add(live);
-            faces.Add((ghost, ghostScale, live, liveScale));
+            _trackSkipFaces.Add((ghost, ghostScale, live, liveScale));
         }
 
-        PrimaryArtHost.UpdateLayout();
-        TitleMarquee.UpdateLayout();
-        PrimaryArtistTextHost.UpdateLayout();
-
-        AddHorizontalCube(PrimaryArtHost);
-        AddHorizontalCube(TitleMarquee);
-        AddHorizontalCube(PrimaryArtistTextHost);
-        if (faces.Count == 0)
+        Prep(PrimaryArtHost);
+        Prep(TitleMarquee);
+        Prep(PrimaryArtistTextHost);
+        if (_trackSkipFaces.Count == 0)
         {
-            AddHorizontalCube(PrimaryArtistRow);
+            Prep(PrimaryArtistRow);
         }
 
-        if (faces.Count == 0)
+        LogTrackSkip($"prepare dir={e.Direction} faces={_trackSkipFaces.Count} art={PrimaryArtHost.ActualWidth:0}x{PrimaryArtHost.ActualHeight:0}");
+    }
+
+    /// <summary>
+    /// New track about to bind: show ghosts, flatten live, then DispatcherTimer cube-roll.
+    /// </summary>
+    private void OnTrackSkipping(object? sender, TrackSkipEventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
         {
-            _primarySwapAnimating = false;
+            Dispatcher.Invoke(() => OnTrackSkipping(sender, e));
             return;
         }
 
-        // Same cadence as vertical divider cube: roll finishes in the first half.
-        static double Ease(double x) => x * x * (3 - 2 * x);
-
-        void ApplyFrame(double t)
+        if (_trackSkipFaces.Count == 0)
         {
-            t = Math.Clamp(t, 0, 1);
-            var cubeEaseT = Ease(Math.Clamp(t * 2, 0, 1));
-            foreach (var (ghost, ghostScale, live, liveScale) in faces)
+            // Preparing missed (layout not ready) — try a late snapshot now (old face still bound).
+            OnTrackSkipPreparing(sender, e);
+        }
+
+        if (_trackSkipFaces.Count == 0 || _primarySwapAnimating)
+        {
+            LogTrackSkip($"commit abort faces={_trackSkipFaces.Count} swapping={_primarySwapAnimating}");
+            DiscardTrackSkipFaces();
+            return;
+        }
+
+        _primarySwapAnimating = true;
+        foreach (var (ghost, ghostScale, live, liveScale) in _trackSkipFaces)
+        {
+            ghost.Opacity = 1;
+            ghostScale.ScaleX = 1;
+            liveScale.ScaleX = 0;
+            live.Opacity = 1;
+        }
+
+        LogTrackSkip($"commit dir={e.Direction} faces={_trackSkipFaces.Count}");
+
+        StopTrackSkipTimer();
+        _trackSkipAnimStart = DateTime.UtcNow;
+        _trackSkipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        _trackSkipTimer.Tick += OnTrackSkipTimerTick;
+        _trackSkipTimer.Start();
+    }
+
+    private void OnTrackSkipCancelled(object? sender, EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => OnTrackSkipCancelled(sender, e));
+            return;
+        }
+
+        LogTrackSkip("cancelled");
+        StopTrackSkipTimer();
+        DiscardTrackSkipFaces();
+        if (!_primarySwapAnimating)
+        {
+            RestoreSwapMediaFaces();
+        }
+    }
+
+    private void OnTrackSkipTimerTick(object? sender, EventArgs e)
+    {
+        var ms = PrimarySwapMs;
+        var t = Math.Clamp((DateTime.UtcNow - _trackSkipAnimStart).TotalMilliseconds / ms, 0, 1);
+        // Ease in-out; finish roll in first ~half like divider cube.
+        var u = Math.Clamp(t * 2, 0, 1);
+        var cube = u * u * (3 - 2 * u);
+
+        foreach (var (ghost, ghostScale, live, liveScale) in _trackSkipFaces)
+        {
+            ghostScale.ScaleX = 1 - cube;
+            ghost.Opacity = 1;
+            liveScale.ScaleX = cube;
+            live.Opacity = 1;
+        }
+
+        if (t < 1)
+        {
+            return;
+        }
+
+        StopTrackSkipTimer();
+        DiscardTrackSkipFaces(removeGhostsOnly: true);
+        _primarySwapAnimating = false;
+        RestoreSwapMediaFaces();
+        _taskbarHost?.FlushRegion();
+    }
+
+    private void StopTrackSkipTimer()
+    {
+        if (_trackSkipTimer is null)
+        {
+            return;
+        }
+
+        _trackSkipTimer.Tick -= OnTrackSkipTimerTick;
+        _trackSkipTimer.Stop();
+        _trackSkipTimer = null;
+    }
+
+    private void DiscardTrackSkipFaces(bool removeGhostsOnly = false)
+    {
+        foreach (var (ghost, _, live, _) in _trackSkipFaces)
+        {
+            SwapOverlay.Children.Remove(ghost);
+            if (!removeGhostsOnly)
             {
-                ghostScale.ScaleX = 1 - cubeEaseT;
-                ghost.Opacity = 1;
-                liveScale.ScaleX = cubeEaseT;
-                live.Opacity = 1;
+                live.RenderTransform = Transform.Identity;
             }
         }
 
-        ApplyFrame(0);
-        var clock = new AnimationClockHolder();
-        clock.ProgressChanged += ApplyFrame;
-        _swapClock = clock;
-        clock.Start(
-            0,
-            1,
-            TimeSpan.FromMilliseconds(PrimarySwapMs),
-            null,
-            ResetSwapVisuals);
+        _trackSkipFaces.Clear();
+    }
+
+    private static void LogTrackSkip(string message)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SoundTaskbar");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(
+                Path.Combine(dir, "trackskip.log"),
+                $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // ignore logging failures
+        }
     }
 
     /// <summary>
