@@ -45,7 +45,7 @@
                     <!-- Width driven in code with art/next steal (same clock) — no XAML storyboard -->
                     <Grid x:Name="ChipVolumeHost"
                           Width="14"
-                          Height="16"
+                          Height="36"
                           Margin="0,0,4,0"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
@@ -53,17 +53,17 @@
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center">
                             <Button Width="14"
-                                    Height="14"
+                                    Height="36"
                                     Padding="0"
                                     IsEnabled="{Binding CanControlVolume}"
                                     ToolTip="{Binding SourceName}">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
                                         <Setter Property="Width" Value="14" />
-                                        <Setter Property="Height" Value="14" />
+                                        <Setter Property="Height" Value="36" />
                                         <Setter Property="FontSize" Value="9" />
                                         <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                        <Setter Property="Padding" Value="0,1,0,0" />
+                                        <Setter Property="Padding" Value="0" />
                                         <Setter Property="Content" Value="{Binding VolumeGlyph}" />
                                         <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                         <Setter Property="Foreground" Value="#F2F4F7" />
@@ -95,8 +95,8 @@
                     </Grid>
 
                     <Button x:Name="ChipCompactPrevButton"
-                            Width="12"
-                            Height="12"
+                            Width="16"
+                            Height="36"
                             Padding="0"
                             Margin="0,0,7,0"
                             Style="{StaticResource CompactMediaButton}"
@@ -111,31 +111,38 @@
 
                     <Grid x:Name="ChipCompactArtClip"
                           Width="28"
+                          Height="36"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="ChipCompactArtButton"
                                 Command="{Binding ToggleCommand}"
                                 Width="28"
-                                Height="28"
+                                Height="36"
                                 HorizontalAlignment="Right"
                                 Focusable="False"
                                 Cursor="Hand"
                                 ToolTip="{Binding SourceName}">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <Border x:Name="Bd"
-                                            CornerRadius="4"
-                                            ClipToBounds="True"
-                                            Background="#44000000">
-                                        <Grid>
-                                            <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                            <Border Background="#88000000" />
-                                            <TextBlock Text="{Binding OverlayGlyph}"
-                                                       Foreground="#F5F5F5"
-                                                       FontSize="10"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center" />
-                                        </Grid>
+                                    <Border Background="Transparent">
+                                        <Border x:Name="Bd"
+                                                Width="28"
+                                                Height="28"
+                                                CornerRadius="4"
+                                                ClipToBounds="True"
+                                                Background="#44000000"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center">
+                                            <Grid>
+                                                <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                                <Border Background="#88000000" />
+                                                <TextBlock Text="{Binding OverlayGlyph}"
+                                                           Foreground="#F5F5F5"
+                                                           FontSize="10"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Grid>
+                                        </Border>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
@@ -148,8 +155,8 @@
                     </Grid>
 
                     <Button x:Name="ChipCompactNextButton"
-                            Width="12"
-                            Height="12"
+                            Width="16"
+                            Height="36"
                             Padding="0"
                             Margin="7,0,0,0"
                             Style="{StaticResource CompactMediaButton}"
@@ -182,13 +189,13 @@
                                 VerticalAlignment="Center">
                         <Grid x:Name="ChipExpandedPrevClip"
                               Width="16"
-                              Height="16"
+                              Height="36"
                               ClipToBounds="True"
                               VerticalAlignment="Center">
                             <Button x:Name="ChipExpandedPrev"
                                     Style="{StaticResource CompactMediaButton}"
                                     Width="16"
-                                    Height="16"
+                                    Height="36"
                                     Padding="0"
                                     VerticalAlignment="Center"
                                     HorizontalAlignment="Center"
@@ -203,7 +210,7 @@
                         <Button x:Name="ChipExpandedPlay"
                                 Style="{StaticResource PlayPauseButton}"
                                 Width="22"
-                                Height="22"
+                                Height="36"
                                 Margin="1,0"
                                 VerticalAlignment="Center"
                                 Command="{Binding ToggleCommand}">
@@ -214,14 +221,14 @@
                         </Button>
                         <Grid x:Name="ChipExpandedNextClip"
                               Width="16"
-                              Height="16"
+                              Height="36"
                               Margin="0,0,4,0"
                               ClipToBounds="True"
                               VerticalAlignment="Center">
                             <Button x:Name="ChipExpandedNext"
                                     Style="{StaticResource CompactMediaButton}"
                                     Width="16"
-                                    Height="16"
+                                    Height="36"
                                     Padding="0"
                                     VerticalAlignment="Center"
                                     HorizontalAlignment="Center"
@@ -238,7 +245,7 @@
                     <Grid x:Name="ChipVolumeHostExpanded"
                           Grid.Column="1"
                           Width="14"
-                          Height="16"
+                          Height="36"
                           Margin="0,0,4,0"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
@@ -247,16 +254,16 @@
                                     VerticalAlignment="Center">
                             <Button x:Name="ChipVolumeButton"
                                     Width="14"
-                                    Height="14"
+                                    Height="36"
                                     Padding="0"
                                     IsEnabled="{Binding CanControlVolume}">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
                                         <Setter Property="Width" Value="14" />
-                                        <Setter Property="Height" Value="14" />
+                                        <Setter Property="Height" Value="36" />
                                         <Setter Property="FontSize" Value="9" />
                                         <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                        <Setter Property="Padding" Value="0,1,0,0" />
+                                        <Setter Property="Padding" Value="0" />
                                         <Setter Property="Content" Value="{Binding VolumeGlyph}" />
                                         <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                         <Setter Property="Foreground" Value="#F2F4F7" />
@@ -709,7 +716,7 @@
                 <Grid x:Name="VolumeHost"
                       Grid.Column="2"
                       Width="16"
-                      Height="16"
+                      Height="36"
                       Margin="0,0,2,0"
                       ClipToBounds="True"
                       VerticalAlignment="Center">
@@ -725,17 +732,17 @@
                                 Value="{Binding Volume, Mode=TwoWay}" />
                         <Button x:Name="VolumeButton"
                                 Width="16"
-                                Height="16"
+                                Height="36"
                                 Padding="0"
                                 VerticalAlignment="Center"
                                 IsEnabled="{Binding CanControlVolume}">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource CompactMediaButton}">
                                     <Setter Property="Width" Value="16" />
-                                    <Setter Property="Height" Value="16" />
+                                    <Setter Property="Height" Value="36" />
                                     <Setter Property="FontSize" Value="10" />
                                     <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                                    <Setter Property="Padding" Value="0,1,0,0" />
+                                    <Setter Property="Padding" Value="0" />
                                     <Setter Property="Content" Value="{Binding VolumeGlyph}" />
                                     <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                     <Setter Property="Foreground" Value="#F2F4F7" />
@@ -758,20 +765,20 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Transport: no ClipToBounds here — seek glyphs overflow 16px hitboxes. Steal via clip hosts. -->
+                <!-- Transport: tall hit boxes; steal via width clip hosts. -->
                 <StackPanel x:Name="TransportHost"
                             Grid.Column="3"
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <Grid x:Name="PreviousTransportClip"
                           Width="16"
-                          Height="16"
+                          Height="36"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="PreviousButton"
                                 Style="{StaticResource CompactMediaButton}"
                                 Width="16"
-                                Height="16"
+                                Height="36"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Center"
                                 Command="{Binding PreviousCommand}">
@@ -798,13 +805,13 @@
                     </Grid>
                     <Grid x:Name="NextTransportClip"
                           Width="16"
-                          Height="16"
+                          Height="36"
                           ClipToBounds="True"
                           VerticalAlignment="Center">
                         <Button x:Name="NextTransportButton"
                                 Style="{StaticResource CompactMediaButton}"
                                 Width="16"
-                                Height="16"
+                                Height="36"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Center"
                                 Command="{Binding NextCommand}">

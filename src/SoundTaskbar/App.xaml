@@ -3,9 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <!-- Tall hit box; glyph stays visually small via ContentPresenter center. -->
         <Style x:Key="MediaButton" TargetType="Button">
             <Setter Property="Width" Value="26" />
-            <Setter Property="Height" Value="26" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinHeight" Value="36" />
             <Setter Property="Foreground" Value="#F2F4F7" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -20,7 +22,7 @@
                                 Background="{TemplateBinding Background}"
                                 CornerRadius="4"
                                 Padding="0"
-                                VerticalAlignment="Center">
+                                VerticalAlignment="Stretch">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>
@@ -38,34 +40,35 @@
         </Style>
         <Style x:Key="CompactMediaButton" TargetType="Button" BasedOn="{StaticResource MediaButton}">
             <Setter Property="Width" Value="16" />
-            <Setter Property="Height" Value="16" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinHeight" Value="36" />
             <Setter Property="FontSize" Value="8" />
         </Style>
         <Style x:Key="PlayPauseButton" TargetType="Button" BasedOn="{StaticResource MediaButton}">
             <Setter Property="Width" Value="28" />
-            <Setter Property="Height" Value="28" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinHeight" Value="36" />
             <Setter Property="FontSize" Value="13" />
         </Style>
 
+        <!-- Full-height invisible track hit; visual hairline is drawn separately. -->
         <Style x:Key="VolumeSliderRepeat" TargetType="RepeatButton">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="IsTabStop" Value="False" />
             <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RepeatButton">
-                        <Border Background="{TemplateBinding Background}"
-                                Height="1.5"
-                                CornerRadius="0.75"
-                                VerticalAlignment="Center" />
+                        <Border Background="Transparent" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Hairline track + tiny thumb -->
+        <!-- Tall hit strip + click-to-point + drag (no RepeatButton commands). -->
         <Style x:Key="VolumeSlider" TargetType="Slider">
-            <Setter Property="Height" Value="16" />
+            <Setter Property="Height" Value="32" />
             <Setter Property="Minimum" Value="0" />
             <Setter Property="Maximum" Value="1" />
             <Setter Property="IsMoveToPointEnabled" Value="True" />
@@ -74,27 +77,34 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
-                        <Grid VerticalAlignment="Center" Height="16">
-                            <Border Height="1.5"
-                                    CornerRadius="0.75"
+                        <Grid Height="{TemplateBinding Height}"
+                              Background="Transparent"
+                              VerticalAlignment="Center">
+                            <Border Height="2"
+                                    CornerRadius="1"
                                     Background="#33FFFFFF"
-                                    VerticalAlignment="Center" />
+                                    VerticalAlignment="Center"
+                                    IsHitTestVisible="False" />
                             <Track x:Name="PART_Track">
                                 <Track.DecreaseRepeatButton>
-                                    <RepeatButton Style="{StaticResource VolumeSliderRepeat}"
-                                                  Background="#E6FFFFFF"
-                                                  Command="{x:Static Slider.DecreaseLarge}" />
+                                    <RepeatButton Style="{StaticResource VolumeSliderRepeat}" />
                                 </Track.DecreaseRepeatButton>
                                 <Track.IncreaseRepeatButton>
-                                    <RepeatButton Style="{StaticResource VolumeSliderRepeat}"
-                                                  Background="Transparent"
-                                                  Command="{x:Static Slider.IncreaseLarge}" />
+                                    <RepeatButton Style="{StaticResource VolumeSliderRepeat}" />
                                 </Track.IncreaseRepeatButton>
                                 <Track.Thumb>
-                                    <Thumb Width="6" Height="6">
+                                    <!-- Tall/wide invisible grip; tiny visible knob. -->
+                                    <Thumb Width="14" Height="32">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="#F5F5F5" />
+                                                <Grid Background="Transparent"
+                                                      Cursor="Hand">
+                                                    <Ellipse Width="7"
+                                                             Height="7"
+                                                             Fill="#F5F5F5"
+                                                             HorizontalAlignment="Center"
+                                                             VerticalAlignment="Center" />
+                                                </Grid>
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
