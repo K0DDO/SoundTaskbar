@@ -389,7 +389,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             var baseWidth = MetaRailWidth;
             if (ShowExpandedMeta && IsVolumeEditorOpen && ExpandProgress > 0.5)
             {
-                baseWidth = Math.Max(0, baseWidth - ChipVolumeOpenExtra);
+                // Keep room for artist-row app icon (same Auto slot as primary SourceAppIcon).
+                baseWidth = Math.Max(ChipMetaIconReserve, baseWidth - ChipVolumeOpenExtra);
             }
 
             return baseWidth;
@@ -397,6 +398,9 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
     }
 
     public const double ChipVolumeOpenExtra = 50;
+
+    /// <summary>Margin 5 + icon 8 — floor when volume steals meta width.</summary>
+    public const double ChipMetaIconReserve = 13;
 
     public double PeakLevel
     {

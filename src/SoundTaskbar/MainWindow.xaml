@@ -335,29 +335,45 @@
                             <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
                         </Border>
 
-                        <!-- Meta shrinks on volume; app icon stays OUTSIDE so ClipToBounds can't eat it -->
+                        <!-- Same as PrimaryMetaHost: icon in artist row (Auto), text * compresses on volume -->
                         <Grid x:Name="ChipMetaHost"
                               Width="0"
                               Margin="6,0,0,0"
-                              ClipToBounds="True"
                               VerticalAlignment="Center">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <controls:MarqueeText Text="{Binding Title}"
-                                                  FontSize="11"
-                                                  FontWeight="SemiBold"
-                                                  Foreground="#F5F5F5"
-                                                  Height="14" />
-                            <TextBlock Grid.Row="1"
-                                       Margin="0,1,0,1"
-                                       Text="{Binding Artist}"
-                                       Foreground="#B8C0CC"
-                                       FontSize="9"
-                                       TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center" />
+                            <Grid ClipToBounds="True">
+                                <controls:MarqueeText Text="{Binding Title}"
+                                                      FontSize="11"
+                                                      FontWeight="SemiBold"
+                                                      Foreground="#F5F5F5"
+                                                      Height="14" />
+                            </Grid>
+                            <Grid Grid.Row="1" Margin="0,1,0,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Artist}"
+                                           Foreground="#B8C0CC"
+                                           FontSize="9"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <Image Grid.Column="1"
+                                       Source="{Binding AppIcon}"
+                                       Width="8"
+                                       Height="8"
+                                       Margin="5,0,0,0"
+                                       MinWidth="8"
+                                       Stretch="Uniform"
+                                       Opacity="0.9"
+                                       VerticalAlignment="Center"
+                                       Visibility="{Binding AppIconVisibility}"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Grid>
                             <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -384,15 +400,6 @@
                                 </Grid>
                             </Grid>
                         </Grid>
-                        <Image Source="{Binding AppIcon}"
-                               Width="8"
-                               Height="8"
-                               Margin="5,0,0,0"
-                               Stretch="Uniform"
-                               Opacity="0.9"
-                               VerticalAlignment="Center"
-                               Visibility="{Binding AppIconVisibility}"
-                               RenderOptions.BitmapScalingMode="HighQuality" />
                     </StackPanel>
                 </Grid>
             </Grid>
