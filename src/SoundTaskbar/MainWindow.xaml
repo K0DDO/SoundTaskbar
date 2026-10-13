@@ -42,6 +42,7 @@
                             HorizontalAlignment="Right"
                             Opacity="{Binding CompactLayerOpacity}"
                             Visibility="{Binding CompactOverlayVisibility}">
+                    <!-- Width driven in code with art/next steal (same clock) — no XAML storyboard -->
                     <Grid x:Name="ChipVolumeHost"
                           Width="14"
                           Height="16"
@@ -83,62 +84,19 @@
                                     </Style>
                                 </Button.Style>
                             </Button>
-                            <Slider Width="48"
+                            <Slider x:Name="ChipCompactVolumeSlider"
+                                    Width="48"
                                     Margin="2,0,0,0"
                                     IsEnabled="{Binding CanControlVolume}"
-                                    Value="{Binding Volume, Mode=TwoWay}">
-                                <Slider.Style>
-                                    <Style TargetType="Slider" BasedOn="{StaticResource VolumeSlider}">
-                                        <Setter Property="Opacity" Value="0" />
-                                        <Setter Property="IsHitTestVisible" Value="False" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                                <Setter Property="Opacity" Value="1" />
-                                                <Setter Property="IsHitTestVisible" Value="True" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Slider.Style>
-                            </Slider>
+                                    Value="{Binding Volume, Mode=TwoWay}"
+                                    Opacity="0"
+                                    IsHitTestVisible="False"
+                                    Style="{StaticResource VolumeSlider}" />
                         </StackPanel>
-                        <Grid.Style>
-                            <Style TargetType="Grid">
-                                <Setter Property="Width" Value="14" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
-                                        <DataTrigger.EnterActions>
-                                            <BeginStoryboard>
-                                                <Storyboard>
-                                                    <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                     To="64"
-                                                                     Duration="0:0:0.26">
-                                                        <DoubleAnimation.EasingFunction>
-                                                            <CubicEase EasingMode="EaseOut" />
-                                                        </DoubleAnimation.EasingFunction>
-                                                    </DoubleAnimation>
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </DataTrigger.EnterActions>
-                                        <DataTrigger.ExitActions>
-                                            <BeginStoryboard>
-                                                <Storyboard>
-                                                    <DoubleAnimation Storyboard.TargetProperty="Width"
-                                                                     To="14"
-                                                                     Duration="0:0:0.26">
-                                                        <DoubleAnimation.EasingFunction>
-                                                            <CubicEase EasingMode="EaseIn" />
-                                                        </DoubleAnimation.EasingFunction>
-                                                    </DoubleAnimation>
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </DataTrigger.ExitActions>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Grid.Style>
                     </Grid>
 
-                    <Button Width="12"
+                    <Button x:Name="ChipCompactPrevButton"
+                            Width="12"
                             Height="12"
                             Padding="0"
                             Margin="0,0,7,0"
@@ -152,38 +110,46 @@
                                                 Foreground="#F2F4F7" />
                     </Button>
 
-                    <Button Command="{Binding ToggleCommand}"
-                            Width="28"
-                            Height="28"
-                            Focusable="False"
-                            Cursor="Hand"
-                            ToolTip="{Binding SourceName}">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="Bd"
-                                        CornerRadius="4"
-                                        ClipToBounds="True"
-                                        Background="#44000000">
-                                    <Grid>
-                                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                                        <Border Background="#88000000" />
-                                        <TextBlock Text="{Binding OverlayGlyph}"
-                                                   Foreground="#F5F5F5"
-                                                   FontSize="10"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
+                    <Grid x:Name="ChipCompactArtClip"
+                          Width="28"
+                          ClipToBounds="True"
+                          VerticalAlignment="Center">
+                        <Button x:Name="ChipCompactArtButton"
+                                Command="{Binding ToggleCommand}"
+                                Width="28"
+                                Height="28"
+                                HorizontalAlignment="Right"
+                                Focusable="False"
+                                Cursor="Hand"
+                                ToolTip="{Binding SourceName}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Bd"
+                                            CornerRadius="4"
+                                            ClipToBounds="True"
+                                            Background="#44000000">
+                                        <Grid>
+                                            <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
+                                            <Border Background="#88000000" />
+                                            <TextBlock Text="{Binding OverlayGlyph}"
+                                                       Foreground="#F5F5F5"
+                                                       FontSize="10"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </Grid>
 
-                    <Button Width="12"
+                    <Button x:Name="ChipCompactNextButton"
+                            Width="12"
                             Height="12"
                             Padding="0"
                             Margin="7,0,0,0"

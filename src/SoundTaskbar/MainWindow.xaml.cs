@@ -352,11 +352,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.PropertyName == nameof(SideSessionViewModel.IsVolumeEditorOpen) &&
-            side.ShowExpandedMeta &&
-            side.ExpandProgress > 0.5)
+        if (e.PropertyName != nameof(SideSessionViewModel.IsVolumeEditorOpen))
+        {
+            return;
+        }
+
+        if (side.ShowExpandedMeta && side.ExpandProgress > 0.5)
         {
             AnimatePlayPlaySideVolume(side);
+        }
+        else if (!side.ShowExpandedMeta)
+        {
+            // pause+play compact chip: volume + art/next steal on one clock (no shell grow).
+            AnimateCompactPauseVolume(side);
         }
     }
 
@@ -737,10 +745,17 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>pause+play: grow/shrink ParkedHost to measured chip (e.g. volume open) with animation.</summary>
+    /// <summary>pause+play: grow/shrink ParkedHost to measured chip. Not used for compact volume (steal in-place).</summary>
     private void SoftResizeParkedChip()
     {
         if (_playPlayOpen || !_parkedOpen)
+        {
+            return;
+        }
+
+        // Compact volume keeps ParkedHost width fixed while art/next collapse — measuring open
+        // slider without steal would grow the shell and leave art visible (the "bad" frame).
+        if (_viewModel.SideSessions.Any(s => s.IsVolumeEditorOpen && !s.ShowExpandedMeta))
         {
             return;
         }
@@ -1306,8 +1321,143 @@ public partial class MainWindow : Window
                     : ChipVolumeClosedWidth;
             }
 
+            SnapCompactPauseVolumeChrome(container, collapsed: side.IsVolumeEditorOpen && !side.ShowExpandedMeta);
+
             ApplyChipVolumeOpen(container, side.IsVolumeEditorOpen, animate: false);
             SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", side.IsVolumeEditorOpen);
+        }
+    }
+
+    /// <summary>
+    /// pause+play compact chip volume: mute in place, slider opens, art+next collapse right —
+    /// same 260ms clock, ParkedHost width unchanged.
+    /// </summary>
+    private void AnimateCompactPauseVolume(SideSessionViewModel side)
+    {
+        for (var i = 0; i < ParkedList.Items.Count; i++)
+        {
+            if (!ReferenceEquals(ParkedList.Items[i], side))
+            {
+                continue;
+            }
+
+            if (ParkedList.ItemContainerGenerator.ContainerFromIndex(i) is not DependencyObject container)
+            {
+                return;
+            }
+
+            var open = side.IsVolumeEditorOpen;
+            var duration = TimeSpan.FromMilliseconds(260);
+            var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
+            var id = ++_volumeChromeAnimId;
+
+            if (FindDescendantByName(container, "ChipVolumeHost") is FrameworkElement volHost)
+            {
+                var volFrom = volHost.ActualWidth > 0.5
+                    ? volHost.ActualWidth
+                    : (open ? ChipVolumeClosedWidth : ChipVolumeOpenWidth);
+                AnimateChromeWidth(
+                    volHost,
+                    fullWidth: ChipVolumeOpenWidth,
+                    collapse: !open,
+                    restoreNaN: false,
+                    id,
+                    duration,
+                    ease,
+                    closedWidth: ChipVolumeClosedWidth,
+                    fromOverride: volFrom,
+                    toOverride: open ? ChipVolumeOpenWidth : ChipVolumeClosedWidth);
+                // closedWidth latches 14 when collapsing the open slider back.
+            }
+
+            if (FindDescendantByName(container, "ChipCompactVolumeSlider") is FrameworkElement slider)
+            {
+                slider.BeginAnimation(UIElement.OpacityProperty, null);
+                slider.BeginAnimation(
+                    UIElement.OpacityProperty,
+                    new DoubleAnimation
+                    {
+                        To = open ? 1 : 0,
+                        Duration = duration,
+                        EasingFunction = ease,
+                        FillBehavior = FillBehavior.HoldEnd
+                    });
+                slider.IsHitTestVisible = open;
+            }
+
+            if (FindDescendantByName(container, "ChipCompactArtButton") is FrameworkElement artBtn)
+            {
+                artBtn.BeginAnimation(WidthProperty, null);
+                artBtn.Width = PrimaryArtFullWidth;
+            }
+
+            if (FindDescendantByName(container, "ChipCompactArtClip") is FrameworkElement artClip)
+            {
+                AnimateChromeWidth(
+                    artClip,
+                    PrimaryArtFullWidth,
+                    collapse: open,
+                    restoreNaN: false,
+                    id,
+                    duration,
+                    ease);
+            }
+
+            if (FindDescendantByName(container, "ChipCompactNextButton") is FrameworkElement nextBtn)
+            {
+                nextBtn.Margin = open ? new Thickness(0) : new Thickness(7, 0, 0, 0);
+                nextBtn.IsHitTestVisible = !open;
+                AnimateChromeWidth(
+                    nextBtn,
+                    fullWidth: 12,
+                    collapse: open,
+                    restoreNaN: false,
+                    id,
+                    duration,
+                    ease);
+            }
+
+            if (FindDescendantByName(container, "ChipCompactPrevButton") is FrameworkElement prevBtn)
+            {
+                prevBtn.Margin = open ? new Thickness(0, 0, 4, 0) : new Thickness(0, 0, 7, 0);
+            }
+
+            return;
+        }
+    }
+
+    private static void SnapCompactPauseVolumeChrome(DependencyObject container, bool collapsed)
+    {
+        if (FindDescendantByName(container, "ChipCompactVolumeSlider") is FrameworkElement slider)
+        {
+            slider.BeginAnimation(UIElement.OpacityProperty, null);
+            slider.Opacity = collapsed ? 1 : 0;
+            slider.IsHitTestVisible = collapsed;
+        }
+
+        if (FindDescendantByName(container, "ChipCompactArtButton") is FrameworkElement artBtn)
+        {
+            artBtn.BeginAnimation(WidthProperty, null);
+            artBtn.Width = PrimaryArtFullWidth;
+        }
+
+        if (FindDescendantByName(container, "ChipCompactArtClip") is FrameworkElement artClip)
+        {
+            artClip.BeginAnimation(WidthProperty, null);
+            artClip.Width = collapsed ? 0 : PrimaryArtFullWidth;
+        }
+
+        if (FindDescendantByName(container, "ChipCompactNextButton") is FrameworkElement nextBtn)
+        {
+            nextBtn.BeginAnimation(WidthProperty, null);
+            nextBtn.Width = collapsed ? 0 : 12;
+            nextBtn.Margin = collapsed ? new Thickness(0) : new Thickness(7, 0, 0, 0);
+            nextBtn.IsHitTestVisible = !collapsed;
+        }
+
+        if (FindDescendantByName(container, "ChipCompactPrevButton") is FrameworkElement prevBtn)
+        {
+            prevBtn.Margin = collapsed ? new Thickness(0, 0, 4, 0) : new Thickness(0, 0, 7, 0);
         }
     }
 
@@ -1510,7 +1660,10 @@ public partial class MainWindow : Window
         bool restoreNaN,
         int animId,
         Duration duration,
-        IEasingFunction ease)
+        IEasingFunction ease,
+        double closedWidth = 0,
+        double? fromOverride = null,
+        double? toOverride = null)
     {
         // Interruptible: reverse from where we are; otherwise use known endpoints (no Measure races).
         var current = element.ActualWidth;
@@ -1520,23 +1673,29 @@ public partial class MainWindow : Window
         }
 
         double from;
-        if (collapse)
+        if (fromOverride is { } fo)
+        {
+            from = fo;
+        }
+        else if (collapse)
         {
             from = current > 0.5 ? current : fullWidth;
         }
         else
         {
-            from = current > 0.5 ? Math.Min(current, fullWidth) : 0;
+            from = current > 0.5 ? Math.Min(current, fullWidth) : closedWidth;
         }
 
-        var to = collapse ? 0 : fullWidth;
+        var to = toOverride ?? (collapse ? closedWidth : fullWidth);
 
         element.BeginAnimation(WidthProperty, null);
         element.Width = from;
 
         if (Math.Abs(to - from) < 0.5)
         {
-            element.Width = collapse ? 0 : (restoreNaN ? double.NaN : fullWidth);
+            element.Width = collapse
+                ? closedWidth
+                : (restoreNaN ? double.NaN : fullWidth);
             return;
         }
 
@@ -1556,7 +1715,9 @@ public partial class MainWindow : Window
             }
 
             element.BeginAnimation(WidthProperty, null);
-            element.Width = collapse ? 0 : (restoreNaN ? double.NaN : fullWidth);
+            element.Width = collapse
+                ? closedWidth
+                : (restoreNaN ? double.NaN : fullWidth);
         };
 
         element.BeginAnimation(WidthProperty, widthAnim);

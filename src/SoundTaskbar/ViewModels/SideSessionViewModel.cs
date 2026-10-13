@@ -367,14 +367,8 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
             }
 
             OnPropertyChanged(nameof(EffectiveMetaRailWidth));
-
-            // Compact pause chip: soft-resize host.
-            // play+play: shell stays fixed (tray-anchored growth would shove transport left);
-            // volume steals meta width so art shifts right — MainWindow animates that.
-            if (!ShowExpandedMeta)
-            {
-                _onChipLayoutChanged?.Invoke();
-            }
+            // Compact pause volume: MainWindow steals art/next in-place (no SoftResize / shell grow).
+            // play+play expanded: MainWindow steals meta width — shell stays fixed.
         }
     }
 
