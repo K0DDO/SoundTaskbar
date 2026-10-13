@@ -1430,21 +1430,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Solo: dissolve elapsed/duration into the progress bar when volume opens —
-    /// width collapses left into the timeline while opacity fades.
+    /// Dissolve elapsed/duration into the progress bar when volume opens (solo and play+play primary).
     /// </summary>
     private void AnimateTimeTextForVolume(bool volumeOpen, Duration duration, IEasingFunction ease)
     {
-        // play+play: keep time visible (volume already steals left meta, not primary time).
-        if (_viewModel.ShowPairAppIcon)
-        {
-            TimeTextHost.BeginAnimation(WidthProperty, null);
-            TimeTextHost.Width = double.NaN;
-            TimeText.BeginAnimation(OpacityProperty, null);
-            TimeText.Opacity = 1;
-            return;
-        }
-
         TimeText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var full = Math.Max(
             1,
