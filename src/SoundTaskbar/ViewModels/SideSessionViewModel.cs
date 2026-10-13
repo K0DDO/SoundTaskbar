@@ -410,10 +410,11 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
     public double PeakCoverHeight => Math.Clamp((1.0 - PeakLevel) * MeterHeight, 0, MeterHeight);
 
+    // Segoe MDL2 — same metrics as mute/transport so the glyph centers with Path icons.
     public string VolumeGlyph =>
-        !CanControlVolume ? "🔈" :
-        IsMuted || Volume <= 0.001f ? "🔇" :
-        Volume < 0.35f ? "🔉" : "🔊";
+        !CanControlVolume ? "\uE767" :
+        IsMuted || Volume <= 0.001f ? "\uE74F" :
+        Volume < 0.35f ? "\uE993" : "\uE994";
 
     public bool IsEffectivelyMuted => IsMuted || Volume <= 0.001f;
 
