@@ -133,7 +133,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>+1 / -1 while waiting for SMTC to report a new track after skip; null = idle.</summary>
     private int? _pendingTrackSkipDir;
     private DateTimeOffset? _pendingTrackSkipUntil;
-    private const int TrackSkipWaitMs = 2500;
+    private const int TrackSkipWaitMs = 3500;
+    /// <summary>Set when RefreshAsync is busy so the in-flight pass re-runs full after.</summary>
+    private bool _refreshNeedsFull;
     private bool _staleVisuals;
     private BitmapImage? _appIcon;
     private readonly Dictionary<string, BitmapImage?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
@@ -734,24 +736,42 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _ = dispatcher.InvokeAsync(async () => await RefreshAsync(full: false));
     }
 
-    private async Task RefreshAsync(bool full)
+    private async Task RefreshAsync(bool full, bool waitForLock = false)
     {
         if (_disposed)
         {
             return;
         }
 
-        if (!await _refreshLock.WaitAsync(0))
+        if (waitForLock)
         {
+            await _refreshLock.WaitAsync();
+        }
+        else if (!await _refreshLock.WaitAsync(0))
+        {
+            // Coalesce: another capture is in flight — ask it to run a full pass after
+            // (track-skip needs the post-skip MediaProperties, not a dropped tick).
+            if (full || _pendingTrackSkipDir is not null)
+            {
+                _refreshNeedsFull = true;
+            }
+
             return;
         }
 
         try
         {
-            var snapshots = full
-                ? await _media.CaptureAllFullAsync()
-                : _media.CaptureAll();
-            ApplyAll(snapshots, keepArtwork: !full);
+            do
+            {
+                var useFull = full || _refreshNeedsFull;
+                _refreshNeedsFull = false;
+                var snapshots = useFull
+                    ? await _media.CaptureAllFullAsync()
+                    : _media.CaptureAll();
+                ApplyAll(snapshots, keepArtwork: !useFull);
+                full = false;
+            }
+            while (_refreshNeedsFull && !_disposed);
         }
         finally
         {
@@ -1649,13 +1669,17 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (!CanSkipPrevious && CanSeek)
         {
             BeginSeekAnimation(-SeekSeconds);
+            await _media.PreviousOrSeekBackAsync(_primarySessionKey);
+            return;
         }
-        else if (CanSkipPrevious)
+
+        if (CanSkipPrevious)
         {
             ArmTrackSkip(direction: -1);
         }
 
         await _media.PreviousOrSeekBackAsync(_primarySessionKey);
+        await PollTrackSkipAsync();
     }
 
     private async Task GoNextAsync()
@@ -1663,13 +1687,40 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (!CanSkipNext && CanSeek)
         {
             BeginSeekAnimation(SeekSeconds);
+            await _media.NextOrSeekForwardAsync(_primarySessionKey);
+            return;
         }
-        else if (CanSkipNext)
+
+        if (CanSkipNext)
         {
             ArmTrackSkip(direction: 1);
         }
 
         await _media.NextOrSeekForwardAsync(_primarySessionKey);
+        await PollTrackSkipAsync();
+    }
+
+    /// <summary>
+    /// Spotify (and others) often lag MediaProperties after TrySkip* — poll until the
+    /// track key changes and the cube fires, or the arm window expires.
+    /// </summary>
+    private async Task PollTrackSkipAsync()
+    {
+        if (_pendingTrackSkipDir is null)
+        {
+            return;
+        }
+
+        for (var i = 0; i < 12 && !_disposed && _pendingTrackSkipDir is not null; i++)
+        {
+            await Task.Delay(100);
+            if (_disposed || _pendingTrackSkipDir is null)
+            {
+                return;
+            }
+
+            await RefreshAsync(full: true, waitForLock: true);
+        }
     }
 
     private void ArmTrackSkip(int direction)
@@ -1700,11 +1751,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        var nextKey = BuildTrackKey(
-            string.IsNullOrWhiteSpace(snapshot.Title) ? "Без названия" : snapshot.Title,
-            snapshot.Artist?.Trim() ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(_displayedTrackKey) ||
-            string.Equals(nextKey, _displayedTrackKey, StringComparison.Ordinal))
+        // Spotify briefly reports empty props mid-skip — wait for a real title, don't
+        // fire (and clear the arm) on "Без названия" or the cube never runs for the song.
+        if (string.IsNullOrWhiteSpace(snapshot.Title))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_displayedTrackKey))
+        {
+            return;
+        }
+
+        var nextKey = BuildTrackKey(snapshot.Title, snapshot.Artist?.Trim() ?? string.Empty);
+        if (string.Equals(nextKey, _displayedTrackKey, StringComparison.Ordinal))
         {
             // Same track still (SMTC lag) — keep waiting until timeout.
             return;

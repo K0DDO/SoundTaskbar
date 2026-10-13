@@ -2340,9 +2340,20 @@ public partial class MainWindow : Window
             faces.Add((ghost, ghostScale, live, liveScale));
         }
 
+        // Ensure layout is current so Snapshot gets real pixel sizes (Spotify skip can
+        // fire mid-measure after a busy refresh).
+        PrimaryArtHost.UpdateLayout();
+        TitleMarquee.UpdateLayout();
+        PrimaryArtistTextHost.UpdateLayout();
+
         AddHorizontalCube(PrimaryArtHost);
         AddHorizontalCube(TitleMarquee);
         AddHorizontalCube(PrimaryArtistTextHost);
+        // Artist row as fallback when the text host is collapsed/zero-width.
+        if (faces.Count == 0)
+        {
+            AddHorizontalCube(PrimaryArtistRow);
+        }
 
         if (faces.Count == 0)
         {
