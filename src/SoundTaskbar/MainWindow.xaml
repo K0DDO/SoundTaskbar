@@ -440,7 +440,36 @@
                 BorderThickness="0"
                 Background="Transparent">
             <Grid>
-            <Grid VerticalAlignment="Center">
+            <!-- Collapse target: pill icon near tray; content morphs into it on hide -->
+            <Border x:Name="DismissIcon"
+                    Width="28"
+                    Height="28"
+                    CornerRadius="8"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    Margin="0,0,2,0"
+                    Background="#66000000"
+                    BorderBrush="#55FFFFFF"
+                    BorderThickness="1"
+                    Opacity="0"
+                    IsHitTestVisible="False"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <ScaleTransform x:Name="DismissIconScale" ScaleX="0.6" ScaleY="0.6" />
+                </Border.RenderTransform>
+                <Grid>
+                    <Image x:Name="DismissIconArt"
+                           Stretch="UniformToFill"
+                           Opacity="0.92" />
+                    <TextBlock x:Name="DismissIconGlyph"
+                               Text="♪"
+                               FontSize="13"
+                               Foreground="#F5F5F5"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+            <Grid x:Name="WidgetContent" VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />

@@ -83,9 +83,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string? _pairSideKey;
     private DateTimeOffset? _pairExitAfter;
     private DateTimeOffset? _emptySessionsGraceUntil;
+    private long _lastPrimaryAliveCheckMs;
     /// <summary>Hold pair UI across Win+D / minimize-all SMTC blips.</summary>
     private const int PairExitGraceMs = 2500;
-    private const int EmptySessionsGraceMs = 2000;
+    /// <summary>Brief hold for Win+D SMTC blips; tab/app close still collapses after this.</summary>
+    private const int EmptySessionsGraceMs = 900;
     /// <summary>Our own play/pause click is not an SMTC blip — skip the pair hold.</summary>
     private const int UserToggleGraceSkipMs = 1500;
     /// <summary>Side rail cap: expanded play chip + small paused chips, separated by dividers.</summary>
@@ -716,9 +718,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
         }
 
+        // Stopped/Closed SMTC leftovers (tab closed) are not parkable — treat as gone.
         var enriched = snapshots
             .Select(Enrich)
-            .Where(s => s.HasSession)
+            .Where(s => s.HasSession && s.IsParkable)
             .ToList();
 
         if (enriched.Count == 0)
@@ -737,6 +740,16 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         var playing = enriched.Where(s => s.IsPlaying).ToList();
         var focusedKey = _media.FocusedKey;
         var primary = PickPrimary(enriched, playing, focusedKey);
+        if (primary is null)
+        {
+            if (ShouldHoldEmptySessions())
+            {
+                return;
+            }
+
+            ClearAllSessions();
+            return;
+        }
 
         if (playing.Count >= 2)
         {
@@ -920,8 +933,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Prefer a playing session; if nothing plays, keep the previous primary so
     /// paused video/music do not swap places when the other also pauses.
+    /// Returns null when nothing alive remains (tab/app closed).
     /// </summary>
-    private MediaSessionSnapshot PickPrimary(
+    private MediaSessionSnapshot? PickPrimary(
         List<MediaSessionSnapshot> enriched,
         List<MediaSessionSnapshot> playing,
         string? focusedKey)
@@ -938,7 +952,6 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             var sticky = enriched.FirstOrDefault(s =>
                 s.SessionKey == _primarySessionKey &&
-                s.IsParkable &&
                 _volume.IsAppRunning(s.AppId));
             if (sticky is not null)
             {
@@ -946,8 +959,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
         }
 
-        return enriched.FirstOrDefault(s => s.SessionKey == focusedKey)
-               ?? enriched[0];
+        // Only parkable + running apps — never keep a dead Stopped SMTC zombie as primary.
+        return enriched.FirstOrDefault(s =>
+                   s.SessionKey == focusedKey && _volume.IsAppRunning(s.AppId))
+               ?? enriched.FirstOrDefault(s => _volume.IsAppRunning(s.AppId));
     }
 
     private MediaSessionSnapshot Enrich(MediaSessionSnapshot snap)
@@ -1466,6 +1481,13 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             _ = RefreshAsync(full: false);
         }
 
+        // Empty-session grace used to expire with no follow-up refresh → widget stuck forever.
+        if (_emptySessionsGraceUntil is not null &&
+            DateTimeOffset.UtcNow >= _emptySessionsGraceUntil.Value)
+        {
+            _ = RefreshAsync(full: true);
+        }
+
         foreach (var side in SideSessions)
         {
             side.TickTimelineClock();
@@ -1474,6 +1496,18 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         if (!HasSession)
         {
             return;
+        }
+
+        // Primary app quit while SMTC still holds a zombie — collapse.
+        var nowMs = Environment.TickCount64;
+        if (nowMs - _lastPrimaryAliveCheckMs > 500)
+        {
+            _lastPrimaryAliveCheckMs = nowMs;
+            if (!string.IsNullOrWhiteSpace(AppId) && !_volume.IsAppRunning(AppId))
+            {
+                _ = RefreshAsync(full: true);
+                return;
+            }
         }
 
         PublishTimeline(EstimatePosition());

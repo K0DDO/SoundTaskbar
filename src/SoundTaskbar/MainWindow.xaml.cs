@@ -60,9 +60,9 @@ public partial class MainWindow : Window
     private const double ChipVolumeClosedWidth = 14;
     private const double ChipVolumeOpenWidth = 64;
     private const int PlayPlayMorphMs = 340;
-    private const int WidgetRevealMs = 360;
+    private const int WidgetRevealMs = 480;
     /// <summary>Hide/show slides the content toward the tray by this much.</summary>
-    private const double WidgetRevealShift = 18;
+    private const double WidgetRevealShift = 10;
     private const int PrimarySwapMs = 420;
 
     private double ParkedReveal
@@ -1239,7 +1239,10 @@ public partial class MainWindow : Window
         SourceNameHost.BeginAnimation(WidthProperty, widthAnim);
     }
 
-    /// <summary>No source: wipe toward the tray and drop the region entirely. Source back: reverse.</summary>
+    /// <summary>
+    /// No source: morph into a tray-side pill icon, wipe right into it, then vanish.
+    /// Source back: icon blooms and content expands left from the tray.
+    /// </summary>
     private void AnimateWidgetVisibility(bool show)
     {
         if (_taskbarHost is null || show == _widgetShown)
@@ -1249,24 +1252,57 @@ public partial class MainWindow : Window
 
         _widgetShown = show;
         _visibilityClock?.Cancel();
+        PrepareDismissIcon(show);
+
         var from = _taskbarHost.RevealFraction;
         var to = show ? 1.0 : 0.0;
         var clock = new AnimationClockHolder();
-        clock.ProgressChanged += t => ApplyWidgetReveal(from + (to - from) * t);
+        clock.ProgressChanged += t => ApplyWidgetReveal(from + (to - from) * t, showing: show);
         _visibilityClock = clock;
         clock.Start(
             0,
             1,
-            TimeSpan.FromMilliseconds(WidgetRevealMs * Math.Max(0.35, Math.Abs(to - from))),
-            new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseIn },
+            TimeSpan.FromMilliseconds(WidgetRevealMs * Math.Max(0.4, Math.Abs(to - from))),
+            new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseInOut },
             () =>
             {
-                ApplyWidgetReveal(to);
+                ApplyWidgetReveal(to, showing: show);
+                if (!show)
+                {
+                    DismissIcon.Opacity = 0;
+                    DismissIconArt.Source = null;
+                }
+
                 _visibilityClock = null;
             });
     }
 
-    private void ApplyWidgetReveal(double p)
+    private void PrepareDismissIcon(bool showing)
+    {
+        // Prefer last artwork so the collapse feels like the track folds into itself.
+        if (_viewModel.Artwork is not null)
+        {
+            DismissIconArt.Source = _viewModel.Artwork;
+            DismissIconGlyph.Opacity = 0;
+        }
+        else
+        {
+            DismissIconArt.Source = null;
+            DismissIconGlyph.Opacity = 1;
+        }
+
+        if (!showing && _taskbarHost is not null && _taskbarHost.RevealFraction > 0.95)
+        {
+            // Start of hide: content still full, icon waits to bloom.
+            DismissIcon.Opacity = 0;
+            DismissIconScale.ScaleX = 0.55;
+            DismissIconScale.ScaleY = 0.55;
+        }
+    }
+
+    /// <param name="p">Shell reveal 0..1 (band width toward tray).</param>
+    /// <param name="showing">Direction — hide uses icon bloom then shrink-away.</param>
+    private void ApplyWidgetReveal(double p, bool showing)
     {
         p = Math.Clamp(p, 0, 1);
         if (_taskbarHost is not null)
@@ -1274,8 +1310,49 @@ public partial class MainWindow : Window
             _taskbarHost.RevealFraction = p;
         }
 
-        WidgetRoot.Opacity = p;
+        WidgetRoot.Opacity = 1;
         _widgetShift.X = (1 - p) * WidgetRevealShift;
+
+        if (showing)
+        {
+            // Appear: icon first, then content fades in as the band opens.
+            var icon = p < 0.55
+                ? Math.Clamp(p / 0.35, 0, 1)
+                : Math.Clamp(1.0 - (p - 0.55) / 0.35, 0, 1);
+            var content = Math.Clamp((p - 0.25) / 0.55, 0, 1);
+            DismissIcon.Opacity = icon;
+            var scale = 0.55 + 0.45 * icon;
+            DismissIconScale.ScaleX = scale;
+            DismissIconScale.ScaleY = scale;
+            WidgetContent.Opacity = content;
+            return;
+        }
+
+        // Hide: content dissolves into the right-side pill, then pill shrinks with the wipe.
+        var contentOut = Math.Clamp(p / 0.55, 0, 1);
+        WidgetContent.Opacity = contentOut;
+
+        double iconOpacity;
+        double iconScale;
+        if (p > 0.55)
+        {
+            iconOpacity = Math.Clamp((1.0 - p) / 0.35, 0, 1);
+            iconScale = 0.55 + 0.45 * iconOpacity;
+        }
+        else if (p > 0.18)
+        {
+            iconOpacity = 1;
+            iconScale = 1.0;
+        }
+        else
+        {
+            iconOpacity = Math.Clamp(p / 0.18, 0, 1);
+            iconScale = 0.7 + 0.3 * iconOpacity;
+        }
+
+        DismissIcon.Opacity = iconOpacity;
+        DismissIconScale.ScaleX = iconScale;
+        DismissIconScale.ScaleY = iconScale;
     }
 
     /// <summary>

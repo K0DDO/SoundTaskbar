@@ -78,7 +78,7 @@ dotnet publish src/SoundTaskbar -p:PublishProfile=win-x64   # → dist\SoundTask
 - **pause+play заморожен** — chip + divider + play; ширина `(310 - 28) + parked + 16.5`; appear/dismiss (`SealParkedReveal`, 340ms) — не трогать
 - **play+play**: morph от pause chip; fixed left meta `PlayPlayMetaWidth=96`; volume steals meta; name→icon latched; DualHost удалён
 - **3+ источника**: `MaxSideChips=3`; лишние — маленькие paused-чипы слева, разделители между чипами (`DividerVisibility` в шаблоне); expanded play-чип всегда последний (у основного). `MorphSideChips` — прогресс на каждый чип, один clock, коалесинг через `ScheduleSideMorph` (ждёт конец ParkedReveal)
-- **Нет источника** → `HasSession=false` → wipe к трею + fade (`TaskbarHostService.RevealFraction`, пустой регион). Последний трек остаётся на экране во время collapse (`_staleVisuals`)
+- **Нет источника** → `HasSession=false` → morph в pill-иконку справа (обложка/♪) + wipe к трею (`RevealFraction`). Grace пустых сессий 900ms + tick refresh (баг: раньше grace истекал без refresh). Только `IsParkable` + running app; Stopped/Closed/мёртвый процесс → collapse. `_staleVisuals` держит последний трек на время анимации
 - **Смена доминирующего** (чип стал основным): `PrimarySwapping` → снапшоты старого кадра в `SwapOverlay` разъезжаются, новый контент въезжает навстречу (420ms)
 - Хост: таймер 800ms делает attach (стили пишутся только при изменении); анимации ширины/reveal идут через лёгкий `UpdateRegion` (только геометрия + регион). Win+D-защиты сейчас нет (откат в d7fc9cf)
 - pair/empty SMTC grace 2–2.5s; клик play/pause из виджета grace пропускает (1.5s)
