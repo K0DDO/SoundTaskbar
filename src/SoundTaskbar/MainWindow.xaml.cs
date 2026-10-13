@@ -2397,7 +2397,7 @@ public partial class MainWindow : Window
             }
         }
 
-        // "1:00 / 2:00" → collapse to "/" → expand to "2:00 / 3:00"
+        // "1:00 / 2:00" → collapse to "/" → hold "/" → expand to "2:00 / 3:00"
         void ApplySlashTimeMorph(
             TextBlock text,
             FrameworkElement host,
@@ -2410,26 +2410,35 @@ public partial class MainWindow : Window
             double progressFrom,
             double progressTo)
         {
-            var d = Ease(DurationLocalT(linearT, progressFrom, progressTo));
+            var d = DurationLocalT(linearT, progressFrom, progressTo);
             host.BeginAnimation(WidthProperty, null);
             host.RenderTransformOrigin = new Point(0.5, 0.5);
+            host.Opacity = 1;
 
-            if (d <= 0.5)
+            // 0..0.32 collapse · 0.32..0.68 hold "/" · 0.68..1 expand
+            const double holdStart = 0.32;
+            const double holdEnd = 0.68;
+
+            if (d < holdStart)
             {
-                var p = Ease(d / 0.5);
-                text.Text = p < 0.72 ? fromText : "/";
-                var s = p < 0.72 ? 1 - p / 0.72 : 0.35 + 0.65 * ((p - 0.72) / 0.28);
+                var p = Ease(d / holdStart);
+                text.Text = p < 0.85 ? fromText : "/";
+                var s = p < 0.85 ? 1 - p / 0.85 : 1;
                 host.RenderTransform = new ScaleTransform(s, s);
-                host.Opacity = 1;
                 host.Width = widthFrom + (midSlashWidth - widthFrom) * p;
+            }
+            else if (d <= holdEnd)
+            {
+                text.Text = "/";
+                host.RenderTransform = Transform.Identity;
+                host.Width = midSlashWidth;
             }
             else
             {
-                var p = Ease((d - 0.5) / 0.5);
-                text.Text = p < 0.28 ? "/" : toText;
-                var s = p < 0.28 ? 1 - 0.65 * (p / 0.28) : (p - 0.28) / 0.72;
+                var p = Ease((d - holdEnd) / (1 - holdEnd));
+                text.Text = p < 0.15 ? "/" : toText;
+                var s = p < 0.15 ? 1 : (p - 0.15) / 0.85;
                 host.RenderTransform = new ScaleTransform(Math.Clamp(s, 0.2, 1), Math.Clamp(s, 0.2, 1));
-                host.Opacity = 1;
                 host.Width = midSlashWidth + (widthTo - midSlashWidth) * p;
             }
         }
