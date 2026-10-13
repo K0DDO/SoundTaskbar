@@ -261,6 +261,7 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 
     private void NotifySourceSlotChanged()
     {
+        OnPropertyChanged(nameof(IsPlayPlay));
         OnPropertyChanged(nameof(ShowPairAppIcon));
         OnPropertyChanged(nameof(AppIconVisibility));
         OnPropertyChanged(nameof(SourceLabelVisibility));

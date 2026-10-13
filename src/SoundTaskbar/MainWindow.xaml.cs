@@ -122,10 +122,10 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        _layoutReady = true;
+        // Keep _layoutReady false during SMTC capture — otherwise ShowParkedRail /
+        // CollectionChanged fire appear animations before item containers exist → crooked layout.
         _taskbarHost = new TaskbarHostService(this);
         _taskbarHost.LayoutChanged += _layoutHandler;
-        // Hidden until a source shows up.
         _taskbarHost.RevealFraction = 0;
         _taskbarHost.Start();
 
@@ -135,11 +135,96 @@ public partial class MainWindow : Window
         ApplyAppearance(_appearance.Current);
 
         await _viewModel.InitializeAsync();
-        _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
-        AnimateParkedHost(_viewModel.ShowParkedRail, animate: false);
-        MorphSideChips(animate: false);
-        AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: false);
+
+        // Two layout passes: first creates containers, second measures expanded chrome.
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        SettleColdStartLayout();
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        SettleColdStartLayout();
+
+        _layoutReady = true;
         AnimateWidgetVisibility(_viewModel.HasSession);
+    }
+
+    /// <summary>
+    /// Snap parked / play+play geometry after a cold start when sources were already playing.
+    /// No animations — containers may have been missing on the first SMTC snapshot.
+    /// </summary>
+    private void SettleColdStartLayout()
+    {
+        var playPlay = _viewModel.IsPlayPlay;
+        SyncParkedListAlignment(playPlay);
+        AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: false);
+        _pairNameCollapsed = _viewModel.ShowPairAppIcon;
+        _playPlayOpen = playPlay;
+
+        if (!_viewModel.ShowParkedRail || ParkedList.Items.Count == 0)
+        {
+            _parkedOpen = false;
+            _parkedChipTarget = 0;
+            SealParkedReveal(0);
+            _viewModel.ApplyParkedCompositeWidth(null);
+            if (_taskbarHost is not null)
+            {
+                _taskbarHost.DesiredWidgetWidthDip = MediaViewModel.SoloWidgetWidth;
+            }
+
+            return;
+        }
+
+        foreach (var item in ParkedList.Items)
+        {
+            if (item is not SideSessionViewModel side)
+            {
+                continue;
+            }
+
+            // ShowExpandedMeta already set by VM; force visual layers + meta for measure.
+            side.ExpandProgress = side.ShowExpandedMeta ? 1 : 0;
+            side.MetaRailWidth = side.ShowExpandedMeta ? side.MeasuredMetaRailWidth : 0;
+        }
+
+        ParkedHost.IsHitTestVisible = true;
+        SnapChipVolumeHosts();
+        SyncChipMetaWidths(animate: false);
+        PushChipMetaHostWidths();
+
+        ParkedHost.BeginAnimation(WidthProperty, null);
+        ParkedHost.Width = double.NaN;
+        ParkedHost.Opacity = 1;
+        ParkedHost.UpdateLayout();
+        ParkedList.UpdateLayout();
+
+        var chip = Math.Max(1, Math.Ceiling(MeasureParkedListWidth()));
+        if (chip < 8)
+        {
+            chip = playPlay ? 200 : 72;
+        }
+
+        _parkedChipTarget = chip;
+        _parkedOpen = true;
+        SealParkedReveal(1);
+        ParkedHost.Width = chip;
+        ParkedDivider.Width = ParkedDividerWidth;
+        ParkedDivider.Margin = new Thickness(8, 0, 6, 0);
+        ParkedDivider.Opacity = 1;
+
+        if (playPlay)
+        {
+            _viewModel.ApplyPlayPlayCompositeWidth(chip);
+        }
+        else
+        {
+            _viewModel.ApplyParkedCompositeWidth(chip);
+        }
+
+        if (_taskbarHost is not null)
+        {
+            _taskbarHost.DesiredWidgetWidthDip = _viewModel.DesiredWidgetWidth;
+            _taskbarHost.FlushRegion();
+        }
+
+        ApplyChipMarqueeScrims();
     }
 
     private void OnClosed(object? sender, EventArgs e)
