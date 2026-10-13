@@ -182,10 +182,15 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MediaViewModel.ShowPairAppIcon))
         {
+            SyncParkedListAlignment(playPlay: _viewModel.ShowPairAppIcon || _viewModel.IsPlayPlay);
             if (_viewModel.ShowPairAppIcon != _pairNameCollapsed)
             {
                 AnimateSourceNameForPair(_viewModel.ShowPairAppIcon, animate: _layoutReady);
             }
+        }
+        else if (e.PropertyName == nameof(MediaViewModel.IsPlayPlay))
+        {
+            SyncParkedListAlignment(playPlay: _viewModel.IsPlayPlay);
         }
         else if (e.PropertyName == nameof(MediaViewModel.HasSession))
         {
@@ -578,13 +583,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// play+play: left-align chips so transport stays put when volume grows.
-    /// pause chips: right-align so they unfold from the divider.
+    /// play+play MUST be left-anchored: otherwise art sticks to the divider and
+    /// transport slides left when volume opens. Pause chips stay right-aligned.
     /// </summary>
-    private void SyncParkedListAlignment(bool playPlay) =>
-        ParkedList.HorizontalAlignment = playPlay
-            ? HorizontalAlignment.Left
-            : HorizontalAlignment.Right;
+    private void SyncParkedListAlignment(bool playPlay)
+    {
+        var align = playPlay ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        ParkedList.HorizontalAlignment = align;
+        ParkedHost.HorizontalAlignment = align;
+    }
 
     private void SyncChipMetaWidths(bool animate)
     {
@@ -699,8 +706,9 @@ public partial class MainWindow : Window
             var duration = TimeSpan.FromMilliseconds(260);
             var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
-            // Left-align so transport + speaker stay put; only content to the right moves.
+            // Force left anchor every time — Right would pin art and shove transport left.
             SyncParkedListAlignment(playPlay: true);
+            ParkedList.UpdateLayout();
 
             if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {

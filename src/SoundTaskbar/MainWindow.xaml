@@ -198,45 +198,57 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Expanded play+play: Left-aligned so transport stays put when volume grows -->
-                <StackPanel Orientation="Horizontal"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Left"
-                            Opacity="{Binding ExpandedLayerOpacity}"
-                            Visibility="{Binding ExpandedChromeVisibility}">
-                    <Button Style="{StaticResource CompactMediaButton}"
-                            Width="16"
-                            Height="16"
-                            Padding="0"
-                            Command="{Binding PreviousCommand}">
-                        <controls:TransportIcon Width="8"
-                                                Height="8"
-                                                Kind="{Binding PreviousIconKind}"
-                                                Seconds="{Binding SeekSeconds}"
-                                                Foreground="#F2F4F7" />
-                    </Button>
-                    <Button Content="{Binding PlayPauseLabel}"
-                            Style="{StaticResource PlayPauseButton}"
-                            Width="22"
-                            Height="22"
-                            FontSize="10"
-                            Margin="1,0"
-                            Command="{Binding ToggleCommand}" />
-                    <Button Style="{StaticResource CompactMediaButton}"
-                            Width="16"
-                            Height="16"
-                            Padding="0"
-                            Margin="0,0,4,0"
-                            Command="{Binding NextCommand}">
-                        <controls:TransportIcon Width="8"
-                                                Height="8"
-                                                Kind="{Binding NextIconKind}"
-                                                Seconds="{Binding SeekSeconds}"
-                                                Foreground="#F2F4F7" />
-                    </Button>
+                <!--
+                  Col0 transport+speaker FIXED.
+                  Col1 volume host grows → pushes col2 (VU/art/text) to the RIGHT.
+                -->
+                <Grid VerticalAlignment="Center"
+                      HorizontalAlignment="Left"
+                      Opacity="{Binding ExpandedLayerOpacity}"
+                      Visibility="{Binding ExpandedChromeVisibility}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                    <!-- Speaker pinned; slider opens to its RIGHT and pushes VU/art/meta -->
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Button Style="{StaticResource CompactMediaButton}"
+                                Width="16"
+                                Height="16"
+                                Padding="0"
+                                Command="{Binding PreviousCommand}">
+                            <controls:TransportIcon Width="8"
+                                                    Height="8"
+                                                    Kind="{Binding PreviousIconKind}"
+                                                    Seconds="{Binding SeekSeconds}"
+                                                    Foreground="#F2F4F7" />
+                        </Button>
+                        <Button Content="{Binding PlayPauseLabel}"
+                                Style="{StaticResource PlayPauseButton}"
+                                Width="22"
+                                Height="22"
+                                FontSize="10"
+                                Margin="1,0"
+                                Command="{Binding ToggleCommand}" />
+                        <Button Style="{StaticResource CompactMediaButton}"
+                                Width="16"
+                                Height="16"
+                                Padding="0"
+                                Margin="0,0,4,0"
+                                Command="{Binding NextCommand}">
+                            <controls:TransportIcon Width="8"
+                                                    Height="8"
+                                                    Kind="{Binding NextIconKind}"
+                                                    Seconds="{Binding SeekSeconds}"
+                                                    Foreground="#F2F4F7" />
+                        </Button>
+                    </StackPanel>
+
                     <Grid x:Name="ChipVolumeHostExpanded"
+                          Grid.Column="1"
                           Width="14"
                           Height="16"
                           Margin="0,0,4,0"
@@ -260,7 +272,6 @@
                                         <Setter Property="Command" Value="{Binding ToggleVolumeCommand}" />
                                         <Setter Property="Foreground" Value="#F2F4F7" />
                                         <Style.Triggers>
-                                            <!-- Same slot: speaker → mute while open (position stays) -->
                                             <DataTrigger Binding="{Binding IsVolumeEditorOpen}" Value="True">
                                                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
                                                 <Setter Property="FontSize" Value="9" />
@@ -289,108 +300,110 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid Width="6"
-                          Height="22"
-                          Margin="0,0,6,0"
-                          VerticalAlignment="Center">
-                        <Border CornerRadius="2" Opacity="0.95">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
-                                    <GradientStop Color="#22C55E" Offset="0" />
-                                    <GradientStop Color="#22C55E" Offset="0.55" />
-                                    <GradientStop Color="#EAB308" Offset="0.78" />
-                                    <GradientStop Color="#EF4444" Offset="1" />
-                                </LinearGradientBrush>
-                            </Border.Background>
+                    <!-- This whole block must slide RIGHT when volume opens -->
+                    <StackPanel x:Name="ChipMediaShift"
+                                Grid.Column="2"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Grid Width="6"
+                              Height="22"
+                              Margin="0,0,6,0"
+                              VerticalAlignment="Center">
+                            <Border CornerRadius="2" Opacity="0.95">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                        <GradientStop Color="#22C55E" Offset="0" />
+                                        <GradientStop Color="#22C55E" Offset="0.55" />
+                                        <GradientStop Color="#EAB308" Offset="0.78" />
+                                        <GradientStop Color="#EF4444" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Border VerticalAlignment="Top"
+                                    Height="{Binding PeakCoverHeight}"
+                                    Background="#D0121212"
+                                    CornerRadius="2,2,0,0"
+                                    IsHitTestVisible="False" />
+                        </Grid>
+
+                        <Border Width="28"
+                                Height="28"
+                                CornerRadius="4"
+                                ClipToBounds="True"
+                                Background="#44000000"
+                                VerticalAlignment="Center">
+                            <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
                         </Border>
-                        <Border VerticalAlignment="Top"
-                                Height="{Binding PeakCoverHeight}"
-                                Background="#D0121212"
-                                CornerRadius="2,2,0,0"
-                                IsHitTestVisible="False" />
-                    </Grid>
 
-                    <!-- Same block as primary: art then text (not mirrored) -->
-                    <Border Width="28"
-                            Height="28"
-                            CornerRadius="4"
-                            ClipToBounds="True"
-                            Background="#44000000"
-                            VerticalAlignment="Center">
-                        <Image Source="{Binding Artwork}" Stretch="UniformToFill" />
-                    </Border>
-
-                    <Grid x:Name="ChipMetaHost"
-                          Width="0"
-                          Margin="6,0,0,0"
-                          ClipToBounds="True"
-                          VerticalAlignment="Center">
-                        <Grid Width="{Binding MetaContentWidth}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <!-- Hover-only marquee like primary; edge scrim from ApplyAppearance -->
-                            <controls:MarqueeText Text="{Binding Title}"
-                                                  FontSize="11"
-                                                  FontWeight="SemiBold"
-                                                  Foreground="#F5F5F5"
-                                                  Height="14" />
-                            <!-- Icon + artist (solo-style): artist collapses into icon when volume opens -->
-                            <StackPanel Grid.Row="1"
-                                        Orientation="Horizontal"
-                                        Margin="0,1,0,1"
-                                        VerticalAlignment="Center">
-                                <Image Source="{Binding AppIcon}"
-                                       Width="8"
-                                       Height="8"
-                                       Stretch="Uniform"
-                                       Opacity="0.9"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding AppIconVisibility}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                                <Grid x:Name="ChipArtistHost"
-                                      ClipToBounds="True"
-                                      VerticalAlignment="Center">
-                                    <TextBlock x:Name="ChipArtistText"
-                                               Text="{Binding Artist}"
-                                               Foreground="#B8C0CC"
-                                               FontSize="9"
-                                               Margin="5,0,0,0"
-                                               TextTrimming="CharacterEllipsis"
-                                               VerticalAlignment="Center" />
-                                </Grid>
-                            </StackPanel>
-                            <Grid Grid.Row="2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <ProgressBar Height="2"
-                                             Minimum="0"
-                                             Maximum="1"
-                                             Value="{Binding Progress, Mode=OneWay}"
-                                             Foreground="{DynamicResource ProgressAccentBrush}"
-                                             Background="{DynamicResource ProgressTrackBrush}"
-                                             BorderThickness="0"
-                                             VerticalAlignment="Center" />
-                                <!-- Dissolves into progress when chip volume opens (solo-style) -->
-                                <Grid x:Name="ChipTimeTextHost"
-                                      Grid.Column="1"
-                                      ClipToBounds="True"
-                                      VerticalAlignment="Center">
-                                    <TextBlock x:Name="ChipTimeText"
-                                               Margin="4,0,0,0"
-                                               VerticalAlignment="Center"
-                                               Foreground="#C8CDD6"
-                                               FontSize="8"
-                                               Text="{Binding TimeText}" />
+                        <Grid x:Name="ChipMetaHost"
+                              Width="0"
+                              Margin="6,0,0,0"
+                              ClipToBounds="True"
+                              VerticalAlignment="Center">
+                            <Grid Width="{Binding MetaContentWidth}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <controls:MarqueeText Text="{Binding Title}"
+                                                      FontSize="11"
+                                                      FontWeight="SemiBold"
+                                                      Foreground="#F5F5F5"
+                                                      Height="14" />
+                                <StackPanel Grid.Row="1"
+                                            Orientation="Horizontal"
+                                            Margin="0,1,0,1"
+                                            VerticalAlignment="Center">
+                                    <Image Source="{Binding AppIcon}"
+                                           Width="8"
+                                           Height="8"
+                                           Stretch="Uniform"
+                                           Opacity="0.9"
+                                           VerticalAlignment="Center"
+                                           Visibility="{Binding AppIconVisibility}"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <Grid x:Name="ChipArtistHost"
+                                          ClipToBounds="True"
+                                          VerticalAlignment="Center">
+                                        <TextBlock x:Name="ChipArtistText"
+                                                   Text="{Binding Artist}"
+                                                   Foreground="#B8C0CC"
+                                                   FontSize="9"
+                                                   Margin="5,0,0,0"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </StackPanel>
+                                <Grid Grid.Row="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ProgressBar Height="2"
+                                                 Minimum="0"
+                                                 Maximum="1"
+                                                 Value="{Binding Progress, Mode=OneWay}"
+                                                 Foreground="{DynamicResource ProgressAccentBrush}"
+                                                 Background="{DynamicResource ProgressTrackBrush}"
+                                                 BorderThickness="0"
+                                                 VerticalAlignment="Center" />
+                                    <Grid x:Name="ChipTimeTextHost"
+                                          Grid.Column="1"
+                                          ClipToBounds="True"
+                                          VerticalAlignment="Center">
+                                        <TextBlock x:Name="ChipTimeText"
+                                                   Margin="4,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="#C8CDD6"
+                                                   FontSize="8"
+                                                   Text="{Binding TimeText}" />
+                                    </Grid>
                                 </Grid>
                             </Grid>
                         </Grid>
-                    </Grid>
-                </StackPanel>
+                    </StackPanel>
+                </Grid>
             </Grid>
             <!-- Between side chips (3+ sources); last chip uses ParkedDivider -->
             <Border Width="2.5"
