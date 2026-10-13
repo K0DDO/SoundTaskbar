@@ -20,6 +20,16 @@ public sealed class PrimarySwapEventArgs(string fromKey, string toKey) : EventAr
 }
 
 /// <summary>
+/// Audio track changed after skip. <see cref="Direction"/> +1 = next (roll left←new), -1 = previous.
+/// Raised before title/art bindings update so UI can snapshot the old faces.
+/// </summary>
+public sealed class TrackSkipEventArgs(int direction) : EventArgs
+{
+    /// <summary>+1 next, -1 previous.</summary>
+    public int Direction { get; } = direction;
+}
+
+/// <summary>
 /// play+play → pause+play (2+ side chips ok). <see cref="PrimaryChanged"/> false = chip shrink;
 /// true = hide/settle/show restart. <see cref="FromExpandedKey"/> is the play chip that collapses.
 /// </summary>
@@ -118,6 +128,12 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     private string? _demoteDelayFromExpanded;
     private const int DemoteDelayMs = 1000;
     private string _displayedPrimaryKey = string.Empty;
+    /// <summary>Title|Artist fingerprint of what primary UI currently shows.</summary>
+    private string _displayedTrackKey = string.Empty;
+    /// <summary>+1 / -1 while waiting for SMTC to report a new track after skip; null = idle.</summary>
+    private int? _pendingTrackSkipDir;
+    private DateTimeOffset? _pendingTrackSkipUntil;
+    private const int TrackSkipWaitMs = 2500;
     private bool _staleVisuals;
     private BitmapImage? _appIcon;
     private readonly Dictionary<string, BitmapImage?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
@@ -214,6 +230,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// play+play → pause+play: UI restarts layout (hide → commit → show like cold start).
     /// </summary>
     public event EventHandler<PlayPlayDemoteEventArgs>? PlayPlayDemoting;
+
+    /// <summary>
+    /// Audio next/prev changed the track — horizontal cube-roll before new meta binds.
+    /// </summary>
+    public event EventHandler<TrackSkipEventArgs>? TrackSkipping;
 
     public RelayCommand PreviousCommand { get; }
     public RelayCommand PlayPauseCommand { get; }
@@ -1484,6 +1505,9 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _emptySessionsGraceUntil = null;
         _primarySessionKey = string.Empty;
         _displayedPrimaryKey = string.Empty;
+        _displayedTrackKey = string.Empty;
+        _pendingTrackSkipDir = null;
+        _pendingTrackSkipUntil = null;
         _staleVisuals = true;
         SetTimelineAnchor(_anchorPosition, playing: false);
         IsPlaying = false;
@@ -1557,6 +1581,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         _primarySessionKey = snapshot.SessionKey;
         _displayedPrimaryKey = snapshot.SessionKey;
 
+        TryRaiseTrackSkip(snapshot);
+
         if (!keepArtwork || fresh || !string.IsNullOrWhiteSpace(snapshot.Title))
         {
             Title = string.IsNullOrWhiteSpace(snapshot.Title) ? "Без названия" : snapshot.Title;
@@ -1566,6 +1592,8 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             Artist = snapshot.Artist?.Trim() ?? string.Empty;
         }
+
+        _displayedTrackKey = BuildTrackKey(Title, Artist);
 
         var appChanged = !string.Equals(AppId, snapshot.AppId, StringComparison.OrdinalIgnoreCase);
         AppId = snapshot.AppId;
@@ -1622,6 +1650,10 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             BeginSeekAnimation(-SeekSeconds);
         }
+        else if (CanSkipPrevious)
+        {
+            ArmTrackSkip(direction: -1);
+        }
 
         await _media.PreviousOrSeekBackAsync(_primarySessionKey);
     }
@@ -1632,9 +1664,60 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         {
             BeginSeekAnimation(SeekSeconds);
         }
+        else if (CanSkipNext)
+        {
+            ArmTrackSkip(direction: 1);
+        }
 
         await _media.NextOrSeekForwardAsync(_primarySessionKey);
     }
+
+    private void ArmTrackSkip(int direction)
+    {
+        _pendingTrackSkipDir = direction;
+        _pendingTrackSkipUntil = DateTimeOffset.UtcNow.AddMilliseconds(TrackSkipWaitMs);
+    }
+
+    private void TryRaiseTrackSkip(MediaSessionSnapshot snapshot)
+    {
+        if (_pendingTrackSkipDir is null)
+        {
+            return;
+        }
+
+        if (_pendingTrackSkipUntil is { } until && DateTimeOffset.UtcNow > until)
+        {
+            _pendingTrackSkipDir = null;
+            _pendingTrackSkipUntil = null;
+            return;
+        }
+
+        // Video / seek-only sources keep the existing seek glyph morph — no track cube.
+        if (snapshot.IsVideo)
+        {
+            _pendingTrackSkipDir = null;
+            _pendingTrackSkipUntil = null;
+            return;
+        }
+
+        var nextKey = BuildTrackKey(
+            string.IsNullOrWhiteSpace(snapshot.Title) ? "Без названия" : snapshot.Title,
+            snapshot.Artist?.Trim() ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(_displayedTrackKey) ||
+            string.Equals(nextKey, _displayedTrackKey, StringComparison.Ordinal))
+        {
+            // Same track still (SMTC lag) — keep waiting until timeout.
+            return;
+        }
+
+        var dir = _pendingTrackSkipDir.Value;
+        _pendingTrackSkipDir = null;
+        _pendingTrackSkipUntil = null;
+        TrackSkipping?.Invoke(this, new TrackSkipEventArgs(dir));
+    }
+
+    private static string BuildTrackKey(string title, string artist) =>
+        $"{title.Trim()}\u001f{artist.Trim()}";
 
     private void BeginSeekAnimation(double deltaSeconds)
     {

@@ -20,6 +20,8 @@ public partial class MainWindow : Window
     private enum SwapFaceKind
     {
         Cube,
+        /// <summary>Horizontal track-skip roll (ScaleX); direction encoded in transform origins.</summary>
+        CubeHorizontal,
         Seek
     }
 
@@ -112,6 +114,7 @@ public partial class MainWindow : Window
         _viewModel.ParkedLayoutChanged += OnParkedLayoutChanged;
         _viewModel.PrimarySwapping += OnPrimarySwapping;
         _viewModel.PlayPlayDemoting += OnPlayPlayDemoting;
+        _viewModel.TrackSkipping += OnTrackSkipping;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged += OnSideSessionPropertyChanged;
@@ -263,6 +266,7 @@ public partial class MainWindow : Window
         _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
         _viewModel.PrimarySwapping -= OnPrimarySwapping;
         _viewModel.PlayPlayDemoting -= OnPlayPlayDemoting;
+        _viewModel.TrackSkipping -= OnTrackSkipping;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged -= OnSideSessionPropertyChanged;
@@ -2272,6 +2276,108 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Audio next/prev changed the song: horizontal cube-roll on art / title / artist.
+    /// Next → old folds left, new opens from right; previous → opposite.
+    /// </summary>
+    private void OnTrackSkipping(object? sender, TrackSkipEventArgs e)
+    {
+        if (_layoutRestarting || _chipDemoteAnimating || _primarySwapAnimating ||
+            !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        {
+            return;
+        }
+
+        ResetSwapVisuals();
+        _primarySwapAnimating = true;
+
+        var next = e.Direction >= 0;
+        // Next: ghost collapses toward left edge, live expands from right.
+        // Prev: ghost collapses toward right edge, live expands from left.
+        var ghostOrigin = next ? new Point(0, 0.5) : new Point(1, 0.5);
+        var liveOrigin = next ? new Point(1, 0.5) : new Point(0, 0.5);
+
+        var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var faces = new List<(Image Ghost, ScaleTransform GhostScale, FrameworkElement Live, ScaleTransform LiveScale)>();
+
+        void AddHorizontalCube(FrameworkElement? live)
+        {
+            if (live is null ||
+                live.Visibility != Visibility.Visible ||
+                live.ActualWidth < 1 ||
+                live.ActualHeight < 1)
+            {
+                return;
+            }
+
+            var bitmap = Snapshot(live, pixelsPerDip);
+            if (bitmap is null)
+            {
+                return;
+            }
+
+            var ghostScale = new ScaleTransform(1, 1);
+            var ghost = new Image
+            {
+                Source = bitmap,
+                Width = live.ActualWidth,
+                Height = live.ActualHeight,
+                Stretch = Stretch.Fill,
+                RenderTransformOrigin = ghostOrigin,
+                RenderTransform = ghostScale
+            };
+            var pos = live.TranslatePoint(new Point(0, 0), SwapOverlay);
+            Canvas.SetLeft(ghost, pos.X);
+            Canvas.SetTop(ghost, pos.Y);
+            Panel.SetZIndex(ghost, 40);
+            SwapOverlay.Children.Add(ghost);
+
+            var liveScale = new ScaleTransform(0, 1);
+            live.RenderTransformOrigin = liveOrigin;
+            live.RenderTransform = liveScale;
+            live.Opacity = 1;
+            live.ClipToBounds = true;
+            _swapLiveFaces.Add(live);
+            faces.Add((ghost, ghostScale, live, liveScale));
+        }
+
+        AddHorizontalCube(PrimaryArtHost);
+        AddHorizontalCube(TitleMarquee);
+        AddHorizontalCube(PrimaryArtistTextHost);
+
+        if (faces.Count == 0)
+        {
+            _primarySwapAnimating = false;
+            return;
+        }
+
+        static double Ease(double x) => x * x * (3 - 2 * x);
+
+        void ApplyFrame(double t)
+        {
+            t = Math.Clamp(t, 0, 1);
+            var cubeEaseT = Ease(Math.Clamp(t * 2, 0, 1));
+            foreach (var (ghost, ghostScale, live, liveScale) in faces)
+            {
+                ghostScale.ScaleX = 1 - cubeEaseT;
+                ghost.Opacity = 1;
+                liveScale.ScaleX = cubeEaseT;
+                live.Opacity = 1;
+            }
+        }
+
+        ApplyFrame(0);
+        var clock = new AnimationClockHolder();
+        clock.ProgressChanged += ApplyFrame;
+        _swapClock = clock;
+        clock.Start(
+            0,
+            1,
+            TimeSpan.FromMilliseconds(PrimarySwapMs),
+            null,
+            ResetSwapVisuals);
+    }
+
+    /// <summary>
     /// Primary ↔ side swap. Media cube + prev/next seek on both rails; pause / volume / VU
     /// untouched on both (chip container is retargeted in SyncCollection so ChipExpandedPlay
     /// survives like PlayPauseTransportButton).
@@ -2505,6 +2611,23 @@ public partial class MainWindow : Window
                 if (live is not null && liveScale is not null)
                 {
                     liveScale.ScaleY = easeT;
+                    live.Opacity = 1;
+                }
+
+                return;
+            }
+
+            if (kind == SwapFaceKind.CubeHorizontal)
+            {
+                if (ghostScale is not null && ghost is not null)
+                {
+                    ghostScale.ScaleX = 1 - easeT;
+                    ghost.Opacity = 1;
+                }
+
+                if (live is not null && liveScale is not null)
+                {
+                    liveScale.ScaleX = easeT;
                     live.Opacity = 1;
                 }
 
