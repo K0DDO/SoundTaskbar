@@ -21,6 +21,8 @@
                       Header="Запускать с Windows"
                       IsCheckable="True"
                       Click="OnAutostartClick" />
+            <MenuItem Header="Перезапустить"
+                      Click="OnRestartClick" />
             <Separator />
             <MenuItem Header="Выход" Click="OnExitClick" />
         </ContextMenu>
@@ -196,10 +198,10 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Expanded play+play: mirrored transport | vol | VU | art | title/timeline -->
+                <!-- Expanded play+play: Left-aligned so transport stays put when volume grows -->
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
+                            HorizontalAlignment="Left"
                             Opacity="{Binding ExpandedLayerOpacity}"
                             Visibility="{Binding ExpandedChromeVisibility}">
                     <Button Style="{StaticResource CompactMediaButton}"
@@ -376,27 +378,31 @@
                                                   FontWeight="SemiBold"
                                                   Foreground="#F5F5F5"
                                                   Height="14" />
-                            <Grid Grid.Row="1" Margin="0,1,0,1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Artist}"
-                                           Foreground="#B8C0CC"
-                                           FontSize="9"
-                                           TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center" />
-                                <Image Grid.Column="1"
-                                       Source="{Binding AppIcon}"
+                            <!-- Icon + artist (solo-style): artist collapses into icon when volume opens -->
+                            <StackPanel Grid.Row="1"
+                                        Orientation="Horizontal"
+                                        Margin="0,1,0,1"
+                                        VerticalAlignment="Center">
+                                <Image Source="{Binding AppIcon}"
                                        Width="8"
                                        Height="8"
-                                       Margin="5,0,0,0"
                                        Stretch="Uniform"
                                        Opacity="0.9"
                                        VerticalAlignment="Center"
                                        Visibility="{Binding AppIconVisibility}"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Grid>
+                                <Grid x:Name="ChipArtistHost"
+                                      ClipToBounds="True"
+                                      VerticalAlignment="Center">
+                                    <TextBlock x:Name="ChipArtistText"
+                                               Text="{Binding Artist}"
+                                               Foreground="#B8C0CC"
+                                               FontSize="9"
+                                               Margin="5,0,0,0"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
                             <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />

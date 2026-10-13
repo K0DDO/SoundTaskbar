@@ -562,6 +562,7 @@ public partial class MainWindow : Window
         double shellWidth)
     {
         SetChipProgress(sides, from, to, metaTargets, t);
+        SyncParkedListAlignment(playPlay: _playPlayOpen || t > 0.5);
 
         ParkedHost.BeginAnimation(WidthProperty, null);
         ParkedHost.Width = chipWidth;
@@ -575,6 +576,15 @@ public partial class MainWindow : Window
             _taskbarHost.DesiredWidgetWidthDip = shellWidth;
         }
     }
+
+    /// <summary>
+    /// play+play: left-align chips so transport stays put when volume grows.
+    /// pause chips: right-align so they unfold from the divider.
+    /// </summary>
+    private void SyncParkedListAlignment(bool playPlay) =>
+        ParkedList.HorizontalAlignment = playPlay
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
 
     private void SyncChipMetaWidths(bool animate)
     {
@@ -689,14 +699,19 @@ public partial class MainWindow : Window
             var duration = TimeSpan.FromMilliseconds(260);
             var ease = new CubicEase { EasingMode = open ? EasingMode.EaseOut : EasingMode.EaseIn };
 
-            // Keep meta at full width — volume must not steal from title/timeline.
+            // Transport stays left; list must be left-aligned or volume growth shifts the whole chip.
+            SyncParkedListAlignment(playPlay: true);
+
+            // Keep meta at full width — volume grows the chip, does not crush title/timeline.
             if (FindDescendantByName(container, "ChipMetaHost") is FrameworkElement metaHost)
             {
                 metaHost.BeginAnimation(WidthProperty, null);
                 metaHost.Width = side.EffectiveMetaRailWidth;
             }
 
-            AnimateChipTimeTextForVolume(container, open, duration, ease);
+            // Solo-style dissolves: artist → icon, time → progress (in sync with volume width).
+            AnimateChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", open, duration, ease);
+            AnimateChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", open, duration, ease);
 
             var chipFrom = !double.IsNaN(ParkedHost.Width) && ParkedHost.Width > 1
                 ? ParkedHost.Width
@@ -745,15 +760,17 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Side-chip time dissolve into progress (mirrors solo TimeTextHost).</summary>
-    private static void AnimateChipTimeTextForVolume(
+    /// <summary>Collapse a chip text host (artist / time) like solo source-name / time dissolve.</summary>
+    private static void AnimateChipCollapseHost(
         DependencyObject container,
+        string hostName,
+        string textName,
         bool volumeOpen,
         Duration duration,
         IEasingFunction ease)
     {
-        if (FindDescendantByName(container, "ChipTimeTextHost") is not FrameworkElement host ||
-            FindDescendantByName(container, "ChipTimeText") is not FrameworkElement text)
+        if (FindDescendantByName(container, hostName) is not FrameworkElement host ||
+            FindDescendantByName(container, textName) is not FrameworkElement text)
         {
             return;
         }
@@ -1153,6 +1170,29 @@ public partial class MainWindow : Window
                     ? ChipVolumeOpenWidth
                     : ChipVolumeClosedWidth;
             }
+
+            SnapChipCollapseHost(container, "ChipArtistHost", "ChipArtistText", side.IsVolumeEditorOpen);
+            SnapChipCollapseHost(container, "ChipTimeTextHost", "ChipTimeText", side.IsVolumeEditorOpen);
+        }
+    }
+
+    private static void SnapChipCollapseHost(
+        DependencyObject container,
+        string hostName,
+        string textName,
+        bool collapsed)
+    {
+        if (FindDescendantByName(container, hostName) is not FrameworkElement host)
+        {
+            return;
+        }
+
+        host.BeginAnimation(WidthProperty, null);
+        host.Width = collapsed ? 0 : double.NaN;
+        if (FindDescendantByName(container, textName) is FrameworkElement text)
+        {
+            text.BeginAnimation(UIElement.OpacityProperty, null);
+            text.Opacity = collapsed ? 0 : 1;
         }
     }
 
@@ -1774,6 +1814,9 @@ public partial class MainWindow : Window
 
         AutostartMenuItem.IsChecked = StartupService.IsEnabled;
     }
+
+    private void OnRestartClick(object sender, RoutedEventArgs e) =>
+        App.Restart();
 
     private void OnExitClick(object sender, RoutedEventArgs e) =>
         Application.Current.Shutdown();

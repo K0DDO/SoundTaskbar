@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using SoundTaskbar.Services;
@@ -39,9 +40,50 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _singleInstance?.ReleaseMutex();
-        _singleInstance?.Dispose();
+        ReleaseSingleInstance();
         base.OnExit(e);
+    }
+
+    /// <summary>Drop the mutex and spawn a fresh process (fixes stale SMTC / layout). </summary>
+    public static void Restart()
+    {
+        if (Current is App app)
+        {
+            app.ReleaseSingleInstance();
+        }
+
+        var exe = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(exe))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            }
+            catch
+            {
+            }
+        }
+
+        Current.Shutdown();
+    }
+
+    private void ReleaseSingleInstance()
+    {
+        if (_singleInstance is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _singleInstance.ReleaseMutex();
+        }
+        catch
+        {
+        }
+
+        _singleInstance.Dispose();
+        _singleInstance = null;
     }
 
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
