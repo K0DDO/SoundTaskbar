@@ -19,6 +19,16 @@ public sealed class PrimarySwapEventArgs(string fromKey, string toKey) : EventAr
     public string ToKey { get; } = toKey;
 }
 
+/// <summary>
+/// play+play is collapsing to pause+play (e.g. primary paused). Raised before side/primary sync
+/// so UI can snapshot the old frame and wipe it right.
+/// </summary>
+public sealed class PlayPlayDemoteEventArgs(string fromPrimaryKey, string toPrimaryKey) : EventArgs
+{
+    public string FromPrimaryKey { get; } = fromPrimaryKey;
+    public string ToPrimaryKey { get; } = toPrimaryKey;
+}
+
 public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MediaSessionService _media;
@@ -183,6 +193,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
     /// UI snapshots the old frame here, before any bound property changes.
     /// </summary>
     public event EventHandler<PrimarySwapEventArgs>? PrimarySwapping;
+
+    /// <summary>
+    /// play+play → pause+play before SyncCollection/ApplyPrimary (snapshot window for wipe-right).
+    /// </summary>
+    public event EventHandler<PlayPlayDemoteEventArgs>? PlayPlayDemoting;
 
     public RelayCommand PreviousCommand { get; }
     public RelayCommand PlayPauseCommand { get; }
@@ -782,13 +797,25 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
+            var demotingPlayPlay = IsPlayPlay;
             ClearPairHold();
-            RaiseSwapIfNeeded(primary.SessionKey);
 
             var parked = BuildSideList(enriched, primary.SessionKey, expanded: null);
 
             if (parked.Count > 0)
             {
+                if (demotingPlayPlay)
+                {
+                    // Snapshot window: UI wipes old play+play right, then reveals pause+play.
+                    PlayPlayDemoting?.Invoke(
+                        this,
+                        new PlayPlayDemoteEventArgs(_displayedPrimaryKey, primary.SessionKey));
+                }
+                else
+                {
+                    RaiseSwapIfNeeded(primary.SessionKey);
+                }
+
                 _parkedDismissPending = false;
                 SyncCollection(SideSessions, parked, freezeTransportIcons: true, expandedKey: null);
                 ShowParkedRail = true;
@@ -797,6 +824,11 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
             }
             else
             {
+                if (!demotingPlayPlay)
+                {
+                    RaiseSwapIfNeeded(primary.SessionKey);
+                }
+
                 DesiredWidgetWidth = SoloWidgetWidth;
                 RequestParkedDismiss();
             }

@@ -51,9 +51,12 @@ public partial class MainWindow : Window
     private AnimationClockHolder? _playPlayClock;
     private AnimationClockHolder? _visibilityClock;
     private AnimationClockHolder? _swapClock;
+    private AnimationClockHolder? _demoteClock;
     /// <summary>Bumps on each pause+play volume chrome tween — stale Completed handlers no-op.</summary>
     private int _volumeChromeAnimId;
     private bool _pausePlayVolumeChromeCollapsed;
+    /// <summary>Blocks SoftResize/morph while play+play wipe-right demote runs.</summary>
+    private bool _playPlayDemoteAnimating;
     private FrameworkElement? _swapChip;
     private bool _widgetShown;
     private bool _revealAnimating;
@@ -71,6 +74,9 @@ public partial class MainWindow : Window
     private const double ChipVolumeOpenWidth = 64;
     /// <summary>Total morph time; split into shrink-primary then expand-chip (or reverse).</summary>
     private const int PlayPlayMorphMs = 520;
+    private const int PlayPlayDemoteWipeMs = 280;
+    private const int PlayPlayDemoteRevealMs = 260;
+    private const double PlayPlayDemoteWipeShift = 28;
     private const int WidgetRevealMs = 480;
     /// <summary>Hide/show slides the content toward the tray by this much.</summary>
     private const double WidgetRevealShift = 10;
@@ -95,6 +101,7 @@ public partial class MainWindow : Window
         _viewModel.SideSessions.CollectionChanged += OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged += OnParkedLayoutChanged;
         _viewModel.PrimarySwapping += OnPrimarySwapping;
+        _viewModel.PlayPlayDemoting += OnPlayPlayDemoting;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged += OnSideSessionPropertyChanged;
@@ -245,6 +252,7 @@ public partial class MainWindow : Window
         _viewModel.SideSessions.CollectionChanged -= OnSideSessionsChanged;
         _viewModel.ParkedLayoutChanged -= OnParkedLayoutChanged;
         _viewModel.PrimarySwapping -= OnPrimarySwapping;
+        _viewModel.PlayPlayDemoting -= OnPlayPlayDemoting;
         foreach (var side in _viewModel.SideSessions)
         {
             side.PropertyChanged -= OnSideSessionPropertyChanged;
@@ -377,6 +385,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_playPlayDemoteAnimating)
+        {
+            return;
+        }
+
         // Chip on screen: morph pause↔play+play; otherwise soft-resize (volume on pause chip).
         if (_parkedOpen && ParkedHost.ActualWidth > 1)
         {
@@ -401,6 +414,11 @@ public partial class MainWindow : Window
     /// <summary>Coalesce side-rail changes (SyncCollection fires many) into one morph after layout.</summary>
     private void ScheduleSideMorph()
     {
+        if (_playPlayDemoteAnimating)
+        {
+            return;
+        }
+
         if (_revealAnimating)
         {
             _morphAfterReveal = true;
@@ -2038,12 +2056,124 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// play+play → pause+play: snapshot whole chrome, wipe it right, settle compact layout underneath,
+    /// then reveal pause+play (no instant jump).
+    /// </summary>
+    private void OnPlayPlayDemoting(object? sender, PlayPlayDemoteEventArgs e)
+    {
+        if (!_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        {
+            return;
+        }
+
+        _demoteClock?.Cancel();
+        ResetSwapVisuals();
+        _playPlayClock?.Cancel();
+        _playPlayClock = null;
+        _morphAfterClock = false;
+
+        var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var bitmap = Snapshot(WidgetContent, pixelsPerDip);
+        if (bitmap is null)
+        {
+            // Fallback: snap layout without wipe.
+            _playPlayDemoteAnimating = false;
+            Dispatcher.BeginInvoke(
+                () =>
+                {
+                    MorphSideChips(animate: false);
+                    AnimateSourceNameForPair(pair: false, animate: false);
+                },
+                DispatcherPriority.Loaded);
+            return;
+        }
+
+        _playPlayDemoteAnimating = true;
+        WidgetContent.Opacity = 0;
+        WidgetContent.IsHitTestVisible = false;
+
+        var ghostShift = new TranslateTransform();
+        var ghost = new Image
+        {
+            Source = bitmap,
+            Width = WidgetContent.ActualWidth,
+            Height = WidgetContent.ActualHeight,
+            Stretch = Stretch.Fill,
+            RenderTransform = ghostShift
+        };
+        var origin = WidgetContent.TranslatePoint(new Point(0, 0), SwapOverlay);
+        Canvas.SetLeft(ghost, origin.X);
+        Canvas.SetTop(ghost, origin.Y);
+        SwapOverlay.Children.Clear();
+        SwapOverlay.Children.Add(ghost);
+
+        var wipe = new AnimationClockHolder();
+        _demoteClock = wipe;
+        wipe.ProgressChanged += t =>
+        {
+            ghost.Opacity = 1 - t;
+            ghostShift.X = PlayPlayDemoteWipeShift * t;
+        };
+        wipe.Start(
+            0,
+            1,
+            TimeSpan.FromMilliseconds(PlayPlayDemoteWipeMs),
+            new CubicEase { EasingMode = EasingMode.EaseIn },
+            () =>
+            {
+                if (!ReferenceEquals(_demoteClock, wipe))
+                {
+                    return;
+                }
+
+                SwapOverlay.Children.Clear();
+                // Settle pause+play under the cover (chip compact, name restored).
+                _playPlayOpen = false;
+                SyncParkedListAlignment(playPlay: false);
+                MorphSideChips(animate: false);
+                SnapPausePlayVolumeChrome(collapsed: false);
+                AnimateSourceNameForPair(pair: false, animate: false);
+
+                var revealShift = new TranslateTransform { X = PlayPlayDemoteWipeShift };
+                WidgetContent.RenderTransform = revealShift;
+                WidgetContent.Opacity = 0;
+                WidgetContent.IsHitTestVisible = true;
+
+                var reveal = new AnimationClockHolder();
+                _demoteClock = reveal;
+                reveal.ProgressChanged += t =>
+                {
+                    WidgetContent.Opacity = t;
+                    revealShift.X = PlayPlayDemoteWipeShift * (1 - t);
+                };
+                reveal.Start(
+                    0,
+                    1,
+                    TimeSpan.FromMilliseconds(PlayPlayDemoteRevealMs),
+                    new CubicEase { EasingMode = EasingMode.EaseOut },
+                    () =>
+                    {
+                        if (!ReferenceEquals(_demoteClock, reveal))
+                        {
+                            return;
+                        }
+
+                        _demoteClock = null;
+                        WidgetContent.Opacity = 1;
+                        WidgetContent.RenderTransform = Transform.Identity;
+                        _playPlayDemoteAnimating = false;
+                        _taskbarHost?.FlushRegion();
+                    });
+            });
+    }
+
+    /// <summary>
     /// Side chip takes over the primary slot: ghosts of the old frame cross over
     /// (old primary → left, old chip → right) while the new content slides in from the opposite side.
     /// </summary>
     private void OnPrimarySwapping(object? sender, PrimarySwapEventArgs e)
     {
-        if (!_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
+        if (_playPlayDemoteAnimating || !_layoutReady || !_widgetShown || WidgetRoot.ActualWidth < 1)
         {
             return;
         }
