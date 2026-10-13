@@ -92,7 +92,22 @@ public sealed class SideSessionViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string SessionKey { get; }
+    public string SessionKey { get; private set; }
+
+    /// <summary>
+    /// Rebind this chip slot to another session without recreating the ItemsControl container.
+    /// Keeps ChipExpandedPlay alive across primary↔side swap (same as primary PlayPause).
+    /// </summary>
+    public void RetargetSessionKey(string sessionKey)
+    {
+        if (string.IsNullOrWhiteSpace(sessionKey) ||
+            string.Equals(SessionKey, sessionKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SessionKey = sessionKey;
+    }
 
     public string AppId
     {

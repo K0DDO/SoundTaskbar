@@ -1188,6 +1188,20 @@ public sealed class MediaViewModel : INotifyPropertyChanged, IDisposable
         bool freezeTransportIcons,
         string? expandedKey = null)
     {
+        // Primary↔side swap: retarget the expanded chip VM in place so its container
+        // (and ChipExpandedPlay) survives — same as primary PlayPauseTransportButton.
+        if (!string.IsNullOrEmpty(expandedKey) &&
+            target.All(t => t.SessionKey != expandedKey) &&
+            source.Any(s => s.SessionKey == expandedKey))
+        {
+            var oldExpanded = target.FirstOrDefault(s => s.ShowExpandedMeta);
+            if (oldExpanded is not null &&
+                !string.Equals(oldExpanded.SessionKey, expandedKey, StringComparison.Ordinal))
+            {
+                oldExpanded.RetargetSessionKey(expandedKey);
+            }
+        }
+
         for (var i = target.Count - 1; i >= 0; i--)
         {
             if (source.All(s => s.SessionKey != target[i].SessionKey))

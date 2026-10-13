@@ -61,8 +61,6 @@ public partial class MainWindow : Window
     private readonly List<FrameworkElement> _swapLiveFaces = new();
     /// <summary>Suppress chip morph while cube-swap runs so left rail does not redraw via pause+play.</summary>
     private bool _primarySwapAnimating;
-    /// <summary>ParkedHost opacity saved so swap can hide live chip under ghosts (no stack flash).</summary>
-    private double _parkedHostOpacityBeforeSwap = 1;
     private bool _widgetShown;
     private bool _revealAnimating;
     private bool _morphAfterReveal;
@@ -2137,9 +2135,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Primary ↔ side swap. Media faces (art/title/artist/time) cube-roll; transport
-    /// stays put on primary and fades in on the chip (like seek — not cube). Chip morph
-    /// suppressed so left rail does not flash pause+play.
+    /// Primary ↔ side swap. Media cube + prev/next seek on both rails; pause / volume / VU
+    /// untouched on both (chip container is retargeted in SyncCollection so ChipExpandedPlay
+    /// survives like PlayPauseTransportButton).
     /// </summary>
     private void OnPrimarySwapping(object? sender, PrimarySwapEventArgs e)
     {
@@ -2150,13 +2148,9 @@ public partial class MainWindow : Window
 
         ResetSwapVisuals();
         _primarySwapAnimating = true;
-        _parkedHostOpacityBeforeSwap = ParkedHost.Opacity;
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        // One slot = old ghost + new live. Cube rolls both faces together; Seek = shrink/grow scale.
         var faces = new List<(Image? Ghost, ScaleTransform? GhostScale, FrameworkElement? Live, ScaleTransform? LiveScale, bool Cube)>();
-        var chipCubeSlots = new Dictionary<string, int>(StringComparer.Ordinal);
-        var chipSeekSlots = new Dictionary<string, int>(StringComparer.Ordinal);
 
         Image? SnapshotGhost(FrameworkElement source, bool cubeOriginBottom)
         {
@@ -2195,7 +2189,6 @@ public partial class MainWindow : Window
 
         void PrepLiveSeek(FrameworkElement live, ScaleTransform liveScale)
         {
-            // Scale the button inside a fixed clip host — never the host itself (prev was jumping down).
             live.RenderTransformOrigin = new Point(0.5, 0.5);
             live.RenderTransform = liveScale;
             live.Opacity = 0;
@@ -2218,40 +2211,6 @@ public partial class MainWindow : Window
             var liveScale = new ScaleTransform(1, 0);
             PrepLiveCube(live, liveScale);
             faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, live, liveScale, true));
-        }
-
-        void AddChipCubeGhost(string name, FrameworkElement? source)
-        {
-            if (source is null || source.ActualWidth < 1 || source.ActualHeight < 1)
-            {
-                return;
-            }
-
-            var ghost = SnapshotGhost(source, cubeOriginBottom: true);
-            if (ghost is null)
-            {
-                return;
-            }
-
-            chipCubeSlots[name] = faces.Count;
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, null, null, true));
-        }
-
-        void AddChipSeekGhost(string name, FrameworkElement? source)
-        {
-            if (source is null || source.ActualWidth < 1 || source.ActualHeight < 1)
-            {
-                return;
-            }
-
-            var ghost = SnapshotGhost(source, cubeOriginBottom: false);
-            if (ghost is null)
-            {
-                return;
-            }
-
-            chipSeekSlots[name] = faces.Count;
-            faces.Add((ghost, (ScaleTransform)ghost.RenderTransform, null, null, false));
         }
 
         void AddPairedSeek(FrameworkElement? live)
@@ -2277,165 +2236,28 @@ public partial class MainWindow : Window
         AddPairedCube(TitleMarquee);
         AddPairedCube(PrimaryArtistRow);
         AddPairedCube(PrimaryTimeRow);
-        // Animate buttons inside fixed clips (host stays put — scaling the clip made prev jump down).
         AddPairedSeek(PreviousButton);
         AddPairedSeek(NextTransportButton);
 
-        // Outgoing chip media + seek only (not pause / volume).
-        var oldChipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
-        if (oldChipItem is not null &&
-            ParkedList.ItemContainerGenerator.ContainerFromItem(oldChipItem) is DependencyObject chipRoot)
+        // Chip: same pairing on the live elements. SyncCollection retargets the VM so
+        // these references stay valid and ChipExpandedPlay is never recreated/hidden.
+        var chipItem = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.ToKey);
+        if (chipItem is not null &&
+            ParkedList.ItemContainerGenerator.ContainerFromItem(chipItem) is DependencyObject chipRoot)
         {
-            AddChipCubeGhost("ChipExpandedArt", FindDescendantByName(chipRoot, "ChipExpandedArt") as FrameworkElement);
-            AddChipCubeGhost("ChipTitleRow", FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
-            AddChipCubeGhost("ChipArtistRow", FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement);
-            AddChipCubeGhost("ChipTimeRow", FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
-            AddChipSeekGhost("ChipExpandedPrev", FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
-            AddChipSeekGhost("ChipExpandedNext", FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
-            // Static hold — pause/play state does not change on swap; keep a pinned ghost so it never blinks
-            // when ParkedHost is hidden / container is recreated (primary pause never blinks for the same reason).
-            if (FindDescendantByName(chipRoot, "ChipExpandedPlay") is FrameworkElement oldPlay)
-            {
-                var hold = SnapshotGhost(oldPlay, cubeOriginBottom: false);
-                if (hold is not null)
-                {
-                    hold.RenderTransformOrigin = new Point(0.5, 0.5);
-                    hold.RenderTransform = Transform.Identity;
-                    hold.Opacity = 1;
-                    Panel.SetZIndex(hold, 50);
-                }
-            }
+            _swapChip = chipRoot as FrameworkElement;
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipExpandedArt") as FrameworkElement);
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipTitleRow") as FrameworkElement);
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipArtistRow") as FrameworkElement);
+            AddPairedCube(FindDescendantByName(chipRoot, "ChipTimeRow") as FrameworkElement);
+            AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedPrev") as FrameworkElement);
+            AddPairedSeek(FindDescendantByName(chipRoot, "ChipExpandedNext") as FrameworkElement);
         }
-
-        // Hide live chip under SwapOverlay ghosts until lives are prepped.
-        ParkedHost.Opacity = 0;
 
         if (faces.Count == 0)
         {
-            ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
             _primarySwapAnimating = false;
             return;
-        }
-
-        var chipHostReady = false;
-        void TryAttachIncomingChipLives()
-        {
-            var item = _viewModel.SideSessions.FirstOrDefault(s => s.SessionKey == e.FromKey);
-            if (item is null ||
-                ParkedList.ItemContainerGenerator.ContainerFromItem(item) is not DependencyObject newChip)
-            {
-                return;
-            }
-
-            if (item.ShowExpandedMeta)
-            {
-                item.ExpandProgress = 1;
-                item.MetaRailWidth = Math.Max(item.MeasuredMetaRailWidth, MediaViewModel.PlayPlayMetaWidth);
-                PushChipMetaHostWidths();
-                if (FindDescendantByName(newChip, "ChipMetaHost") is FrameworkElement metaHost)
-                {
-                    metaHost.BeginAnimation(WidthProperty, null);
-                    metaHost.Width = item.MetaRailWidth;
-                }
-
-                ParkedList.UpdateLayout();
-                if (newChip is UIElement chipEl)
-                {
-                    chipEl.UpdateLayout();
-                }
-            }
-
-            _swapChip = newChip as FrameworkElement;
-
-            void AttachCube(string name)
-            {
-                if (!chipCubeSlots.TryGetValue(name, out var index))
-                {
-                    return;
-                }
-
-                var slot = faces[index];
-                if (slot.Live is not null)
-                {
-                    return;
-                }
-
-                if (FindDescendantByName(newChip, name) is not FrameworkElement el)
-                {
-                    return;
-                }
-
-                // Artist/time often measure 0 until meta width is pushed — still bind the live face.
-                if (el.ActualWidth < 1 || el.ActualHeight < 1)
-                {
-                    el.Measure(new Size(
-                        Math.Max(1, slot.Ghost?.Width ?? MediaViewModel.PlayPlayMetaWidth),
-                        Math.Max(1, slot.Ghost?.Height ?? 16)));
-                    el.Arrange(new Rect(el.DesiredSize));
-                }
-
-                var liveScale = new ScaleTransform(1, 0);
-                PrepLiveCube(el, liveScale);
-                // Match ghost box so both faces share the same roll footprint (like art/title).
-                if (slot.Ghost is not null)
-                {
-                    if (el.ActualWidth < 1)
-                    {
-                        el.Width = slot.Ghost.Width;
-                    }
-
-                    if (el.ActualHeight < 1)
-                    {
-                        el.MinHeight = slot.Ghost.Height;
-                    }
-                }
-
-                faces[index] = (slot.Ghost, slot.GhostScale, el, liveScale, true);
-            }
-
-            void AttachSeek(string name)
-            {
-                if (!chipSeekSlots.TryGetValue(name, out var index))
-                {
-                    return;
-                }
-
-                var slot = faces[index];
-                if (slot.Live is not null)
-                {
-                    return;
-                }
-
-                if (FindDescendantByName(newChip, name) is not FrameworkElement el)
-                {
-                    return;
-                }
-
-                var liveScale = new ScaleTransform(0, 0);
-                PrepLiveSeek(el, liveScale);
-                faces[index] = (slot.Ghost, slot.GhostScale, el, liveScale, false);
-            }
-
-            AttachCube("ChipExpandedArt");
-            AttachCube("ChipTitleRow");
-            AttachCube("ChipArtistRow");
-            AttachCube("ChipTimeRow");
-            AttachSeek("ChipExpandedPrev");
-            AttachSeek("ChipExpandedNext");
-
-            // Keep live pause hidden — overlay hold ghost covers the slot until ResetSwapVisuals.
-            if (FindDescendantByName(newChip, "ChipExpandedPlay") is FrameworkElement play)
-            {
-                play.Opacity = 0;
-                play.RenderTransform = Transform.Identity;
-                if (!_swapLiveFaces.Contains(play))
-                {
-                    _swapLiveFaces.Add(play);
-                }
-            }
-
-            chipHostReady = chipCubeSlots.Count == 0 ||
-                            chipCubeSlots.Values.All(i => faces[i].Live is not null);
         }
 
         void ApplyFace(
@@ -2446,12 +2268,10 @@ public partial class MainWindow : Window
             bool cube,
             double t)
         {
-            // Ease for a readable mid-roll where both faces are visible.
             var p = t * t * (3 - 2 * t);
 
             if (cube)
             {
-                // Cube roll top→bottom: old face collapses to bottom edge while new unrolls from top.
                 if (ghostScale is not null && ghost is not null)
                 {
                     ghostScale.ScaleY = 1 - p;
@@ -2466,7 +2286,6 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Seek prev/next: ghost shrinks in place; live grows inside fixed clip (same for both).
                 if (ghostScale is not null && ghost is not null)
                 {
                     var s = 1 - p;
@@ -2487,14 +2306,6 @@ public partial class MainWindow : Window
         void ApplyFrame(double t)
         {
             t = Math.Clamp(t, 0, 1);
-            TryAttachIncomingChipLives();
-
-            // Show parked host once media cube lives are bound — both faces overlap like primary art/title.
-            if (chipHostReady)
-            {
-                ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
-            }
-
             for (var i = 0; i < faces.Count; i++)
             {
                 var (ghost, ghostScale, live, liveScale, cube) = faces[i];
@@ -2512,31 +2323,6 @@ public partial class MainWindow : Window
             TimeSpan.FromMilliseconds(PrimarySwapMs),
             null,
             ResetSwapVisuals);
-
-        Dispatcher.BeginInvoke(
-            () =>
-            {
-                if (!_primarySwapAnimating)
-                {
-                    return;
-                }
-
-                foreach (var side in _viewModel.SideSessions)
-                {
-                    if (!side.ShowExpandedMeta)
-                    {
-                        continue;
-                    }
-
-                    side.ExpandProgress = 1;
-                    side.MetaRailWidth = side.MeasuredMetaRailWidth;
-                }
-
-                PushChipMetaHostWidths();
-                ParkedList.UpdateLayout();
-                TryAttachIncomingChipLives();
-            },
-            DispatcherPriority.Loaded);
     }
 
     private void ResetSwapVisuals()
@@ -2550,9 +2336,8 @@ public partial class MainWindow : Window
         TitleMarquee.Opacity = 1;
         PrimaryArtistRow.Opacity = 1;
         PrimaryTimeRow.Opacity = 1;
-        ParkedHost.Opacity = _parkedHostOpacityBeforeSwap;
+        ParkedHost.Opacity = 1;
 
-        // Restore lives before clearing overlay ghosts — otherwise chip pause blinks for a frame.
         foreach (var live in _swapLiveFaces)
         {
             live.BeginAnimation(UIElement.OpacityProperty, null);
